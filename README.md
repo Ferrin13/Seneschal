@@ -8,7 +8,8 @@ and optional notes.
 ## Repo layout
 
 ```
-app/                 Android app (Kotlin, Jetpack Compose, Material 3)
+android-app/         Android app (Kotlin, Jetpack Compose, Material 3)
+android-app/app/     The Android module itself
 backend/             TypeScript REST API (Fastify + Drizzle)
 backend/infra/       AWS CDK stack (VPC, RDS Postgres, ECS Fargate, ALB)
 ```
@@ -53,15 +54,15 @@ npm run dev
 
 1. Create a Firebase project, add an Android app with applicationId
    `com.parthadae.seneschal`, enable Google sign-in, and download
-   `google-services.json` into `app/`.
-2. In `local.properties` (which is git-ignored) add:
+   `google-services.json` into `android-app/app/`.
+2. In `android-app/local.properties` (which is git-ignored) add:
    ```
    seneschal.apiBaseUrl=http://10.0.2.2:8080/
    seneschal.googleWebClientId=<the Web client ID from your Firebase console>
    ```
 3. Uncomment `alias(libs.plugins.google.services)` in
-   [app/build.gradle.kts](app/build.gradle.kts).
-4. Open in Android Studio and run on an emulator (API 30+).
+   [android-app/app/build.gradle.kts](android-app/app/build.gradle.kts).
+4. Open the `android-app/` folder in Android Studio and run on an emulator (API 30+).
 
 `http://10.0.2.2:8080/` is the standard emulator → host mapping; use your
 deployed API URL on a real device.
