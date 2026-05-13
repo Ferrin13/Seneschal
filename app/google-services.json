@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1012077844190",
+    "project_id": "seneschal-c4b9a",
+    "storage_bucket": "seneschal-c4b9a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1012077844190:android:cf31303a2e880f102d544f",
+        "android_client_info": {
+          "package_name": "com.parthadae.seneschal"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1012077844190-t9p91kobfh9nn8tglpmllrmtbsdnd4pq.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDiKVFs1ez4sXN8dM23TOOAk8hZnSqdN9Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1012077844190-t9p91kobfh9nn8tglpmllrmtbsdnd4pq.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
