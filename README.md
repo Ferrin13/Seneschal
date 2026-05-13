@@ -12,6 +12,7 @@ android-app/         Android app (Kotlin, Jetpack Compose, Material 3)
 android-app/app/     The Android module itself
 backend/             TypeScript REST API (Fastify + Drizzle)
 backend/infra/       AWS CDK stack (VPC, RDS Postgres, ECS Fargate, ALB)
+frontend/            Read-only web UI (Vite + React + MUI, Firebase Auth)
 ```
 
 ## Architecture
@@ -66,6 +67,19 @@ npm run dev
 
 `http://10.0.2.2:8080/` is the standard emulator → host mapping; use your
 deployed API URL on a real device.
+
+### Frontend (read-only web UI)
+
+```
+cd frontend
+cp .env.example .env             # fill in Firebase web config + API base URL
+npm install
+npm run dev                      # http://localhost:5173
+```
+
+Make sure `CORS_ORIGINS` in `backend/.env` includes `http://localhost:5173`
+(or whatever origin you serve the UI from). See `frontend/README.md` for
+details.
 
 ## Adding a new activity / category
 
