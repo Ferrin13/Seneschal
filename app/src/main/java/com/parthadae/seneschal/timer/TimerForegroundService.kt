@@ -54,11 +54,19 @@ class TimerForegroundService : Service() {
                 lastStartedAtMs = timer.startedAtMs
                 lastActivityName = activityRepository.activityById(timer.primaryActivityId)?.name
                 refreshNotification()
+                // Materialize any slots already fully covered when the
+                // timer started (e.g. starting a timer at 10:08 and the
+                // timer was actually running since 10:00).
+                runCatching { timerRepository.backfillCoveredSlots() }
                 tickJob?.cancel()
                 tickJob = scope.launch {
                     while (true) {
-                        kotlinx.coroutines.delay(15_000)
+                        // One minute is enough granularity: slots are
+                        // 15 min, and backfill is idempotent so the
+                        // mid-slot ticks are essentially no-ops.
+                        kotlinx.coroutines.delay(60_000)
                         refreshNotification()
+                        runCatching { timerRepository.backfillCoveredSlots() }
                     }
                 }
             }

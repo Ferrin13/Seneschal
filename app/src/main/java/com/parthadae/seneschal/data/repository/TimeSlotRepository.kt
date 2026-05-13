@@ -125,6 +125,29 @@ class TimeSlotRepository @Inject constructor(
         )
     }
 
+    /**
+     * Soft-delete every slot in [fromMs - toMs] (inclusive of both
+     * 15-min boundaries). Mirrors `setRange` but in the "reset" direction.
+     */
+    suspend fun clearRange(fromMs: Long, toMs: Long) {
+        val now = System.currentTimeMillis()
+        var t = fromMs
+        while (t <= toMs) {
+            timeSlotDao.deleteByStart(t)
+            enqueueUpsert(
+                TimeSlotUpsertDto(
+                    slotStartUtc = t.toIsoString(),
+                    primaryActivityId = null,
+                    secondaryActivityId = null,
+                    notes = null,
+                    clientUpdatedAt = now.toIsoString(),
+                    deleted = true,
+                )
+            )
+            t += SLOT_MS
+        }
+    }
+
     private suspend fun enqueueUpsert(dto: TimeSlotUpsertDto) {
         pendingMutationDao.insert(
             PendingMutationEntity(

@@ -120,6 +120,7 @@ fun ActivityPickerSheet(
     existingSecondaryActivityId: String? = null,
     existingNotes: String? = null,
     allowSecondary: Boolean = true,
+    onClear: (() -> Unit)? = null,
     vm: ActivityPickerViewModel = hiltViewModel(),
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -219,6 +220,18 @@ fun ActivityPickerSheet(
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.weight(1f),
                     )
+                    if (onClear != null) {
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    sheetState.hide()
+                                    onClear()
+                                    onDismiss()
+                                }
+                            },
+                            modifier = Modifier.padding(end = 4.dp),
+                        ) { Text("Clear") }
+                    }
                     Button(
                         onClick = {
                             finish(

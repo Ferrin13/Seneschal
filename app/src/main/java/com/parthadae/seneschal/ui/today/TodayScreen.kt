@@ -33,7 +33,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -63,7 +65,9 @@ private val SLOT_TIME_FMT = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefa
 @Composable
 fun TodayScreen(vm: TodayViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
-    val now = remember { System.currentTimeMillis() }
+    // Recomposes once a minute while a timer is running so the FAB's
+    // elapsed counter stays current without burning cycles every second.
+    val nowMs = rememberMinuteTicker()
 
     // Single picker state. A single-tap on a slot opens the picker with a
     // 1-slot range; a long-press + tap opens it with the spanning range.
@@ -102,11 +106,12 @@ fun TodayScreen(vm: TodayViewModel = hiltViewModel()) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = "Start timer")
                 }
             } else {
-                val elapsed = (now - timer.startedAtMs).coerceAtLeast(0L)
+                val elapsed = (nowMs - timer.startedAtMs).coerceAtLeast(0L)
                 ExtendedFloatingActionButton(
                     text = {
                         val name = state.timerActivity?.name ?: "(timer)"
-                        Text("$name · ${formatHm(elapsed)}")
+                        val started = formatSlotLabel(timer.startedAtMs)
+                        Text("$name · since $started · ${formatHm(elapsed)}")
                     },
                     icon = { Icon(Icons.Filled.Stop, contentDescription = "Stop timer") },
                     onClick = { vm.stopTimer() },
@@ -144,16 +149,18 @@ fun TodayScreen(vm: TodayViewModel = hiltViewModel()) {
                 rangeAnchor ?: Long.MIN_VALUE,
                 rangeOther ?: Long.MIN_VALUE,
             )
-            val cutoffMs = if (isToday)
-                maxOf(
+            val visibleSlots = if (!isToday) {
+                // Past or future days: show every slot.
+                state.slots
+            } else {
+                val cutoffMs = maxOf(
                     System.currentTimeMillis(),
                     latestSetMs,
                     pendingPickerMs,
                     pendingRangeMs,
                 )
-            else
-                Long.MAX_VALUE
-            val visibleSlots = state.slots.filter { it.slotStartMs <= cutoffMs + SLOT_MS }
+                state.slots.filter { it.slotStartMs <= cutoffMs + SLOT_MS }
+            }
 
             val anchor = rangeAnchor
             val other = rangeOther
@@ -234,6 +241,10 @@ fun TodayScreen(vm: TodayViewModel = hiltViewModel()) {
                     secondaryId = result.secondaryActivityId,
                     notes = result.notes,
                 )
+            },
+            onClear = {
+                val current = pickerRange ?: range
+                vm.clearRange(current.fromMs, current.toMs)
             },
         )
     }
@@ -378,4 +389,24 @@ private fun formatHm(ms: Long): String {
         h > 0 -> "${h}h"
         else -> "${m}m"
     }
+}
+
+/**
+ * Returns the current epoch ms, recomposing once per wall-clock minute
+ * boundary. Aligning to the boundary (rather than ticking every 60s
+ * regardless of phase) keeps the displayed elapsed value correct as it
+ * crosses the next minute, instead of drifting up to ~59s late.
+ */
+@Composable
+private fun rememberMinuteTicker(): Long {
+    val state = remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val now = System.currentTimeMillis()
+            state.longValue = now
+            val msUntilNextMinute = 60_000L - (now % 60_000L)
+            kotlinx.coroutines.delay(msUntilNextMinute)
+        }
+    }
+    return state.longValue
 }

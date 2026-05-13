@@ -133,6 +133,10 @@ class TodayViewModel @Inject constructor(
         viewModelScope.launch { slotRepo.clearSlot(slotStartMs) }
     }
 
+    fun clearRange(fromMs: Long, toMs: Long) {
+        viewModelScope.launch { slotRepo.clearRange(fromMs, toMs) }
+    }
+
     fun startTimer(activityId: String, secondaryId: String?, notes: String?) {
         viewModelScope.launch { timerRepo.start(activityId, secondaryId, notes) }
     }

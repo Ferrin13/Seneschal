@@ -58,6 +58,9 @@ interface TimeSlotDao {
     @Query("SELECT * FROM time_slots WHERE slotStartUtcMs = :slotStartMs LIMIT 1")
     suspend fun byStart(slotStartMs: Long): TimeSlotEntity?
 
+    @Query("SELECT * FROM time_slots WHERE slotStartUtcMs IN (:slotStartMs)")
+    suspend fun findByStarts(slotStartMs: List<Long>): List<TimeSlotEntity>
+
     @Query("SELECT MAX(updatedAt) FROM time_slots")
     suspend fun maxUpdatedAt(): Long?
 
@@ -97,11 +100,17 @@ interface PendingMutationDao {
     @Query("SELECT * FROM pending_mutations ORDER BY id ASC LIMIT :limit")
     suspend fun take(limit: Int): List<PendingMutationEntity>
 
+    @Query("SELECT * FROM pending_mutations ORDER BY id ASC")
+    fun observeAll(): Flow<List<PendingMutationEntity>>
+
     @Insert
     suspend fun insert(row: PendingMutationEntity): Long
 
     @Query("DELETE FROM pending_mutations WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("DELETE FROM pending_mutations")
+    suspend fun clear()
 
     @Update
     suspend fun update(row: PendingMutationEntity)

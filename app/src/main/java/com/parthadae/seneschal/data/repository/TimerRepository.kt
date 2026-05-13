@@ -1,17 +1,23 @@
 package com.parthadae.seneschal.data.repository
 
 import android.content.Context
+import com.parthadae.seneschal.data.local.PendingMutationDao
+import com.parthadae.seneschal.data.local.PendingMutationEntity
 import com.parthadae.seneschal.data.local.RunningTimerDao
 import com.parthadae.seneschal.data.local.RunningTimerEntity
 import com.parthadae.seneschal.data.local.TimeSlotDao
 import com.parthadae.seneschal.data.local.TimeSlotEntity
 import com.parthadae.seneschal.data.remote.SeneschalApi
+import com.parthadae.seneschal.data.remote.dto.TimeSlotUpsertDto
 import com.parthadae.seneschal.data.remote.dto.TimerStartRequest
 import com.parthadae.seneschal.data.remote.dto.TimerStopRequest
 import com.parthadae.seneschal.domain.RunningTimer
 import com.parthadae.seneschal.domain.slotsCoveredByMidpoint
 import com.parthadae.seneschal.domain.toIsoString
+import com.parthadae.seneschal.sync.SyncScheduler
 import com.parthadae.seneschal.timer.TimerForegroundService
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.adapter
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -26,13 +32,19 @@ import javax.inject.Singleton
  * server call fails we still update Room (offline) and the next sync pass
  * will reconcile. (For v1, timer offline support is best-effort.)
  */
+@OptIn(ExperimentalStdlibApi::class)
 @Singleton
 class TimerRepository @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val runningTimerDao: RunningTimerDao,
     private val timeSlotDao: TimeSlotDao,
+    private val pendingMutationDao: PendingMutationDao,
+    private val syncScheduler: SyncScheduler,
     private val api: SeneschalApi,
+    moshi: Moshi,
 ) {
+    private val upsertAdapter = moshi.adapter<TimeSlotUpsertDto>()
+
     val timer: Flow<RunningTimer?> = runningTimerDao.observe().map { row ->
         row?.let {
             RunningTimer(
@@ -112,5 +124,75 @@ class TimerRepository @Inject constructor(
             }
             if (rows.isNotEmpty()) timeSlotDao.upsertAll(rows)
         }
+    }
+
+    /**
+     * Materialize every fully-covered slot of an in-progress timer into
+     * Room (and the outbox) so the user sees the run on the Today screen
+     * without having to stop the timer first.
+     *
+     * Uses the same midpoint-coverage rule as `/timer/stop`, so when the
+     * user does eventually stop, the stop call's writes match what was
+     * already backfilled (LWW with the stop's `clientUpdatedAt` as the
+     * tiebreaker).
+     *
+     * Cheap to call repeatedly: it skips slots whose primary/secondary/
+     * notes already match what we'd write.
+     */
+    suspend fun backfillCoveredSlots(nowMs: Long = System.currentTimeMillis()) {
+        val active = runningTimerDao.current() ?: return
+        val covered = slotsCoveredByMidpoint(active.startedAtMs, nowMs)
+        if (covered.isEmpty()) return
+
+        val existing = timeSlotDao
+            .findByStarts(covered)
+            .associateBy { it.slotStartUtcMs }
+
+        val toWrite = mutableListOf<TimeSlotEntity>()
+        val toEnqueue = mutableListOf<TimeSlotUpsertDto>()
+        for (slotStart in covered) {
+            val current = existing[slotStart]
+            val sameAsTimer = current != null &&
+                current.primaryActivityId == active.primaryActivityId &&
+                current.secondaryActivityId == active.secondaryActivityId &&
+                current.notes == active.notes &&
+                current.deletedAt == null
+            if (sameAsTimer) continue
+
+            toWrite.add(
+                TimeSlotEntity(
+                    slotStartUtcMs = slotStart,
+                    primaryActivityId = active.primaryActivityId,
+                    secondaryActivityId = active.secondaryActivityId,
+                    notes = active.notes,
+                    updatedAt = nowMs,
+                    clientUpdatedAt = nowMs,
+                    deletedAt = null,
+                )
+            )
+            toEnqueue.add(
+                TimeSlotUpsertDto(
+                    slotStartUtc = slotStart.toIsoString(),
+                    primaryActivityId = active.primaryActivityId,
+                    secondaryActivityId = active.secondaryActivityId,
+                    notes = active.notes,
+                    clientUpdatedAt = nowMs.toIsoString(),
+                )
+            )
+        }
+
+        if (toWrite.isEmpty()) return
+        timeSlotDao.upsertAll(toWrite)
+        toEnqueue.forEach { dto ->
+            pendingMutationDao.insert(
+                PendingMutationEntity(
+                    kind = TimeSlotRepository.KIND_SLOT_UPSERT,
+                    targetId = dto.slotStartUtc,
+                    payloadJson = upsertAdapter.toJson(dto),
+                    createdAt = nowMs,
+                )
+            )
+        }
+        syncScheduler.requestImmediateSync()
     }
 }
