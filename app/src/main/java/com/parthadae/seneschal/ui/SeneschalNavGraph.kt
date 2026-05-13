@@ -1,5 +1,6 @@
 package com.parthadae.seneschal.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -16,18 +17,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.parthadae.seneschal.ui.activities.ActivitiesScreen
+import com.parthadae.seneschal.ui.home.HomeScreen
+import com.parthadae.seneschal.ui.home.PlaceholderFeatureScreen
 import com.parthadae.seneschal.ui.settings.SettingsScreen
 import com.parthadae.seneschal.ui.stats.StatsScreen
 import com.parthadae.seneschal.ui.today.TodayScreen
 
-private enum class TopDest(val route: String, val label: String, val icon: ImageVector) {
+private object RootRoutes {
+    const val HOME = "home"
+    const val TIME = "time"
+    const val EXPENSES = "expenses"
+    const val GROUP_TEXT = "group_text"
+    const val CLIPBOARD = "clipboard"
+}
+
+private enum class TimeTab(val route: String, val label: String, val icon: ImageVector) {
     Today("today", "Today", Icons.Outlined.CalendarToday),
     Stats("stats", "Stats", Icons.Outlined.BarChart),
     Activities("activities", "Activities", Icons.Outlined.Category),
@@ -37,42 +47,112 @@ private enum class TopDest(val route: String, val label: String, val icon: Image
 @Composable
 fun SeneschalNavGraph() {
     val navController = rememberNavController()
-    val backStackEntry by navController.currentBackStackEntryAsState()
+    NavHost(
+        navController = navController,
+        startDestination = RootRoutes.HOME,
+    ) {
+        composable(RootRoutes.HOME) {
+            HomeScreen(
+                onTimeTracking = {
+                    navController.navigate(RootRoutes.TIME) {
+                        launchSingleTop = true
+                    }
+                },
+                onExpenseTracking = {
+                    navController.navigate(RootRoutes.EXPENSES) { launchSingleTop = true }
+                },
+                onGroupTexting = {
+                    navController.navigate(RootRoutes.GROUP_TEXT) { launchSingleTop = true }
+                },
+                onClipboard = {
+                    navController.navigate(RootRoutes.CLIPBOARD) { launchSingleTop = true }
+                },
+            )
+        }
+        composable(RootRoutes.TIME) {
+            TimeTrackingFlow(
+                onNavigateHome = {
+                    navController.popBackStack()
+                },
+            )
+        }
+        composable(RootRoutes.EXPENSES) {
+            PlaceholderFeatureScreen(
+                title = "Expense tracking",
+                description = "Expense tracking is not available yet. This screen will appear in a future update.",
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(RootRoutes.GROUP_TEXT) {
+            PlaceholderFeatureScreen(
+                title = "Group texting",
+                description = "Group texting is not available yet. This screen will appear in a future update.",
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(RootRoutes.CLIPBOARD) {
+            PlaceholderFeatureScreen(
+                title = "Clipboard",
+                description = "Clipboard tools are not available yet. This screen will appear in a future update.",
+                onBack = { navController.popBackStack() },
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimeTrackingFlow(
+    onNavigateHome: () -> Unit,
+) {
+    val innerNav = rememberNavController()
+    val backStackEntry by innerNav.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+
+    BackHandler {
+        if (!innerNav.popBackStack()) {
+            onNavigateHome()
+        }
+    }
 
     Scaffold(
         bottomBar = {
             NavigationBar {
-                TopDest.entries.forEach { dest ->
+                TimeTab.entries.forEach { tab ->
                     NavigationBarItem(
-                        selected = currentRoute == dest.route,
+                        selected = currentRoute == tab.route,
                         onClick = {
-                            navController.navigate(dest.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
+                            innerNav.navigate(tab.route) {
+                                popUpTo(innerNav.graph.findStartDestination().id) {
                                     saveState = true
                                 }
                                 launchSingleTop = true
                                 restoreState = true
                             }
-                            // Keep referenced
-                            backStackEntry?.destination?.hierarchy
                         },
-                        icon = { Icon(dest.icon, contentDescription = dest.label) },
-                        label = { Text(dest.label) },
+                        icon = { Icon(tab.icon, contentDescription = tab.label) },
+                        label = { Text(tab.label) },
                     )
                 }
             }
-        }
+        },
     ) { padding: PaddingValues ->
         NavHost(
-            navController = navController,
-            startDestination = TopDest.Today.route,
+            navController = innerNav,
+            startDestination = TimeTab.Today.route,
             modifier = Modifier.padding(padding),
         ) {
-            composable(TopDest.Today.route) { TodayScreen() }
-            composable(TopDest.Stats.route) { StatsScreen() }
-            composable(TopDest.Activities.route) { ActivitiesScreen() }
-            composable(TopDest.Settings.route) { SettingsScreen() }
+            composable(TimeTab.Today.route) {
+                TodayScreen(onNavigateHome = onNavigateHome)
+            }
+            composable(TimeTab.Stats.route) {
+                StatsScreen(onNavigateHome = onNavigateHome)
+            }
+            composable(TimeTab.Activities.route) {
+                ActivitiesScreen(onNavigateHome = onNavigateHome)
+            }
+            composable(TimeTab.Settings.route) {
+                SettingsScreen(onNavigateHome = onNavigateHome)
+            }
         }
     }
 }

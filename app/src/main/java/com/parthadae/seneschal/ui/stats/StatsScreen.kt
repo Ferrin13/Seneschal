@@ -15,7 +15,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.Icons
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
@@ -132,12 +136,29 @@ class StatsViewModel @Inject constructor(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StatsScreen(vm: StatsViewModel = hiltViewModel()) {
+fun StatsScreen(
+    vm: StatsViewModel = hiltViewModel(),
+    onNavigateHome: (() -> Unit)? = null,
+) {
     val state by vm.state.collectAsStateWithLifecycle()
     var selectedIndex by remember { mutableStateOf(0) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Stats") }) },
+        topBar = {
+            TopAppBar(
+                navigationIcon = {
+                    if (onNavigateHome != null) {
+                        IconButton(onClick = onNavigateHome) {
+                            Icon(
+                                Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = "Back to home",
+                            )
+                        }
+                    }
+                },
+                title = { Text("Stats") },
+            )
+        },
     ) { padding ->
         Column(
             modifier = Modifier

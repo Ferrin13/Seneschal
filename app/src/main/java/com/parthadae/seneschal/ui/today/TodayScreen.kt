@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -63,7 +64,10 @@ private val SLOT_TIME_FMT = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefa
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TodayScreen(vm: TodayViewModel = hiltViewModel()) {
+fun TodayScreen(
+    vm: TodayViewModel = hiltViewModel(),
+    onNavigateHome: (() -> Unit)? = null,
+) {
     val state by vm.state.collectAsStateWithLifecycle()
     // Recomposes once a minute while a timer is running so the FAB's
     // elapsed counter stays current without burning cycles every second.
@@ -79,6 +83,16 @@ fun TodayScreen(vm: TodayViewModel = hiltViewModel()) {
     Scaffold(
         topBar = {
             TopAppBar(
+                navigationIcon = {
+                    if (onNavigateHome != null) {
+                        IconButton(onClick = onNavigateHome) {
+                            Icon(
+                                Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = "Back to home",
+                            )
+                        }
+                    }
+                },
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { vm.previousDay() }) {

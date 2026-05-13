@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -146,13 +147,30 @@ private val DAY_FMT = DateTimeFormatter.ofPattern("EEE MMM d")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
+fun SettingsScreen(
+    vm: SettingsViewModel = hiltViewModel(),
+    onNavigateHome: (() -> Unit)? = null,
+) {
     val state by vm.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var showPending by remember { mutableStateOf(false) }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Settings") }) },
+        topBar = {
+            TopAppBar(
+                navigationIcon = {
+                    if (onNavigateHome != null) {
+                        IconButton(onClick = onNavigateHome) {
+                            Icon(
+                                Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = "Back to home",
+                            )
+                        }
+                    }
+                },
+                title = { Text("Settings") },
+            )
+        },
     ) { padding ->
         LazyColumn(
             modifier = Modifier

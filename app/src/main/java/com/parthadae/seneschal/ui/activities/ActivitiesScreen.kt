@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Edit
@@ -98,7 +99,10 @@ class ActivitiesViewModel @Inject constructor(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ActivitiesScreen(vm: ActivitiesViewModel = hiltViewModel()) {
+fun ActivitiesScreen(
+    vm: ActivitiesViewModel = hiltViewModel(),
+    onNavigateHome: (() -> Unit)? = null,
+) {
     val state by vm.uiState.collectAsStateWithLifecycle()
     var addToCategory by remember { mutableStateOf<Category?>(null) }
     var renameActivity by remember { mutableStateOf<Activity?>(null) }
@@ -106,7 +110,19 @@ fun ActivitiesScreen(vm: ActivitiesViewModel = hiltViewModel()) {
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Activities") })
+            TopAppBar(
+                navigationIcon = {
+                    if (onNavigateHome != null) {
+                        IconButton(onClick = onNavigateHome) {
+                            Icon(
+                                Icons.AutoMirrored.Outlined.ArrowBack,
+                                contentDescription = "Back to home",
+                            )
+                        }
+                    }
+                },
+                title = { Text("Activities") },
+            )
         },
         floatingActionButton = {
             val first = state.categories.firstOrNull()
