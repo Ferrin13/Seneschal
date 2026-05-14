@@ -33,10 +33,11 @@ export async function buildServer() {
         .send({ error: "validation_failed", issues: err.issues });
     }
     req.log.error({ err }, "request failed");
-    const status = (err as { statusCode?: number }).statusCode ?? 500;
+    const e = err as { statusCode?: number; message?: string };
+    const status = e.statusCode ?? 500;
     return reply
       .code(status)
-      .send({ error: err.message || "internal_error" });
+      .send({ error: e.message || "internal_error" });
   });
 
   app.get("/healthz", async () => ({ status: "ok" }));
