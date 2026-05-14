@@ -1,0 +1,44 @@
+# Copy to prod.tfvars and fill in for your environment. prod.tfvars is gitignored.
+
+region      = "us-west-2"
+env         = "prod"
+aws_profile = "seneschal"
+
+# DNS — must already exist as a public hosted zone in Route53.
+hosted_zone_name = "example.com"
+api_subdomain    = "api"
+web_subdomain    = "app"
+
+# Existing VPC / RDS info (Terraform deploys ECS into this VPC).
+existing_vpc_id               = "vpc-0123456789abcdef0"
+existing_private_subnet_ids   = ["subnet-aaaa", "subnet-bbbb"]
+existing_public_subnet_ids    = ["subnet-cccc", "subnet-dddd"]
+existing_db_security_group_id = "sg-0123456789abcdef0"
+
+# Provide EXACTLY ONE of these three:
+# database_url             = "postgres://user:pass@host:5432/seneschal"
+# database_url_secret_arn  = "arn:aws:secretsmanager:us-west-2:123456789012:secret:seneschal/db-AbCdEf"
+database_url_secret_name = "/seneschal/prod/main-postgres-db"
+
+# Firebase
+firebase_project_id        = "seneschal-c4b9a"
+firebase_sa_ssm_param_name = "/seneschal/prod/firebase-service-account"
+
+# Backend sizing
+backend_cpu           = 256
+backend_memory        = 512
+backend_desired_count = 1
+
+# CI/CD
+enable_pipeline = true
+github_owner    = "your-github-username"
+github_repo     = "Seneschal"
+github_branch   = "main"
+
+# Frontend build-time env vars. VITE_API_BASE_URL is filled in automatically.
+frontend_build_env = {
+  VITE_FIREBASE_API_KEY     = "AIzaSy..."
+  VITE_FIREBASE_AUTH_DOMAIN = "seneschal-c4b9a.firebaseapp.com"
+  VITE_FIREBASE_PROJECT_ID  = "seneschal-c4b9a"
+  VITE_FIREBASE_APP_ID      = "1:1012077844190:web:..."
+}

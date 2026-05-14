@@ -1,0 +1,19 @@
+version: 0.2
+
+# Deploy spec: takes the built SPA artifact (root of input), syncs it to S3,
+# then invalidates CloudFront so visitors see the new version immediately.
+#
+# Required env vars (set by Terraform on the CodeBuild project):
+#   S3_BUCKET                 - destination bucket
+#   CLOUDFRONT_DISTRIBUTION_ID - distribution to invalidate
+
+phases:
+  build:
+    commands:
+      - echo "Syncing static assets (long cache)..."
+      # Everything except index.html gets long-cache. index.html stays
+      # short-cache so the next build is picked up promptly.
+      - aws s3 sync . "s3://$S3_BUCKET/" --delete --exclude "index.html" --cache-control "public,max-age=31536000,immutable"
+      - aws s3 cp index.html "s3://$S3_BUCKET/index.html" --cache-control "public,max-age=60,must-revalidate" --content-type "text/html"
+      - echo "Invalidating CloudFront..."
+      - aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" --paths "/*"

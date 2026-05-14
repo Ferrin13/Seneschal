@@ -1,0 +1,33 @@
+version: 0.2
+
+# CodeBuild spec for the Seneschal backend image.
+# Required env vars (set by Terraform on the CodeBuild project):
+#   AWS_DEFAULT_REGION   - region of the ECR repo
+#   AWS_ACCOUNT_ID       - AWS account ID
+#   ECR_REPO_URL         - full repo URL (e.g. 123.dkr.ecr.us-east-1.amazonaws.com/seneschal-api)
+#   CONTAINER_NAME       - container name as registered in the ECS task definition
+
+phases:
+  pre_build:
+    commands:
+      - echo "Logging in to ECR..."
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com"
+      - COMMIT_SHORT="${CODEBUILD_RESOLVED_SOURCE_VERSION:0:8}"
+      - 'IMAGE_TAG="${COMMIT_SHORT:-latest}"'
+      - echo "Building tag $IMAGE_TAG"
+
+  build:
+    commands:
+      - docker build -t "$ECR_REPO_URL:$IMAGE_TAG" -t "$ECR_REPO_URL:latest" backend
+
+  post_build:
+    commands:
+      - docker push "$ECR_REPO_URL:$IMAGE_TAG"
+      - docker push "$ECR_REPO_URL:latest"
+      - printf '[{"name":"%s","imageUri":"%s"}]' "$CONTAINER_NAME" "$ECR_REPO_URL:$IMAGE_TAG" > imagedefinitions.json
+      - cat imagedefinitions.json
+
+artifacts:
+  files:
+    - imagedefinitions.json
+  discard-paths: yes

@@ -1,0 +1,27 @@
+version: 0.2
+
+# CodeBuild spec for the Seneschal frontend SPA build.
+# VITE_* env vars are injected by the CodeBuild project (see Terraform
+# pipeline module: frontend_build_env + api_base_url).
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+    commands:
+      - node -v
+      - npm -v
+
+  pre_build:
+    commands:
+      - cd frontend
+      - npm ci
+
+  build:
+    commands:
+      - npm run build
+
+artifacts:
+  base-directory: frontend/dist
+  files:
+    - "**/*"

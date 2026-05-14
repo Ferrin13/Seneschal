@@ -11,8 +11,8 @@ and optional notes.
 android-app/         Android app (Kotlin, Jetpack Compose, Material 3)
 android-app/app/     The Android module itself
 backend/             TypeScript REST API (Fastify + Drizzle)
-backend/infra/       AWS CDK stack (VPC, RDS Postgres, ECS Fargate, ALB)
 frontend/            Read-only web UI (Vite + React + MUI, Firebase Auth)
+infra/terraform/     AWS infrastructure (ECS, ALB, CloudFront, S3, CodePipeline)
 ```
 
 ## Architecture
