@@ -19,6 +19,7 @@ class ExampleInstrumentedTest {
     fun useAppContext() {
         // Context of the app under test.
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("com.parthadae.seneschal", appContext.packageName)
+        // Variant-aware: debug builds use applicationIdSuffix = ".debug".
+        assertEquals(BuildConfig.APPLICATION_ID, appContext.packageName)
     }
 }

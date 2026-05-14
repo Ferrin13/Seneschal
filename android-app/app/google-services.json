@@ -14,6 +14,51 @@
       },
       "oauth_client": [
         {
+          "client_id": "1012077844190-4ksqtdck40im5g2atg19qi6qbhalvevc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.parthadae.seneschal",
+            "certificate_hash": "2107b2bb5d57f1a61e520e9f8d4574f8dd92d435"
+          }
+        },
+        {
+          "client_id": "1012077844190-t9p91kobfh9nn8tglpmllrmtbsdnd4pq.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDiKVFs1ez4sXN8dM23TOOAk8hZnSqdN9Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1012077844190-t9p91kobfh9nn8tglpmllrmtbsdnd4pq.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1012077844190:android:8b2ffa94b5b550552d544f",
+        "android_client_info": {
+          "package_name": "com.parthadae.seneschal.debug"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1012077844190-p9midtlhigkhqnk48oc1hvm8k0asvnpq.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.parthadae.seneschal.debug",
+            "certificate_hash": "2107b2bb5d57f1a61e520e9f8d4574f8dd92d435"
+          }
+        },
+        {
           "client_id": "1012077844190-t9p91kobfh9nn8tglpmllrmtbsdnd4pq.apps.googleusercontent.com",
           "client_type": 3
         }

@@ -11,15 +11,20 @@ plugins {
 
 // Pull non-secret configuration from local.properties so it doesn't have to
 // be committed. Keys we look for:
-//   seneschal.apiBaseUrl   -> e.g. https://api-dev.example.com/
+//   seneschal.apiBaseUrl   -> e.g. https://api-dev.example.com/ (debug builds only)
 //   seneschal.googleWebClientId -> the Web client ID from Firebase console (used
 //                                  for Sign in with Google via Credential Manager)
 val localProps = Properties().apply {
     val f = rootProject.file("local.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }
-val apiBaseUrl: String =
+// Debug builds default to the Android emulator host loopback, but can be
+// overridden via local.properties (e.g. to point at a dev box on the LAN).
+val debugApiBaseUrl: String =
     localProps.getProperty("seneschal.apiBaseUrl") ?: "http://10.0.2.2:8080/"
+// Release builds always point at the production API. Keep this in sync with
+// infra/terraform/prod.tfvars (api_subdomain + hosted_zone_name).
+val releaseApiBaseUrl: String = "https://api.seneschal.parthadae.com/"
 val googleWebClientId: String =
     localProps.getProperty("seneschal.googleWebClientId") ?: ""
 
@@ -38,17 +43,33 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
     }
 
     buildTypes {
+        debug {
+            // Debug builds run as a separate Android package
+            // (com.parthadae.seneschal.debug) so they get an isolated app
+            // sandbox: independent Room database, DataStore prefs, and
+            // FirebaseAuth session from the release build. Both variants can
+            // coexist on the same device. Requires a second Android app
+            // registration in the Firebase console for the .debug package —
+            // see google-services.json.
+            applicationIdSuffix = ".debug"
+            buildConfigField("String", "API_BASE_URL", "\"$debugApiBaseUrl\"")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            buildConfigField("String", "API_BASE_URL", "\"$releaseApiBaseUrl\"")
+            // Sign release builds with the debug keystore so we can sideload
+            // an installable APK onto a dev phone without provisioning a real
+            // release keystore. NOT suitable for Play Store distribution —
+            // swap this for a proper signingConfig before publishing.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {
