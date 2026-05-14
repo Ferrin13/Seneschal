@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,7 +24,6 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -32,7 +32,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -62,7 +61,6 @@ import java.util.Locale
 private val DAY_HEADER_FMT = DateTimeFormatter.ofPattern("EEEE, MMM d", Locale.getDefault())
 private val SLOT_TIME_FMT = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TodayScreen(
     vm: TodayViewModel = hiltViewModel(),
@@ -81,38 +79,11 @@ fun TodayScreen(
     var rangeOther by remember { mutableStateOf<Long?>(null) }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                navigationIcon = {
-                    if (onNavigateHome != null) {
-                        IconButton(onClick = onNavigateHome) {
-                            Icon(
-                                Icons.AutoMirrored.Outlined.ArrowBack,
-                                contentDescription = "Back to home",
-                            )
-                        }
-                    }
-                },
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { vm.previousDay() }) {
-                            Icon(Icons.Outlined.ChevronLeft, "Previous day")
-                        }
-                        Text(
-                            text = state.date.format(DAY_HEADER_FMT),
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(horizontal = 4.dp),
-                        )
-                        IconButton(
-                            onClick = { vm.nextDay() },
-                            enabled = state.date < LocalDate.now(),
-                        ) {
-                            Icon(Icons.Outlined.ChevronRight, "Next day")
-                        }
-                    }
-                },
-            )
-        },
+        // The outer TimeTrackingFlow Scaffold already consumes the status
+        // bar inset. Without this override, Material3 Scaffold's default
+        // contentWindowInsets (safeDrawing) would apply that inset a
+        // second time and leave a chunk of empty space above the day row.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButton = {
             val timer = state.timer
             if (timer == null) {
@@ -138,6 +109,41 @@ fun TodayScreen(
                 .padding(padding)
                 .fillMaxSize(),
         ) {
+            // Compact day header: back-to-home (if available) + day stepper.
+            // Replaces the previous TopAppBar so we don't reserve a whole
+            // app-bar's worth of empty space above the day content.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+            ) {
+                if (onNavigateHome != null) {
+                    IconButton(onClick = onNavigateHome) {
+                        Icon(
+                            Icons.AutoMirrored.Outlined.ArrowBack,
+                            contentDescription = "Back to home",
+                        )
+                    }
+                } else {
+                    Spacer(Modifier.width(8.dp))
+                }
+                IconButton(onClick = { vm.previousDay() }) {
+                    Icon(Icons.Outlined.ChevronLeft, "Previous day")
+                }
+                Text(
+                    text = state.date.format(DAY_HEADER_FMT),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                )
+                IconButton(
+                    onClick = { vm.nextDay() },
+                    enabled = state.date < LocalDate.now(),
+                ) {
+                    Icon(Icons.Outlined.ChevronRight, "Next day")
+                }
+            }
+
             CategoryBreakdownBar(
                 totals = state.categoryTotalsMs,
                 colorByCategory = state.slots

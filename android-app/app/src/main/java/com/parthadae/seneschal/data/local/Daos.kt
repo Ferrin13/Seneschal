@@ -24,6 +24,14 @@ interface CategoryDao {
 
     @Query("DELETE FROM categories")
     suspend fun clear()
+
+    /**
+     * Hard-delete any local categories whose id is not in [keepIds]. Used
+     * by the sync reconcile pass to evict rows that no longer exist on the
+     * server (e.g. after a manual re-id of the prod DB).
+     */
+    @Query("DELETE FROM categories WHERE id NOT IN (:keepIds)")
+    suspend fun deleteWhereIdNotIn(keepIds: List<String>)
 }
 
 @Dao
@@ -45,6 +53,14 @@ interface ActivityDao {
 
     @Query("DELETE FROM activities")
     suspend fun clear()
+
+    /**
+     * Hard-delete any local activities whose id is not in [keepIds]. Used
+     * by the sync reconcile pass to evict rows that no longer exist on the
+     * server (e.g. after a manual re-id of the prod DB).
+     */
+    @Query("DELETE FROM activities WHERE id NOT IN (:keepIds)")
+    suspend fun deleteWhereIdNotIn(keepIds: List<String>)
 }
 
 @Dao

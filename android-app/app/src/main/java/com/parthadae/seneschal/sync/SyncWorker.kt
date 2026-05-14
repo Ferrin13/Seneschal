@@ -99,13 +99,25 @@ class SyncWorker @AssistedInject constructor(
     }
 
     private suspend fun pullCategoriesAndActivities() {
-        val sinceCat = categoryDao.maxUpdatedAt()?.let { Instant.ofEpochMilli(it).toString() }
-        val cats = api.getCategories(since = sinceCat, includeDeleted = true)
-        if (cats.isNotEmpty()) categoryDao.upsertAll(cats.map { it.toEntity() })
+        // We fetch the full set (no `since`) every sync so we can also
+        // reconcile away local rows whose ids no longer exist on the
+        // server — incremental pulls only deliver tombstoned deletes,
+        // which miss hard-deletes or manual server-side re-ids. The
+        // dataset is small per user so the over-fetch is negligible.
+        val cats = api.getCategories(since = null, includeDeleted = true)
+        val acts = api.getActivities(since = null, includeDeleted = true)
 
-        val sinceAct = activityDao.maxUpdatedAt()?.let { Instant.ofEpochMilli(it).toString() }
-        val acts = api.getActivities(since = sinceAct, includeDeleted = true)
+        if (cats.isNotEmpty()) categoryDao.upsertAll(cats.map { it.toEntity() })
         if (acts.isNotEmpty()) activityDao.upsertAll(acts.map { it.toEntity() })
+
+        // Reconcile: drop anything local that isn't present remotely.
+        // Order matters — activities have a FK to categories (NO_ACTION),
+        // so prune activities first to avoid violating that constraint
+        // when a stale local category is removed.
+        val keepActIds = acts.map { it.id }
+        val keepCatIds = cats.map { it.id }
+        activityDao.deleteWhereIdNotIn(keepActIds)
+        categoryDao.deleteWhereIdNotIn(keepCatIds)
     }
 
     private suspend fun pullSlots() {
