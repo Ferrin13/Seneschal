@@ -1,0 +1,74 @@
+version: 0.2
+
+# Runs the Drizzle migrations against the database using a one-off Fargate
+# task. Pipeline stops here if the migration exits non-zero, so a bad
+# migration never reaches the running service.
+#
+# Required env vars (set by Terraform on the CodeBuild project):
+#   AWS_DEFAULT_REGION
+#   ECS_CLUSTER
+#   MIGRATE_TASK_FAMILY   - family name of the migrate task def
+#   SUBNET_IDS            - comma-separated subnet IDs
+#   SECURITY_GROUP_ID     - service SG to attach to the task
+
+phases:
+  install:
+    commands:
+      - command -v jq >/dev/null || (apt-get update && apt-get install -y jq)
+
+  build:
+    commands:
+      # imagedefinitions.json is produced by the previous Build stage and
+      # mounted via the secondary input artifact "build_output".
+      - IMAGE_DEFS="$CODEBUILD_SRC_DIR_build_output/imagedefinitions.json"
+      - IMAGE_URI=$(jq -r '.[0].imageUri' "$IMAGE_DEFS")
+      - echo "Running migrations with image $IMAGE_URI"
+
+      # Pull the current migrate task def, swap in the new image, register
+      # a new revision. Strip read-only fields that RegisterTaskDefinition
+      # rejects on input.
+      - |
+        aws ecs describe-task-definition \
+          --task-definition "$MIGRATE_TASK_FAMILY" \
+          --query 'taskDefinition' \
+        | jq --arg IMAGE "$IMAGE_URI" '
+            .containerDefinitions[0].image = $IMAGE
+            | del(
+                .taskDefinitionArn,
+                .revision,
+                .status,
+                .requiresAttributes,
+                .compatibilities,
+                .registeredAt,
+                .registeredBy
+              )
+          ' > new-td.json
+      - NEW_TD_ARN=$(aws ecs register-task-definition --cli-input-json file://new-td.json --query 'taskDefinition.taskDefinitionArn' --output text)
+      - echo "Registered $NEW_TD_ARN"
+
+      - |
+        TASK_ARN=$(aws ecs run-task \
+          --cluster "$ECS_CLUSTER" \
+          --launch-type FARGATE \
+          --task-definition "$NEW_TD_ARN" \
+          --count 1 \
+          --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_IDS],securityGroups=[$SECURITY_GROUP_ID],assignPublicIp=ENABLED}" \
+          --query 'tasks[0].taskArn' --output text)
+      - echo "Started migration task $TASK_ARN"
+
+      - echo "Waiting for task to stop..."
+      - aws ecs wait tasks-stopped --cluster "$ECS_CLUSTER" --tasks "$TASK_ARN"
+
+      - |
+        DESCRIBE=$(aws ecs describe-tasks --cluster "$ECS_CLUSTER" --tasks "$TASK_ARN")
+        EXIT_CODE=$(echo "$DESCRIBE" | jq -r '.tasks[0].containers[0].exitCode // empty')
+        STOP_REASON=$(echo "$DESCRIBE" | jq -r '.tasks[0].stoppedReason // empty')
+        CONTAINER_REASON=$(echo "$DESCRIBE" | jq -r '.tasks[0].containers[0].reason // empty')
+        echo "Task stoppedReason: $STOP_REASON"
+        echo "Container reason:   $CONTAINER_REASON"
+        echo "Migration exit code: $EXIT_CODE"
+        if [ -z "$EXIT_CODE" ] || [ "$EXIT_CODE" != "0" ]; then
+          echo "Migration failed."
+          exit 1
+        fi
+      - echo "Migrations applied."

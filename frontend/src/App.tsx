@@ -1,4 +1,5 @@
 import {
+  Alert,
   AppBar,
   Avatar,
   Box,
@@ -9,12 +10,25 @@ import {
   Toolbar,
   Typography,
 } from "@mui/material";
+import { useState } from "react";
 import { useAuth } from "./auth";
 import { signInWithGoogle, signOut } from "./firebase";
 import { TimeTrackingView } from "./TimeTrackingView";
 
 export default function App() {
   const { user, loading } = useAuth();
+  const [signInError, setSignInError] = useState<string | null>(null);
+
+  const handleSignIn = async () => {
+    setSignInError(null);
+    try {
+      await signInWithGoogle();
+    } catch (err) {
+      setSignInError(
+        err instanceof Error ? err.message : "Sign-in failed. Please try again."
+      );
+    }
+  };
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
@@ -42,7 +56,7 @@ export default function App() {
               color="inherit"
               variant="outlined"
               onClick={() => {
-                void signInWithGoogle();
+                void handleSignIn();
               }}
             >
               Sign in with Google
@@ -59,14 +73,20 @@ export default function App() {
         ) : user ? (
           <TimeTrackingView />
         ) : (
-          <SignedOut />
+          <SignedOut onSignIn={handleSignIn} error={signInError} />
         )}
       </Container>
     </Box>
   );
 }
 
-function SignedOut() {
+function SignedOut({
+  onSignIn,
+  error,
+}: {
+  onSignIn: () => void | Promise<void>;
+  error: string | null;
+}) {
   return (
     <Stack spacing={2} alignItems="center" sx={{ mt: 10, textAlign: "center" }}>
       <Typography variant="h4">Welcome to Seneschal</Typography>
@@ -78,11 +98,16 @@ function SignedOut() {
         variant="contained"
         size="large"
         onClick={() => {
-          void signInWithGoogle();
+          void onSignIn();
         }}
       >
         Sign in with Google
       </Button>
+      {error ? (
+        <Alert severity="error" sx={{ maxWidth: 480, width: "100%" }}>
+          {error}
+        </Alert>
+      ) : null}
     </Stack>
   );
 }

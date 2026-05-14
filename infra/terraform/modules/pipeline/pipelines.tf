@@ -47,6 +47,31 @@ resource "aws_codepipeline" "backend" {
     }
   }
 
+  # Runs drizzle migrations against the new image before rolling traffic
+  # over. If migrations fail, the pipeline stops here and the running
+  # ECS service is untouched.
+  stage {
+    name = "Migrate"
+
+    action {
+      name = "RunDrizzleMigrate"
+      category = "Build"
+      owner    = "AWS"
+      provider = "CodeBuild"
+      version  = "1"
+      # First artifact is the primary: CodeBuild runs from there and reads
+      # the buildspec there. Second artifact is mounted at
+      # $CODEBUILD_SRC_DIR_build_output, which is where imagedefinitions.json
+      # lives (produced by the previous Build action).
+      input_artifacts = ["source_output", "build_output"]
+
+      configuration = {
+        ProjectName   = aws_codebuild_project.backend_migrate.name
+        PrimarySource = "source_output"
+      }
+    }
+  }
+
   stage {
     name = "Deploy"
 

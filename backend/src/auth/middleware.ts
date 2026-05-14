@@ -20,6 +20,10 @@ export type AuthContext = {
 
 const BEARER = /^Bearer\s+(.+)$/i;
 
+// Single-tenant allowlist. Any other identity is rejected at the edge so that
+// no users row, seed data, or downstream resources are ever created for them.
+const ALLOWED_EMAIL = "12aplustech@gmail.com";
+
 const plugin: FastifyPluginAsync = async (app) => {
   app.decorateRequest("auth", null as unknown as AuthContext);
 
@@ -47,6 +51,18 @@ const plugin: FastifyPluginAsync = async (app) => {
 
     const firebaseUid = decoded.uid;
     const email = decoded.email ?? null;
+
+    if (
+      !email ||
+      !decoded.email_verified ||
+      email.toLowerCase() !== ALLOWED_EMAIL
+    ) {
+      req.log.warn(
+        { firebaseUid, email, emailVerified: decoded.email_verified },
+        "rejecting token: email not on allowlist"
+      );
+      return reply.code(403).send({ error: "forbidden" });
+    }
 
     // Lazy upsert: ensure a users row exists, then seed defaults on first
     // sign-in. Safe and idempotent on every request.

@@ -45,6 +45,31 @@ variable "ecs_task_container_name" {
   type = string
 }
 
+variable "migrate_task_family" {
+  description = "Family name of the ECS task definition used to run drizzle migrations."
+  type        = string
+}
+
+variable "service_subnet_ids" {
+  description = "Subnets used by the ECS service. The migration RunTask reuses these so it lands in the same network."
+  type        = list(string)
+}
+
+variable "service_security_group_id" {
+  description = "Security group attached to the ECS service. Reused for the migration task."
+  type        = string
+}
+
+variable "task_execution_role_arn" {
+  description = "Execution role ARN that CodeBuild passes when registering the migration task definition revision."
+  type        = string
+}
+
+variable "task_role_arn" {
+  description = "Task role ARN passed when registering the migration task definition revision."
+  type        = string
+}
+
 # Frontend wiring ------------------------------------------------------
 
 variable "frontend_bucket_name" {

@@ -69,6 +69,60 @@ resource "aws_codebuild_project" "backend" {
   }
 }
 
+# ----- Backend DB migration -------------------------------------------
+
+resource "aws_cloudwatch_log_group" "backend_migrate" {
+  name              = "/aws/codebuild/${var.name_prefix}-backend-migrate"
+  retention_in_days = 30
+}
+
+resource "aws_codebuild_project" "backend_migrate" {
+  name         = "${var.name_prefix}-backend-migrate"
+  service_role = aws_iam_role.codebuild.arn
+
+  artifacts {
+    type = "CODEPIPELINE"
+  }
+
+  environment {
+    type         = "LINUX_CONTAINER"
+    compute_type = "BUILD_GENERAL1_SMALL"
+    image        = "aws/codebuild/standard:7.0"
+
+    environment_variable {
+      name  = "AWS_DEFAULT_REGION"
+      value = var.region
+    }
+    environment_variable {
+      name  = "ECS_CLUSTER"
+      value = var.ecs_cluster_name
+    }
+    environment_variable {
+      name  = "MIGRATE_TASK_FAMILY"
+      value = var.migrate_task_family
+    }
+    environment_variable {
+      name  = "SUBNET_IDS"
+      value = join(",", var.service_subnet_ids)
+    }
+    environment_variable {
+      name  = "SECURITY_GROUP_ID"
+      value = var.service_security_group_id
+    }
+  }
+
+  source {
+    type      = "CODEPIPELINE"
+    buildspec = "backend/buildspec-migrate.yml"
+  }
+
+  logs_config {
+    cloudwatch_logs {
+      group_name = aws_cloudwatch_log_group.backend_migrate.name
+    }
+  }
+}
+
 # ----- Frontend SPA build ---------------------------------------------
 
 resource "aws_cloudwatch_log_group" "frontend_build" {
@@ -141,9 +195,24 @@ resource "aws_codebuild_project" "frontend_deploy" {
     }
   }
 
+  # The input artifact for this stage is `spa_dist`, which contains the
+  # contents of frontend/dist/ at its root. We inline the buildspec here
+  # instead of committing a frontend/buildspec-deploy.yml file, because
+  # that path doesn't exist inside the dist artifact.
   source {
     type      = "CODEPIPELINE"
-    buildspec = "frontend/buildspec-deploy.yml"
+    buildspec = <<-EOT
+      version: 0.2
+      phases:
+        build:
+          commands:
+            # Upload everything except index.html with long-lived immutable caching.
+            # Vite produces hashed asset filenames, so they're safe to cache forever.
+            - aws s3 sync . "s3://$S3_BUCKET/" --delete --exclude "index.html" --cache-control "public, max-age=31536000, immutable"
+            # index.html must be revalidated on every request so users pick up new asset hashes.
+            - aws s3 cp index.html "s3://$S3_BUCKET/index.html" --cache-control "public, max-age=0, must-revalidate" --content-type "text/html"
+            - aws cloudfront create-invalidation --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" --paths "/*"
+    EOT
   }
 
   logs_config {

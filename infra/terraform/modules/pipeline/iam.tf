@@ -56,6 +56,7 @@ data "aws_iam_policy_document" "codepipeline" {
     ]
     resources = [
       aws_codebuild_project.backend.arn,
+      aws_codebuild_project.backend_migrate.arn,
       aws_codebuild_project.frontend_build.arn,
       aws_codebuild_project.frontend_deploy.arn,
     ]
@@ -184,6 +185,32 @@ data "aws_iam_policy_document" "codebuild" {
       "codebuild:BatchPutCodeCoverages",
     ]
     resources = ["*"]
+  }
+
+  # Used by the migrate CodeBuild step to register a new revision of the
+  # migrate task def, run it on Fargate, wait, and check the exit code.
+  statement {
+    sid = "EcsRunMigrate"
+    actions = [
+      "ecs:DescribeTaskDefinition",
+      "ecs:RegisterTaskDefinition",
+      "ecs:RunTask",
+      "ecs:DescribeTasks",
+      "ecs:StopTask",
+      "ecs:ListTasks",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid       = "PassEcsRoles"
+    actions   = ["iam:PassRole"]
+    resources = [var.task_execution_role_arn, var.task_role_arn]
+    condition {
+      test     = "StringEqualsIfExists"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
   }
 }
 

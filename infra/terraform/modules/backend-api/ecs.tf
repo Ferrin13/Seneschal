@@ -86,6 +86,60 @@ resource "aws_ecs_task_definition" "api" {
   container_definitions = local.container_definitions
 }
 
+# Standalone "migrate" task definition. Identical to the service task def
+# but runs `node dist/db/migrate.js` instead of the API entrypoint, exits
+# when migrations finish, and is invoked by the backend pipeline as a
+# one-off ECS RunTask between Build and Deploy.
+locals {
+  migrate_container_definitions = jsonencode([
+    {
+      name      = "${var.container_name}-migrate"
+      image     = "${aws_ecr_repository.api.repository_url}:${var.image_tag}"
+      essential = true
+      command   = ["node", "dist/db/migrate.js"]
+
+      environment = [
+        { name = "NODE_ENV", value = "production" },
+        { name = "LOG_LEVEL", value = "info" },
+      ]
+
+      secrets = [
+        {
+          name      = "DATABASE_URL"
+          valueFrom = local.db_secret_arn
+        },
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.api.name
+          "awslogs-region"        = data.aws_region.current.name
+          "awslogs-stream-prefix" = "migrate"
+        }
+      }
+    }
+  ])
+}
+
+resource "aws_ecs_task_definition" "migrate" {
+  family                   = "${var.name_prefix}-api-migrate"
+  cpu                      = tostring(var.cpu)
+  memory                   = tostring(var.memory)
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+
+  execution_role_arn = aws_iam_role.task_execution.arn
+  task_role_arn      = aws_iam_role.task.arn
+
+  runtime_platform {
+    cpu_architecture        = "X86_64"
+    operating_system_family = "LINUX"
+  }
+
+  container_definitions = local.migrate_container_definitions
+}
+
 resource "aws_ecs_service" "api" {
   name            = "${var.name_prefix}-api"
   cluster         = aws_ecs_cluster.main.id
@@ -115,10 +169,11 @@ resource "aws_ecs_service" "api" {
   deployment_maximum_percent         = 200
 
   # The pipeline updates the task definition revision out-of-band via the
-  # CodePipeline ECS deploy action. Ignore container image changes here so
-  # Terraform doesn't fight the pipeline.
+  # CodePipeline ECS deploy action. Ignore that here so Terraform doesn't
+  # fight the pipeline. desired_count stays Terraform-managed; switch to
+  # ignoring it too if/when you add Application Auto Scaling.
   lifecycle {
-    ignore_changes = [task_definition, desired_count]
+    ignore_changes = [task_definition]
   }
 
   depends_on = [aws_lb_listener.https]

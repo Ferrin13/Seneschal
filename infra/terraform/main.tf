@@ -69,11 +69,16 @@ module "pipeline" {
   github_repo   = var.github_repo
   github_branch = var.github_branch
 
-  ecr_repository_name      = module.backend_api.ecr_repository_name
-  ecr_repository_url       = module.backend_api.ecr_repository_url
-  ecs_cluster_name         = module.backend_api.ecs_cluster_name
-  ecs_service_name         = module.backend_api.ecs_service_name
-  ecs_task_container_name  = module.backend_api.ecs_task_container_name
+  ecr_repository_name        = module.backend_api.ecr_repository_name
+  ecr_repository_url         = module.backend_api.ecr_repository_url
+  ecs_cluster_name           = module.backend_api.ecs_cluster_name
+  ecs_service_name           = module.backend_api.ecs_service_name
+  ecs_task_container_name    = module.backend_api.ecs_task_container_name
+  migrate_task_family        = module.backend_api.migrate_task_family
+  service_subnet_ids         = module.backend_api.service_subnet_ids
+  service_security_group_id  = module.backend_api.service_security_group_id
+  task_execution_role_arn    = module.backend_api.task_execution_role_arn
+  task_role_arn              = module.backend_api.task_role_arn
 
   frontend_bucket_name      = module.frontend_web.bucket_name
   frontend_bucket_arn       = module.frontend_web.bucket_arn
