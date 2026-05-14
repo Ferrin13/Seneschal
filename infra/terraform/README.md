@@ -50,8 +50,12 @@ infra/terraform/
   aws configure sso --profile seneschal
   ```
 - An existing public Route53 hosted zone for your domain
-- An existing VPC containing the RDS instance, with at least two private
-  subnets (with NAT egress) and two public subnets
+- An existing VPC containing the RDS instance, with at least two subnets
+  in two different AZs. Either:
+  - two public + two private (with NAT egress) — preferred, or
+  - two+ public-only subnets — supply the same IDs for both
+    `existing_public_subnet_ids` and `existing_private_subnet_ids`; ECS
+    tasks will get public IPs (security groups still isolate them).
 - The DB connection string available. Pass it via **one** of:
   - `database_url` — raw connection string (Terraform creates a new Secrets
     Manager secret to hold it)

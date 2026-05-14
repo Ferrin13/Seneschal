@@ -12,7 +12,7 @@ phases:
     commands:
       - echo "Logging in to ECR..."
       - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com"
-      - COMMIT_SHORT="${CODEBUILD_RESOLVED_SOURCE_VERSION:0:8}"
+      - COMMIT_SHORT=$(printf '%s' "$CODEBUILD_RESOLVED_SOURCE_VERSION" | cut -c1-8)
       - 'IMAGE_TAG="${COMMIT_SHORT:-latest}"'
       - echo "Building tag $IMAGE_TAG"
 

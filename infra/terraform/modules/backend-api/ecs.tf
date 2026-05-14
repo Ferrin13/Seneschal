@@ -94,9 +94,13 @@ resource "aws_ecs_service" "api" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = var.private_subnet_ids
-    security_groups  = [aws_security_group.service.id]
-    assign_public_ip = false
+    subnets         = var.private_subnet_ids
+    security_groups = [aws_security_group.service.id]
+    # The target VPC has no NAT gateway, so Fargate tasks need a public IP
+    # to reach ECR, Secrets Manager, and CloudWatch Logs through the IGW.
+    # Inbound traffic is still gated by the service security group, which
+    # only accepts traffic from the ALB SG on the container port.
+    assign_public_ip = true
   }
 
   load_balancer {
