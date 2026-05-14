@@ -96,11 +96,17 @@ locals {
       name      = "${var.container_name}-migrate"
       image     = "${aws_ecr_repository.api.repository_url}:${var.image_tag}"
       essential = true
-      command   = ["node", "dist/db/migrate.js"]
+      # The distroless nodejs base image has ENTRYPOINT=["/nodejs/bin/node"],
+      # so the command is just the script path. Adding "node" here would
+      # produce `node node dist/...` and break.
+      command   = ["dist/db/migrate.js"]
 
       environment = [
         { name = "NODE_ENV", value = "production" },
         { name = "LOG_LEVEL", value = "info" },
+        # Not used by the migration, but the shared config.ts loads on import
+        # via db/client.ts and demands this var. Cheaper than refactoring.
+        { name = "FIREBASE_PROJECT_ID", value = var.firebase_project_id },
       ]
 
       secrets = [
