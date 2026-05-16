@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.parthadae.seneschal.data.repository.ActivityRepository
 import com.parthadae.seneschal.data.repository.TimeSlotRepository
+import com.parthadae.seneschal.domain.Activity
 import com.parthadae.seneschal.domain.Category
 import com.parthadae.seneschal.domain.SLOT_MS
 import com.parthadae.seneschal.domain.TimeSlot
@@ -63,11 +64,22 @@ import javax.inject.Inject
 
 enum class StatsRange(val label: String) { Today("Today"), Week("Week"), Month("Month") }
 
-data class CategoryTotal(val category: Category, val totalMs: Long)
+/**
+ * One row in the stats list: time spent on a specific activity with a
+ * specific (possibly empty) `notes` value. Two slots with the same
+ * activity but different notes intentionally produce separate rows so
+ * the user can see how time splits across the variants they typed.
+ */
+data class ActivityNotesTotal(
+    val activity: Activity,
+    val category: Category,
+    val notes: String?,
+    val totalMs: Long,
+)
 
 data class StatsUiState(
     val range: StatsRange = StatsRange.Today,
-    val totals: List<CategoryTotal> = emptyList(),
+    val totals: List<ActivityNotesTotal> = emptyList(),
     val totalLoggedMs: Long = 0L,
 )
 
@@ -116,19 +128,30 @@ class StatsViewModel @Inject constructor(
     private fun buildState(
         range: StatsRange,
         slots: List<TimeSlot>,
-        actsById: Map<String, com.parthadae.seneschal.domain.Activity>,
+        actsById: Map<String, Activity>,
         catsById: Map<String, Category>,
     ): StatsUiState {
-        val totalsMs = HashMap<String, Long>()
+        // Key on (activityId, normalizedNotes) so identical notes collapse
+        // into one row but distinct notes (including null vs. typed) split.
+        // Pair is hashable, which a Triple-with-null isn't always friendly
+        // with in older Kotlin stdlibs.
+        val totalsMs = HashMap<Pair<String, String?>, Long>()
         var loggedMs = 0L
         slots.forEach { s ->
-            val act = s.primaryActivityId?.let(actsById::get) ?: return@forEach
-            val cat = catsById[act.categoryId] ?: return@forEach
-            totalsMs[cat.id] = (totalsMs[cat.id] ?: 0L) + SLOT_MS
+            val activityId = s.primaryActivityId ?: return@forEach
+            // Treat blank notes as "no notes" so accidental whitespace
+            // doesn't fragment a row.
+            val key = activityId to s.notes?.trim()?.takeIf { it.isNotEmpty() }
+            totalsMs[key] = (totalsMs[key] ?: 0L) + SLOT_MS
             loggedMs += SLOT_MS
         }
         val totals = totalsMs.entries
-            .mapNotNull { (id, ms) -> catsById[id]?.let { CategoryTotal(it, ms) } }
+            .mapNotNull { (key, ms) ->
+                val (activityId, notes) = key
+                val act = actsById[activityId] ?: return@mapNotNull null
+                val cat = catsById[act.categoryId] ?: return@mapNotNull null
+                ActivityNotesTotal(activity = act, category = cat, notes = notes, totalMs = ms)
+            }
             .sortedByDescending { it.totalMs }
         return StatsUiState(range = range, totals = totals, totalLoggedMs = loggedMs)
     }
@@ -189,14 +212,20 @@ fun StatsScreen(
             )
             Spacer(Modifier.height(16.dp))
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(state.totals) { row -> CategoryTotalRow(row, state.totalLoggedMs) }
+                items(
+                    state.totals,
+                    // Activity + notes uniquely identify a row; without an
+                    // explicit key, identical activity names with different
+                    // notes can confuse Compose's diffing.
+                    key = { "${it.activity.id}|${it.notes ?: ""}" },
+                ) { row -> ActivityNotesRow(row, state.totalLoggedMs) }
             }
         }
     }
 }
 
 @Composable
-private fun StackedBar(totals: List<CategoryTotal>) {
+private fun StackedBar(totals: List<ActivityNotesTotal>) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -220,7 +249,7 @@ private fun StackedBar(totals: List<CategoryTotal>) {
 }
 
 @Composable
-private fun CategoryTotalRow(row: CategoryTotal, totalLoggedMs: Long) {
+private fun ActivityNotesRow(row: ActivityNotesTotal, totalLoggedMs: Long) {
     val pct = if (totalLoggedMs > 0)
         (row.totalMs * 100f / totalLoggedMs).toInt() else 0
     Row(
@@ -230,14 +259,26 @@ private fun CategoryTotalRow(row: CategoryTotal, totalLoggedMs: Long) {
             .fillMaxWidth()
             .padding(vertical = 8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f),
+        ) {
             Box(
                 modifier = Modifier
                     .size(12.dp)
                     .background(row.category.color, CircleShape),
             )
             Spacer(Modifier.size(8.dp))
-            Text(row.category.name, fontWeight = FontWeight.Medium)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(row.activity.name, fontWeight = FontWeight.Medium)
+                row.notes?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
         Text("${formatHm(row.totalMs)} · ${pct}%")
     }

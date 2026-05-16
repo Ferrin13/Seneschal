@@ -54,6 +54,14 @@ class ActivityRepository @Inject constructor(
             recents.mapNotNull { byId[it.activityId] }
         }
 
+    /**
+     * Distinct non-blank `notes` strings most recently saved on any time
+     * slot, in last-used-first order. Surfaced in the picker as one-tap
+     * "Optional details" chips.
+     */
+    fun recentNotes(limit: Int = 8): Flow<List<String>> =
+        timeSlotDao.observeRecentNotes(limit)
+
     suspend fun activityById(id: String): Activity? =
         activityDao.byId(id)?.toDomain()
 

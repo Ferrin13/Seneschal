@@ -78,6 +78,7 @@ data class PickerState(
     val categories: List<Category> = emptyList(),
     val activities: List<Activity> = emptyList(),
     val recents: List<Activity> = emptyList(),
+    val recentNotes: List<String> = emptyList(),
 )
 
 @HiltViewModel
@@ -88,8 +89,10 @@ class ActivityPickerViewModel @Inject constructor(
         repo.categories,
         repo.activities,
         repo.recentActivities(8),
-    ) { cats, acts, recents -> PickerState(cats, acts, recents) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PickerState())
+        repo.recentNotes(8),
+    ) { cats, acts, recents, recentNotes ->
+        PickerState(cats, acts, recents, recentNotes)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PickerState())
 }
 
 /**
@@ -204,6 +207,21 @@ fun ActivityPickerSheet(
                     .fillMaxWidth()
                     .padding(vertical = 4.dp),
             )
+
+            if (state.recentNotes.isNotEmpty()) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 4.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    items(state.recentNotes) { note ->
+                        RecentNoteChip(
+                            label = note,
+                            onClick = { notes = note },
+                        )
+                    }
+                }
+            }
 
             // When editing a range that already has a uniform primary, allow
             // committing notes-only (or range-only) edits without re-tapping
@@ -568,6 +586,29 @@ private fun RecentChip(
             onClick = onClick,
             onLongClick = onLongClick,
         ),
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelLarge,
+        )
+    }
+}
+
+/**
+ * Notes have no category color, so the chip uses surfaceVariant for a
+ * neutral fill that still reads as a tappable pill alongside the
+ * activity recents above.
+ */
+@Composable
+private fun RecentNoteChip(
+    label: String,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        onClick = onClick,
     ) {
         Text(
             label,

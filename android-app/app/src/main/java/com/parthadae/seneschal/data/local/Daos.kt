@@ -92,6 +92,13 @@ interface TimeSlotDao {
             "GROUP BY primaryActivityId ORDER BY lastUsedMs DESC LIMIT :limit"
     )
     fun observeRecentActivities(limit: Int): Flow<List<RecentActivity>>
+
+    @Query(
+        "SELECT notes FROM time_slots " +
+            "WHERE notes IS NOT NULL AND TRIM(notes) != '' AND deletedAt IS NULL " +
+            "GROUP BY notes ORDER BY MAX(updatedAt) DESC LIMIT :limit"
+    )
+    fun observeRecentNotes(limit: Int): Flow<List<String>>
 }
 
 data class RecentActivity(val activityId: String, val lastUsedMs: Long)
