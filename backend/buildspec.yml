@@ -10,8 +10,10 @@ version: 0.2
 phases:
   pre_build:
     commands:
-      - echo "Logging in to ECR..."
+      - echo "Logging in to ECR (private)..."
       - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com"
+      - echo "Logging in to ECR Public (for base image pulls)..."
+      - aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
       - COMMIT_SHORT=$(printf '%s' "$CODEBUILD_RESOLVED_SOURCE_VERSION" | cut -c1-8)
       - 'IMAGE_TAG="${COMMIT_SHORT:-latest}"'
       - echo "Building tag $IMAGE_TAG"

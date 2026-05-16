@@ -1,5 +1,7 @@
 # --- build stage ---
-FROM node:20-bookworm-slim AS build
+# Pull Node from ECR Public (AWS-hosted Docker Hub mirror) to avoid
+# docker.io anonymous pull rate limits in CodeBuild.
+FROM public.ecr.aws/docker/library/node:20-bookworm-slim AS build
 WORKDIR /app
 COPY package*.json tsconfig.json ./
 RUN npm ci

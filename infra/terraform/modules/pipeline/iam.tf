@@ -136,6 +136,17 @@ data "aws_iam_policy_document" "codebuild" {
     resources = ["*"]
   }
 
+  # Allow pulling base images from ECR Public (e.g. public.ecr.aws/docker/library/node)
+  # to avoid Docker Hub anonymous pull rate limits in CodeBuild.
+  statement {
+    sid = "EcrPublicAuth"
+    actions = [
+      "ecr-public:GetAuthorizationToken",
+      "sts:GetServiceBearerToken",
+    ]
+    resources = ["*"]
+  }
+
   statement {
     sid = "EcrPush"
     actions = [
