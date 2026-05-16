@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      Camera captures are written to filesDir/captures, which is a
+      subdirectory the app's private files dir. Exposing it via
+      FileProvider lets us hand a content:// URI to the camera app
+      without giving it broad access to our files.
+    -->
+    <files-path name="captures" path="captures/" />
+</paths>

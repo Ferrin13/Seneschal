@@ -2,6 +2,7 @@ package com.parthadae.seneschal.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BarChart
@@ -23,6 +24,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.parthadae.seneschal.ui.activities.ActivitiesScreen
+import com.parthadae.seneschal.ui.expenses.ExpenseTrackingFlow
 import com.parthadae.seneschal.ui.home.HomeScreen
 import com.parthadae.seneschal.ui.home.PlaceholderFeatureScreen
 import com.parthadae.seneschal.ui.settings.SettingsScreen
@@ -35,6 +37,7 @@ private object RootRoutes {
     const val EXPENSES = "expenses"
     const val GROUP_TEXT = "group_text"
     const val CLIPBOARD = "clipboard"
+    const val SETTINGS = "settings"
 }
 
 private enum class TimeTab(val route: String, val label: String, val icon: ImageVector) {
@@ -67,6 +70,9 @@ fun SeneschalNavGraph() {
                 onClipboard = {
                     navController.navigate(RootRoutes.CLIPBOARD) { launchSingleTop = true }
                 },
+                onSettings = {
+                    navController.navigate(RootRoutes.SETTINGS) { launchSingleTop = true }
+                },
             )
         }
         composable(RootRoutes.TIME) {
@@ -77,11 +83,7 @@ fun SeneschalNavGraph() {
             )
         }
         composable(RootRoutes.EXPENSES) {
-            PlaceholderFeatureScreen(
-                title = "Expense tracking",
-                description = "Expense tracking is not available yet. This screen will appear in a future update.",
-                onBack = { navController.popBackStack() },
-            )
+            ExpenseTrackingFlow(onNavigateHome = { navController.popBackStack() })
         }
         composable(RootRoutes.GROUP_TEXT) {
             PlaceholderFeatureScreen(
@@ -96,6 +98,9 @@ fun SeneschalNavGraph() {
                 description = "Clipboard tools are not available yet. This screen will appear in a future update.",
                 onBack = { navController.popBackStack() },
             )
+        }
+        composable(RootRoutes.SETTINGS) {
+            SettingsScreen(onNavigateHome = { navController.popBackStack() })
         }
     }
 }
@@ -151,7 +156,10 @@ private fun TimeTrackingFlow(
                 ActivitiesScreen(onNavigateHome = onNavigateHome)
             }
             composable(TimeTab.Settings.route) {
-                SettingsScreen(onNavigateHome = onNavigateHome)
+                SettingsScreen(
+                    onNavigateHome = onNavigateHome,
+                    topAppBarWindowInsets = WindowInsets(0, 0, 0, 0),
+                )
             }
         }
     }

@@ -10,8 +10,10 @@ import androidx.room.RoomDatabase
         TimeSlotEntity::class,
         RunningTimerEntity::class,
         PendingMutationEntity::class,
+        BusinessEntity::class,
+        ExpenseEntity::class,
     ],
-    version = 1,
+    version = 3,
     exportSchema = false,
 )
 abstract class SeneschalDatabase : RoomDatabase() {
@@ -20,4 +22,6 @@ abstract class SeneschalDatabase : RoomDatabase() {
     abstract fun timeSlotDao(): TimeSlotDao
     abstract fun runningTimerDao(): RunningTimerDao
     abstract fun pendingMutationDao(): PendingMutationDao
+    abstract fun businessDao(): BusinessDao
+    abstract fun expenseDao(): ExpenseDao
 }

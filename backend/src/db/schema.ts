@@ -174,6 +174,90 @@ export const runningTimers = pgTable("running_timers", {
     .defaultNow(),
 });
 
+/**
+ * The fixed list of "businesses" an expense can be tagged with. Modeled as
+ * a per-user table (rather than a Postgres enum) so the values can be
+ * managed via SQL without a migration. The seed list ships on first
+ * sign-in via `seedUserDefaults`. There is no public CREATE/UPDATE/DELETE
+ * surface for v1.
+ */
+export const businesses = pgTable(
+  "businesses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    clientUpdatedAt: timestamp("client_updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    userIdx: index("businesses_user_idx").on(t.userId),
+    userNameIdx: uniqueIndex("businesses_user_name_idx").on(t.userId, t.name),
+  })
+);
+
+/**
+ * One expense entry. The minimum payload is `(businessId, occurredOn)`;
+ * everything else is optional. `imageKey` is the S3 object key for an
+ * attached receipt photo (uploaded out-of-band via presigned PUT) — null
+ * when no image is attached.
+ *
+ * `client_updated_at` drives last-write-wins reconciliation during sync,
+ * matching `time_slots` semantics.
+ */
+export const expenses = pgTable(
+  "expenses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    businessId: uuid("business_id")
+      .notNull()
+      .references(() => businesses.id, { onDelete: "restrict" }),
+    // The wall-clock moment the expense happened. Stored as
+    // `timestamp with time zone` so the client's local time round-trips
+    // even when users are in different zones.
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    amountCents: integer("amount_cents"),
+    note: text("note"),
+    imageKey: text("image_key"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    clientUpdatedAt: timestamp("client_updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    userOccurredIdx: index("expenses_user_occurred_idx").on(
+      t.userId,
+      t.occurredAt
+    ),
+    userUpdatedIdx: index("expenses_user_updated_idx").on(
+      t.userId,
+      t.updatedAt
+    ),
+    businessIdx: index("expenses_business_idx").on(t.businessId),
+  })
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Category = typeof categories.$inferSelect;
@@ -184,3 +268,7 @@ export type TimeSlot = typeof timeSlots.$inferSelect;
 export type NewTimeSlot = typeof timeSlots.$inferInsert;
 export type RunningTimer = typeof runningTimers.$inferSelect;
 export type NewRunningTimer = typeof runningTimers.$inferInsert;
+export type Business = typeof businesses.$inferSelect;
+export type NewBusiness = typeof businesses.$inferInsert;
+export type Expense = typeof expenses.$inferSelect;
+export type NewExpense = typeof expenses.$inferInsert;

@@ -2,8 +2,11 @@ package com.parthadae.seneschal.domain
 
 import androidx.compose.ui.graphics.Color
 import com.parthadae.seneschal.data.local.ActivityEntity
+import com.parthadae.seneschal.data.local.BusinessEntity
 import com.parthadae.seneschal.data.local.CategoryEntity
+import com.parthadae.seneschal.data.local.ExpenseEntity
 import com.parthadae.seneschal.data.local.TimeSlotEntity
+import java.time.Instant
 
 data class Category(
     val id: String,
@@ -63,6 +66,51 @@ fun TimeSlotEntity.toDomain() = TimeSlot(
     primaryActivityId = primaryActivityId,
     secondaryActivityId = secondaryActivityId,
     notes = notes,
+    updatedAtMs = updatedAt,
+    clientUpdatedAtMs = clientUpdatedAt,
+    isDeleted = deletedAt != null,
+)
+
+data class Business(
+    val id: String,
+    val name: String,
+    val sortOrder: Int,
+    val isActive: Boolean,
+)
+
+/**
+ * `localImagePath` is non-null when a freshly-attached image is still
+ * waiting to be uploaded to S3; the UI should prefer it over [imageKey]
+ * for display until the key arrives.
+ */
+data class Expense(
+    val id: String,
+    val businessId: String,
+    val occurredAt: Instant,
+    val amountCents: Int?,
+    val note: String?,
+    val imageKey: String?,
+    val localImagePath: String?,
+    val updatedAtMs: Long,
+    val clientUpdatedAtMs: Long,
+    val isDeleted: Boolean,
+)
+
+fun BusinessEntity.toDomain() = Business(
+    id = id,
+    name = name,
+    sortOrder = sortOrder,
+    isActive = isActive,
+)
+
+fun ExpenseEntity.toDomain() = Expense(
+    id = id,
+    businessId = businessId,
+    occurredAt = Instant.ofEpochMilli(occurredAtMs),
+    amountCents = amountCents,
+    note = note,
+    imageKey = imageKey,
+    localImagePath = localImagePath,
     updatedAtMs = updatedAt,
     clientUpdatedAtMs = clientUpdatedAt,
     isDeleted = deletedAt != null,

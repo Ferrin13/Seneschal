@@ -124,3 +124,83 @@ data class ActivityPatchRequest(
     val archived: Boolean? = null,
     val clientUpdatedAt: String? = null,
 )
+
+@JsonClass(generateAdapter = true)
+data class BusinessDto(
+    val id: String,
+    val name: String,
+    val sortOrder: Int,
+    val isActive: Boolean,
+    val createdAt: String,
+    val updatedAt: String,
+    val clientUpdatedAt: String,
+    val deletedAt: String?,
+)
+
+@JsonClass(generateAdapter = true)
+data class ExpenseDto(
+    val id: String,
+    val businessId: String?,
+    val occurredAt: String?,
+    val amountCents: Int?,
+    val note: String?,
+    val imageKey: String?,
+    val createdAt: String,
+    val updatedAt: String,
+    val clientUpdatedAt: String,
+    val deletedAt: String?,
+)
+
+@JsonClass(generateAdapter = true)
+data class ExpenseUpsertDto(
+    val id: String,
+    val businessId: String?,
+    val occurredAt: String?,
+    val amountCents: Int?,
+    val note: String?,
+    val imageKey: String?,
+    val clientUpdatedAt: String,
+    val deleted: Boolean? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class ExpensesUpsertRequest(val expenses: List<ExpenseUpsertDto>)
+
+@JsonClass(generateAdapter = true)
+data class PresignedUploadRequest(
+    val purpose: String,
+    val contentType: String,
+    val contentLength: Long,
+)
+
+@JsonClass(generateAdapter = true)
+data class PresignedUploadResponse(
+    val key: String,
+    val url: String,
+    val method: String,
+    val headers: Map<String, String>,
+    val expiresAt: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class PresignedDownloadResponse(
+    val key: String,
+    val url: String,
+    val expiresAt: String,
+)
+
+/**
+ * Internal payload schema for `image_upload` outbox rows. Not sent to the
+ * server as-is — the upload handler reads this back out of the queue,
+ * exchanges it for a presigned URL, PUTs the bytes, and dispatches the
+ * resolved key to the matching `ImageAttacher`.
+ */
+@JsonClass(generateAdapter = true)
+data class ImageUploadDto(
+    val localPath: String,
+    val contentType: String,
+    val sizeBytes: Long,
+    val ownerKind: String,
+    val ownerId: String,
+    val purpose: String,
+)

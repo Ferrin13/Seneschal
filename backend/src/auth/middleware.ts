@@ -83,7 +83,6 @@ const plugin: FastifyPluginAsync = async (app) => {
         })
         .returning({ id: users.id });
       userId = created!.id;
-      await seedUserDefaults(db, userId);
     } else {
       userId = existing[0]!.id;
       // Best-effort: keep email fresh, but don't fail the request if it
@@ -96,6 +95,12 @@ const plugin: FastifyPluginAsync = async (app) => {
           .catch(() => undefined);
       }
     }
+
+    // Run seed on every request — each subsection is idempotent and
+    // short-circuits if its data already exists. This makes adding new
+    // seeded tables (e.g. `businesses`) automatically backfill for
+    // accounts created before the new seed shipped.
+    await seedUserDefaults(db, userId);
 
     req.auth = { firebaseUid, email, userId };
   });

@@ -94,3 +94,61 @@ data class PendingMutationEntity(
     val lastAttemptAt: Long? = null,
     val lastError: String? = null,
 )
+
+/**
+ * The fixed list of "businesses" an expense can be tagged with. Modeled
+ * as a table (not a hard-coded enum) so the seed list can change without
+ * a schema migration; the UI treats it as read-only.
+ */
+@Entity(tableName = "businesses")
+data class BusinessEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val sortOrder: Int,
+    val isActive: Boolean,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val clientUpdatedAt: Long,
+    val deletedAt: Long?,
+)
+
+/**
+ * One expense entry. Required: a business and a calendar date. Optional:
+ * dollar amount (stored in cents to avoid float drift), free-form note,
+ * and a single attached image.
+ *
+ * `imageKey` is the S3 object key once the image is uploaded.
+ * `localImagePath` is the absolute path of the image file inside this
+ * app's `filesDir` while it's queued for upload; it stays populated until
+ * the upload succeeds and the key is written back, after which the local
+ * copy may be deleted.
+ *
+ * `occurredAtMs` is the wall-clock moment of the expense as epoch
+ * milliseconds. It corresponds to a `timestamp with time zone` column
+ * server-side; we store an Instant locally so date+time both round-trip.
+ */
+@Entity(
+    tableName = "expenses",
+    foreignKeys = [
+        ForeignKey(
+            entity = BusinessEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["businessId"],
+            onDelete = ForeignKey.NO_ACTION,
+        )
+    ],
+    indices = [Index("businessId"), Index("occurredAtMs"), Index("updatedAt")],
+)
+data class ExpenseEntity(
+    @PrimaryKey val id: String,
+    val businessId: String,
+    val occurredAtMs: Long,
+    val amountCents: Int?,
+    val note: String?,
+    val imageKey: String?,
+    val localImagePath: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val clientUpdatedAt: Long,
+    val deletedAt: Long?,
+)

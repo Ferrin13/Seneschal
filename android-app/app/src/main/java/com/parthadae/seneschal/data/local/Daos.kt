@@ -119,6 +119,57 @@ interface RunningTimerDao {
 }
 
 @Dao
+interface BusinessDao {
+    @Query("SELECT * FROM businesses WHERE deletedAt IS NULL ORDER BY sortOrder, name")
+    fun observeActive(): Flow<List<BusinessEntity>>
+
+    @Query("SELECT * FROM businesses WHERE id = :id LIMIT 1")
+    suspend fun byId(id: String): BusinessEntity?
+
+    @Upsert
+    suspend fun upsertAll(rows: List<BusinessEntity>)
+
+    @Query("DELETE FROM businesses WHERE id NOT IN (:keepIds)")
+    suspend fun deleteWhereIdNotIn(keepIds: List<String>)
+}
+
+@Dao
+interface ExpenseDao {
+    @Query("SELECT * FROM expenses WHERE deletedAt IS NULL ORDER BY occurredAtMs DESC, createdAt DESC")
+    fun observeActive(): Flow<List<ExpenseEntity>>
+
+    @Query("SELECT * FROM expenses WHERE id = :id LIMIT 1")
+    suspend fun byId(id: String): ExpenseEntity?
+
+    @Query("SELECT MAX(updatedAt) FROM expenses")
+    suspend fun maxUpdatedAt(): Long?
+
+    @Upsert
+    suspend fun upsertAll(rows: List<ExpenseEntity>)
+
+    @Query("DELETE FROM expenses WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    /**
+     * Patch just the image fields. Used by the image-upload outbox handler
+     * so a successful upload can attach the resolved S3 key without
+     * racing the user's other edits to the row.
+     */
+    @Query(
+        "UPDATE expenses SET imageKey = :imageKey, localImagePath = :localImagePath, " +
+            "updatedAt = :updatedAt, clientUpdatedAt = :clientUpdatedAt " +
+            "WHERE id = :id"
+    )
+    suspend fun setImage(
+        id: String,
+        imageKey: String?,
+        localImagePath: String?,
+        updatedAt: Long,
+        clientUpdatedAt: Long,
+    )
+}
+
+@Dao
 interface PendingMutationDao {
     @Query("SELECT * FROM pending_mutations ORDER BY id ASC LIMIT :limit")
     suspend fun take(limit: Int): List<PendingMutationEntity>

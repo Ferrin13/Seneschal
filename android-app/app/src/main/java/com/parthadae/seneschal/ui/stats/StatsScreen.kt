@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -180,6 +181,12 @@ fun StatsScreen(
                     }
                 },
                 title = { Text("Stats") },
+                // The outer TimeTrackingFlow Scaffold already consumes
+                // the status-bar inset; suppressing the TopAppBar's own
+                // default top inset prevents it from being applied a
+                // second time, which otherwise leaves an empty
+                // status-bar-height strip above the title row.
+                windowInsets = WindowInsets(0, 0, 0, 0),
             )
         },
     ) { padding ->

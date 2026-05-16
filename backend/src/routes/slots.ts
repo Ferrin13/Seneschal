@@ -5,6 +5,10 @@ import { db } from "../db/client.js";
 import { timeSlots } from "../db/schema.js";
 import { isSlotAligned } from "../util/time.js";
 
+// `primaryActivityId` is `.nullable().optional()` because the Android client
+// uses Moshi, which omits null fields from JSON by default. A clear-slot
+// payload arrives carrying only `slotStartUtc`, `clientUpdatedAt`, and
+// `deleted: true`.
 const slotInput = z.object({
   slotStartUtc: z
     .string()
@@ -12,7 +16,7 @@ const slotInput = z.object({
     .refine((s) => isSlotAligned(new Date(s)), {
       message: "slotStartUtc must be aligned to a 15-minute boundary",
     }),
-  primaryActivityId: z.string().uuid().nullable(),
+  primaryActivityId: z.string().uuid().nullable().optional(),
   secondaryActivityId: z.string().uuid().nullable().optional(),
   notes: z.string().max(2000).nullable().optional(),
   clientUpdatedAt: z.string().datetime(),

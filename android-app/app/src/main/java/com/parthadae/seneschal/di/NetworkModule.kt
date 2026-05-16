@@ -14,6 +14,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.util.concurrent.TimeUnit
+import javax.inject.Named
 import javax.inject.Singleton
 
 @Module
@@ -55,4 +56,34 @@ object NetworkModule {
     @Singleton
     fun seneschalApi(retrofit: Retrofit): SeneschalApi =
         retrofit.create(SeneschalApi::class.java)
+
+    /**
+     * Plain OkHttpClient with no auth interceptor, used for direct uploads
+     * to S3 via presigned URLs. Adding `Authorization: Bearer <id token>`
+     * to those requests would invalidate the signature.
+     *
+     * In debug builds we attach a HEADERS-level logging interceptor so that
+     * presigned-URL failures (SignatureDoesNotMatch / AccessDenied) can be
+     * diagnosed by comparing the actual request line + headers we send
+     * against the canonical request S3 echoes back in its 403 body. Bytes
+     * are deliberately NOT logged: image uploads can be many MB and we
+     * never want them in logcat.
+     */
+    @Provides
+    @Singleton
+    @Named("uploadClient")
+    fun uploadOkHttpClient(): OkHttpClient {
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(120, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+        if (BuildConfig.DEBUG) {
+            builder.addInterceptor(
+                HttpLoggingInterceptor().apply {
+                    level = HttpLoggingInterceptor.Level.HEADERS
+                }
+            )
+        }
+        return builder.build()
+    }
 }

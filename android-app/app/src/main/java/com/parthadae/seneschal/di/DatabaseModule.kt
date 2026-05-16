@@ -3,7 +3,9 @@ package com.parthadae.seneschal.di
 import android.content.Context
 import androidx.room.Room
 import com.parthadae.seneschal.data.local.ActivityDao
+import com.parthadae.seneschal.data.local.BusinessDao
 import com.parthadae.seneschal.data.local.CategoryDao
+import com.parthadae.seneschal.data.local.ExpenseDao
 import com.parthadae.seneschal.data.local.PendingMutationDao
 import com.parthadae.seneschal.data.local.RunningTimerDao
 import com.parthadae.seneschal.data.local.SeneschalDatabase
@@ -31,4 +33,6 @@ object DatabaseModule {
     @Provides fun runningTimerDao(db: SeneschalDatabase): RunningTimerDao = db.runningTimerDao()
     @Provides fun pendingMutationDao(db: SeneschalDatabase): PendingMutationDao =
         db.pendingMutationDao()
+    @Provides fun businessDao(db: SeneschalDatabase): BusinessDao = db.businessDao()
+    @Provides fun expenseDao(db: SeneschalDatabase): ExpenseDao = db.expenseDao()
 }

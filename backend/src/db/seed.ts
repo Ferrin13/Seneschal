@@ -1,6 +1,19 @@
 import { eq } from "drizzle-orm";
 import type { DbClient } from "./client.js";
-import { activities, categories } from "./schema.js";
+import { activities, businesses, categories } from "./schema.js";
+
+/**
+ * Pre-populated business list. Modeled as a per-user table (not a Postgres
+ * enum) so it's editable via SQL, but for v1 the app treats it as a fixed
+ * enum — there's no UI to add or rename entries.
+ */
+export const SEED_BUSINESSES: string[] = [
+  "Parthadae Software",
+  "Parthadae Properties",
+  "Boise Bounce",
+  "Gem State Brief",
+  "BRC Bid Portal",
+];
 
 /**
  * Per-user seed data. Called once on first sign-in (lazy upsert in /me).
@@ -106,11 +119,20 @@ export const SEED_CATEGORIES: SeedCategory[] = [
 ];
 
 /**
- * Idempotent: if the user already has any categories we assume they've been
- * seeded (or have edited their list) and do nothing. Safe to call from /me
- * on every request without measurable cost.
+ * Idempotent: each subsection guards on whether its own seed data is
+ * already present, so adding a new seed (e.g. businesses) to an account
+ * created before that seed existed will still backfill on the next
+ * sign-in. Safe to call from /me on every request.
  */
 export async function seedUserDefaults(
+  db: DbClient,
+  userId: string
+): Promise<void> {
+  await seedCategoriesAndActivities(db, userId);
+  await seedBusinesses(db, userId);
+}
+
+async function seedCategoriesAndActivities(
   db: DbClient,
   userId: string
 ): Promise<void> {
@@ -147,4 +169,22 @@ export async function seedUserDefaults(
       }
     }
   });
+}
+
+async function seedBusinesses(db: DbClient, userId: string): Promise<void> {
+  const existing = await db
+    .select({ id: businesses.id })
+    .from(businesses)
+    .where(eq(businesses.userId, userId))
+    .limit(1);
+  if (existing.length > 0) return;
+
+  const rows = SEED_BUSINESSES.map((name, i) => ({
+    userId,
+    name,
+    sortOrder: i,
+  }));
+  if (rows.length > 0) {
+    await db.insert(businesses).values(rows);
+  }
 }

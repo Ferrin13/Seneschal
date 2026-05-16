@@ -9,6 +9,9 @@ import { categoryRoutes } from "./routes/categories.js";
 import { activityRoutes } from "./routes/activities.js";
 import { slotRoutes } from "./routes/slots.js";
 import { timerRoutes } from "./routes/timer.js";
+import { businessRoutes } from "./routes/businesses.js";
+import { expenseRoutes } from "./routes/expenses.js";
+import { uploadRoutes } from "./routes/uploads.js";
 
 export async function buildServer() {
   const app = Fastify({
@@ -28,6 +31,7 @@ export async function buildServer() {
 
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof ZodError) {
+      req.log.warn({ issues: err.issues }, "validation_failed");
       return reply
         .code(400)
         .send({ error: "validation_failed", issues: err.issues });
@@ -49,6 +53,9 @@ export async function buildServer() {
   await app.register(activityRoutes);
   await app.register(slotRoutes);
   await app.register(timerRoutes);
+  await app.register(businessRoutes);
+  await app.register(expenseRoutes);
+  await app.register(uploadRoutes);
 
   return app;
 }

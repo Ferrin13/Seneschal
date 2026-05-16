@@ -45,3 +45,11 @@ output "service_subnet_ids" {
 output "service_security_group_id" {
   value = aws_security_group.service.id
 }
+
+output "images_bucket_name" {
+  value = aws_s3_bucket.images.bucket
+}
+
+output "images_bucket_arn" {
+  value = aws_s3_bucket.images.arn
+}

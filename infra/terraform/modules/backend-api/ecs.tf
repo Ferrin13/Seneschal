@@ -43,6 +43,8 @@ locals {
         { name = "LOG_LEVEL", value = "info" },
         { name = "FIREBASE_PROJECT_ID", value = var.firebase_project_id },
         { name = "CORS_ORIGINS", value = var.cors_origins },
+        { name = "AWS_REGION", value = var.region },
+        { name = "S3_BUCKET", value = aws_s3_bucket.images.bucket },
       ]
 
       secrets = [

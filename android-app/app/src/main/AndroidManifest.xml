@@ -8,6 +8,13 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
+    <!--
+      We don't declare android.hardware.camera as required: the in-app
+      camera capture flow uses ACTION_IMAGE_CAPTURE, which on Android 7+
+      no longer requires CAMERA permission for the calling app.
+    -->
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+
     <application
         android:name=".SeneschalApp"
         android:allowBackup="true"
@@ -56,6 +63,20 @@
                 android:name="androidx.work.WorkManagerInitializer"
                 android:value="androidx.startup"
                 tools:node="remove" />
+        </provider>
+
+        <!--
+          FileProvider for sharing image-capture URIs with the camera
+          app. Used by ExpenseEditScreen's "Take photo" path.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
         </provider>
     </application>
 

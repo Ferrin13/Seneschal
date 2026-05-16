@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,6 +28,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,15 +47,13 @@ import com.parthadae.seneschal.auth.AuthRepository
 import com.parthadae.seneschal.auth.AuthState
 import com.parthadae.seneschal.data.local.PendingMutationDao
 import com.parthadae.seneschal.data.local.PendingMutationEntity
-import com.parthadae.seneschal.data.remote.dto.TimeSlotUpsertDto
 import com.parthadae.seneschal.data.repository.ActivityRepository
-import com.parthadae.seneschal.data.repository.TimeSlotRepository
 import com.parthadae.seneschal.domain.Activity
+import com.parthadae.seneschal.sync.DescribeContext
+import com.parthadae.seneschal.sync.OutboxHandler
 import com.parthadae.seneschal.sync.SyncScheduler
 import com.parthadae.seneschal.sync.SyncStatus
 import com.parthadae.seneschal.sync.SyncStatusRepository
-import com.squareup.moshi.Moshi
-import com.squareup.moshi.adapter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -61,7 +61,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
@@ -74,7 +73,6 @@ data class SettingsUiState(
     val activitiesById: Map<String, Activity> = emptyMap(),
 )
 
-@OptIn(ExperimentalStdlibApi::class)
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val authRepository: AuthRepository,
@@ -82,9 +80,9 @@ class SettingsViewModel @Inject constructor(
     private val pendingMutationDao: PendingMutationDao,
     syncStatusRepository: SyncStatusRepository,
     activityRepository: ActivityRepository,
-    moshi: Moshi,
+    handlers: Set<@JvmSuppressWildcards OutboxHandler>,
 ) : ViewModel() {
-    private val slotUpsertAdapter = moshi.adapter<TimeSlotUpsertDto>()
+    private val handlersByKind: Map<String, OutboxHandler> = handlers.associateBy { it.kind }
 
     val state: StateFlow<SettingsUiState> = combine(
         authRepository.authState,
@@ -118,38 +116,25 @@ class SettingsViewModel @Inject constructor(
 
     /** Render a pending mutation as a one-line summary for the UI. */
     fun describe(row: PendingMutationEntity, activitiesById: Map<String, Activity>): String {
-        return when (row.kind) {
-            TimeSlotRepository.KIND_SLOT_UPSERT -> describeSlotUpsert(row, activitiesById)
-            else -> "${row.kind} (${row.targetId ?: "?"})"
-        }
-    }
-
-    private fun describeSlotUpsert(
-        row: PendingMutationEntity,
-        activitiesById: Map<String, Activity>,
-    ): String {
-        val parsed = runCatching { slotUpsertAdapter.fromJson(row.payloadJson) }.getOrNull()
-            ?: return "Slot change (${row.targetId ?: "?"})"
-        val timeLabel = formatSlotLabel(parsed.slotStartUtc)
-        val verb = if (parsed.deleted == true) "Clear" else "Set"
-        val activityName = parsed.primaryActivityId
-            ?.let { activitiesById[it]?.name ?: "(unknown activity)" }
-        return buildString {
-            append("$verb $timeLabel")
-            if (activityName != null) append(" → $activityName")
-        }
+        val ctx = DescribeContext(activitiesById = activitiesById)
+        return handlersByKind[row.kind]?.describe(row, ctx)
+            ?: "${row.kind} (${row.targetId ?: "?"})"
     }
 }
 
 private val TIME_FMT = DateTimeFormatter.ofPattern("h:mm:ss a")
-private val SLOT_TIME_FMT = DateTimeFormatter.ofPattern("h:mm a")
-private val DAY_FMT = DateTimeFormatter.ofPattern("EEE MMM d")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     vm: SettingsViewModel = hiltViewModel(),
     onNavigateHome: (() -> Unit)? = null,
+    // Callers that nest this screen inside another Scaffold which has
+    // already consumed the status-bar inset (e.g. TimeTrackingFlow,
+    // ExpenseTrackingFlow) should pass WindowInsets(0, 0, 0, 0) so the
+    // TopAppBar doesn't apply the inset a second time and leave an
+    // empty status-bar-height strip above the title.
+    topAppBarWindowInsets: WindowInsets = TopAppBarDefaults.windowInsets,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
@@ -169,6 +154,7 @@ fun SettingsScreen(
                     }
                 },
                 title = { Text("Settings") },
+                windowInsets = topAppBarWindowInsets,
             )
         },
     ) { padding ->
@@ -364,17 +350,3 @@ private fun PendingMutationRow(
 
 private fun formatTime(epochMs: Long): String =
     TIME_FMT.format(Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()))
-
-private fun formatSlotLabel(iso: String): String {
-    return runCatching {
-        val zoned = Instant.parse(iso).atZone(ZoneId.systemDefault())
-        val today = LocalDate.now()
-        val dayPart = when (zoned.toLocalDate()) {
-            today -> "Today"
-            today.minusDays(1) -> "Yesterday"
-            today.plusDays(1) -> "Tomorrow"
-            else -> DAY_FMT.format(zoned)
-        }
-        "$dayPart ${SLOT_TIME_FMT.format(zoned)}"
-    }.getOrElse { iso }
-}

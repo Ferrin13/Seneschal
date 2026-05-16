@@ -3,10 +3,16 @@ package com.parthadae.seneschal.data.remote
 import com.parthadae.seneschal.data.remote.dto.ActivityCreateRequest
 import com.parthadae.seneschal.data.remote.dto.ActivityDto
 import com.parthadae.seneschal.data.remote.dto.ActivityPatchRequest
+import com.parthadae.seneschal.data.remote.dto.BusinessDto
 import com.parthadae.seneschal.data.remote.dto.CategoryCreateRequest
 import com.parthadae.seneschal.data.remote.dto.CategoryDto
 import com.parthadae.seneschal.data.remote.dto.CategoryPatchRequest
+import com.parthadae.seneschal.data.remote.dto.ExpenseDto
+import com.parthadae.seneschal.data.remote.dto.ExpensesUpsertRequest
 import com.parthadae.seneschal.data.remote.dto.MeDto
+import com.parthadae.seneschal.data.remote.dto.PresignedDownloadResponse
+import com.parthadae.seneschal.data.remote.dto.PresignedUploadRequest
+import com.parthadae.seneschal.data.remote.dto.PresignedUploadResponse
 import com.parthadae.seneschal.data.remote.dto.SlotsUpsertRequest
 import com.parthadae.seneschal.data.remote.dto.TimeSlotDto
 import com.parthadae.seneschal.data.remote.dto.TimerDto
@@ -81,4 +87,26 @@ interface SeneschalApi {
 
     @POST("timer/stop")
     suspend fun stopTimer(@Body body: TimerStopRequest): Response<TimerStopResponse>
+
+    @GET("businesses")
+    suspend fun getBusinesses(
+        @Query("since") since: String? = null,
+        @Query("includeDeleted") includeDeleted: Boolean? = null,
+    ): List<BusinessDto>
+
+    @GET("expenses")
+    suspend fun getExpenses(
+        @Query("from") from: String? = null,
+        @Query("to") to: String? = null,
+        @Query("since") since: String? = null,
+    ): List<ExpenseDto>
+
+    @PUT("expenses")
+    suspend fun upsertExpenses(@Body body: ExpensesUpsertRequest): List<ExpenseDto>
+
+    @POST("uploads/sign")
+    suspend fun signUpload(@Body body: PresignedUploadRequest): PresignedUploadResponse
+
+    @GET("uploads/sign")
+    suspend fun signDownload(@Query("key") key: String): PresignedDownloadResponse
 }

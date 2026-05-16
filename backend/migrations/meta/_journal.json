@@ -8,6 +8,20 @@
       "when": 1778648458280,
       "tag": "0000_peaceful_unicorn",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778948227193,
+      "tag": "0001_right_tarantula",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778950245213,
+      "tag": "0002_motionless_reaper",
+      "breakpoints": true
     }
   ]
 }

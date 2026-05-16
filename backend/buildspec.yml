@@ -4,7 +4,7 @@ version: 0.2
 # Required env vars (set by Terraform on the CodeBuild project):
 #   AWS_DEFAULT_REGION   - region of the ECR repo
 #   AWS_ACCOUNT_ID       - AWS account ID
-#   ECR_REPO_URL         - full repo URL (e.g. 123.dkr.ecr.us-east-1.amazonaws.com/seneschal-api)
+#   ECR_REPO_URL         - full repo URL (e.g. 123.dkr.ecr.us-west-2.amazonaws.com/seneschal-api)
 #   CONTAINER_NAME       - container name as registered in the ECS task definition
 
 phases:

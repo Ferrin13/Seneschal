@@ -10,7 +10,7 @@ assumed to already exist as RDS in a VPC you own):
   RDS SG to the ECS service.
 - **Frontend** (`modules/frontend-web`): private versioned S3 bucket,
   CloudFront distribution with Origin Access Control, ACM cert in
-  `us-east-1`, SPA fallback (`403/404 -> /index.html`), Route53 A/AAAA
+  `us-west-2`, SPA fallback (`403/404 -> /index.html`), Route53 A/AAAA
   alias.
 - **CI/CD** (`modules/pipeline`): one CodeStar Connection to GitHub, two
   CodePipelines (`seneschal-backend`, `seneschal-frontend`), CodeBuild
