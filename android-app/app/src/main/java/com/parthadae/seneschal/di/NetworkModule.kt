@@ -2,6 +2,7 @@ package com.parthadae.seneschal.di
 
 import com.parthadae.seneschal.BuildConfig
 import com.parthadae.seneschal.data.remote.AuthInterceptor
+import com.parthadae.seneschal.data.remote.HttpErrorLoggingInterceptor
 import com.parthadae.seneschal.data.remote.SeneschalApi
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -28,11 +29,19 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun okHttpClient(authInterceptor: AuthInterceptor): OkHttpClient {
+    fun okHttpClient(
+        authInterceptor: AuthInterceptor,
+        errorLoggingInterceptor: HttpErrorLoggingInterceptor,
+    ): OkHttpClient {
         val builder = OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .addInterceptor(authInterceptor)
+            // Runs in release too so 4xx/5xx response bodies (e.g. the
+            // `s3_not_configured` message behind a 503 from /uploads/sign)
+            // are visible in logcat instead of being swallowed by Retrofit
+            // and surfacing as a bare `HttpException: HTTP 503`.
+            .addInterceptor(errorLoggingInterceptor)
         if (BuildConfig.DEBUG) {
             builder.addInterceptor(
                 HttpLoggingInterceptor().apply {

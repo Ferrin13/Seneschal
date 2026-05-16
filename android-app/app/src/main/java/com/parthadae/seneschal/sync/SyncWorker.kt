@@ -10,6 +10,7 @@ import com.parthadae.seneschal.data.local.PendingMutationEntity
 import com.parthadae.seneschal.data.remote.SeneschalApi
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import retrofit2.HttpException
 
 /**
  * Generic sync worker.
@@ -53,9 +54,29 @@ class SyncWorker @AssistedInject constructor(
             Result.success()
         } catch (t: Throwable) {
             android.util.Log.w("SyncWorker", "sync failed", t)
-            syncStatusRepository.markFailure(t.javaClass.simpleName + ": " + (t.message ?: ""))
+            syncStatusRepository.markFailure(describeError(t))
             if (runAttemptCount < 5) Result.retry() else Result.failure()
         }
+    }
+
+    /**
+     * Build a one-line error string for the Settings screen. For Retrofit
+     * [HttpException] we pull the response body too so the user sees the
+     * actual server message (e.g. `s3_not_configured`) instead of a bare
+     * `HttpException: HTTP 503 Service Unavailable`. The body is capped so
+     * a stray HTML error page from a misconfigured proxy can't overflow
+     * the row. Reading `errorBody()` consumes it, so the matching
+     * [com.parthadae.seneschal.data.remote.HttpErrorLoggingInterceptor]
+     * peek logs the same payload to logcat *before* we get here.
+     */
+    private fun describeError(t: Throwable): String {
+        val base = "${t.javaClass.simpleName}: ${t.message ?: ""}"
+        if (t !is HttpException) return base
+        val body = runCatching {
+            t.response()?.errorBody()?.string()?.trim()
+        }.getOrNull().orEmpty()
+        if (body.isEmpty()) return base
+        return "$base — ${body.take(MAX_ERROR_BODY_CHARS)}"
     }
 
     private suspend fun pushOutbox() {
@@ -100,5 +121,6 @@ class SyncWorker @AssistedInject constructor(
 
     companion object {
         private const val MAX_BATCH = 200
+        private const val MAX_ERROR_BODY_CHARS = 500
     }
 }
