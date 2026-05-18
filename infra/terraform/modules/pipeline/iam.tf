@@ -62,24 +62,58 @@ data "aws_iam_policy_document" "codepipeline" {
     ]
   }
 
+  # Required for the CodeDeployToECS pipeline action: CodePipeline reads
+  # the deployment group + rev objects, creates a deployment, and polls
+  # it until it succeeds or fails.
   statement {
-    sid = "EcsDeploy"
+    sid = "CodeDeploy"
+    actions = [
+      "codedeploy:CreateDeployment",
+      "codedeploy:GetDeployment",
+      "codedeploy:GetDeploymentConfig",
+      "codedeploy:GetApplicationRevision",
+      "codedeploy:RegisterApplicationRevision",
+      "codedeploy:GetApplication",
+    ]
+    resources = ["*"]
+  }
+
+  # CodeDeploy itself performs the ECS task-definition + service mutations
+  # under its own service role, but the pipeline still needs read access
+  # so the Deploy action can surface failures into the pipeline UI.
+  statement {
+    sid = "EcsRead"
     actions = [
       "ecs:DescribeServices",
       "ecs:DescribeTaskDefinition",
       "ecs:DescribeTasks",
       "ecs:ListTasks",
-      "ecs:RegisterTaskDefinition",
-      "ecs:UpdateService",
-      "ecs:TagResource",
     ]
     resources = ["*"]
   }
 
+  # The CodeDeployToECS pipeline action passes the CodeDeploy service
+  # role to CodeDeploy when creating each deployment. Without this the
+  # action fails immediately with an iam:PassRole error.
+  statement {
+    sid       = "PassCodeDeployRole"
+    actions   = ["iam:PassRole"]
+    resources = [var.codedeploy_role_arn]
+    condition {
+      test     = "StringEqualsIfExists"
+      variable = "iam:PassedToService"
+      values   = ["codedeploy.amazonaws.com"]
+    }
+  }
+
+  # PassRole to ecs-tasks.amazonaws.com is still needed because the
+  # CodeBuild step (Migrate stage) registers fresh revisions of the
+  # migrate task family and runs them, passing the task / execution
+  # roles. The Deploy stage no longer relies on this.
   statement {
     sid       = "PassRolesToEcs"
     actions   = ["iam:PassRole"]
-    resources = ["*"]
+    resources = [var.task_execution_role_arn, var.task_role_arn]
     condition {
       test     = "StringEqualsIfExists"
       variable = "iam:PassedToService"

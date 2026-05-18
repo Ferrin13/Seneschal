@@ -47,8 +47,8 @@ module "frontend_web" {
   source = "./modules/frontend-web"
 
   providers = {
-    aws            = aws
-    aws.us_east_1  = aws.us_east_1
+    aws           = aws
+    aws.us_east_1 = aws.us_east_1
   }
 
   name_prefix    = var.name_prefix
@@ -69,20 +69,38 @@ module "pipeline" {
   github_repo   = var.github_repo
   github_branch = var.github_branch
 
-  ecr_repository_name        = module.backend_api.ecr_repository_name
-  ecr_repository_url         = module.backend_api.ecr_repository_url
-  ecs_cluster_name           = module.backend_api.ecs_cluster_name
-  ecs_service_name           = module.backend_api.ecs_service_name
-  ecs_task_container_name    = module.backend_api.ecs_task_container_name
-  migrate_task_family        = module.backend_api.migrate_task_family
-  service_subnet_ids         = module.backend_api.service_subnet_ids
-  service_security_group_id  = module.backend_api.service_security_group_id
-  task_execution_role_arn    = module.backend_api.task_execution_role_arn
-  task_role_arn              = module.backend_api.task_role_arn
+  ecr_repository_name       = module.backend_api.ecr_repository_name
+  ecr_repository_url        = module.backend_api.ecr_repository_url
+  ecs_cluster_name          = module.backend_api.ecs_cluster_name
+  ecs_service_name          = module.backend_api.ecs_service_name
+  ecs_task_container_name   = module.backend_api.ecs_task_container_name
+  migrate_task_family       = module.backend_api.migrate_task_family
+  service_subnet_ids        = module.backend_api.service_subnet_ids
+  service_security_group_id = module.backend_api.service_security_group_id
+  task_execution_role_arn   = module.backend_api.task_execution_role_arn
+  task_role_arn             = module.backend_api.task_role_arn
 
-  frontend_bucket_name      = module.frontend_web.bucket_name
-  frontend_bucket_arn       = module.frontend_web.bucket_arn
-  cloudfront_distribution_id = module.frontend_web.distribution_id
+  # CodeDeploy ECS Blue/Green wiring.
+  codedeploy_application_name      = module.backend_api.codedeploy_app_name
+  codedeploy_deployment_group_name = module.backend_api.codedeploy_deployment_group_name
+  codedeploy_role_arn              = module.backend_api.codedeploy_role_arn
+
+  # Values sed'd into backend/taskdef.json by the backend CodeBuild
+  # project on every build.
+  task_family           = module.backend_api.task_family
+  task_cpu              = module.backend_api.task_cpu
+  task_memory           = module.backend_api.task_memory
+  container_port        = module.backend_api.container_port
+  api_log_group_name    = module.backend_api.api_log_group_name
+  firebase_project_id   = module.backend_api.firebase_project_id
+  cors_origins          = module.backend_api.cors_origins
+  s3_images_bucket_name = module.backend_api.images_bucket_name
+  db_secret_arn         = module.backend_api.db_secret_arn
+  firebase_ssm_arn      = module.backend_api.firebase_ssm_arn
+
+  frontend_bucket_name        = module.frontend_web.bucket_name
+  frontend_bucket_arn         = module.frontend_web.bucket_arn
+  cloudfront_distribution_id  = module.frontend_web.distribution_id
   cloudfront_distribution_arn = module.frontend_web.distribution_arn
 
   api_base_url       = "https://${local.api_fqdn}"

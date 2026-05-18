@@ -1,11 +1,45 @@
 version: 0.2
 
-# CodeBuild spec for the Seneschal backend image.
+# CodeBuild spec for the Seneschal backend image. The deploy stage uses
+# the CodeDeployToECS provider, so this build produces two artifacts:
+#
+#   - taskdef.json   Fully-rendered ECS task definition with the freshly-
+#                    pushed image URI and all env-specific values (role
+#                    ARNs, log group, ...) sed'd in from env vars set on
+#                    the CodeBuild project by Terraform. We pre-resolve
+#                    the image URI here (rather than relying on the
+#                    CodeDeploy `<IMAGE1_NAME>` substitution + a separate
+#                    imageDetail.json) so the same artifact would still
+#                    work with a plain `aws ecs register-task-definition`
+#                    if we ever swap out the deploy provider.
+#   - appspec.yaml   CodeDeploy ECS appspec, verbatim from source; copied
+#                    so it lands in the artifact at the path the deploy
+#                    action looks for. CodeDeploy substitutes the
+#                    `<TASK_DEFINITION>` token in this file at deploy
+#                    time with the ARN of the revision it registered
+#                    from taskdef.json.
+#
 # Required env vars (set by Terraform on the CodeBuild project):
-#   AWS_DEFAULT_REGION   - region of the ECR repo
-#   AWS_ACCOUNT_ID       - AWS account ID
-#   ECR_REPO_URL         - full repo URL (e.g. 123.dkr.ecr.us-west-2.amazonaws.com/seneschal-api)
-#   CONTAINER_NAME       - container name as registered in the ECS task definition
+#   AWS_DEFAULT_REGION    region for the ECR repo and the task definition.
+#   AWS_REGION_NAME       same value as AWS_DEFAULT_REGION, exposed under a
+#                         non-reserved name so we can substitute it into
+#                         taskdef.json without colliding with the env var
+#                         the AWS SDK consumes inside the running container.
+#   AWS_ACCOUNT_ID        AWS account ID.
+#   ECR_REPO_URL          ECR repository URL.
+#   CONTAINER_NAME        container name in the task definition.
+#   CONTAINER_PORT        container port (numeric, unquoted in JSON).
+#   TASK_FAMILY           ECS task definition family name.
+#   TASK_CPU              task CPU units, as a string ("256", "512", ...).
+#   TASK_MEMORY           task memory MiB, as a string.
+#   EXECUTION_ROLE_ARN    ECS task execution role ARN.
+#   TASK_ROLE_ARN         ECS task role ARN.
+#   LOG_GROUP             CloudWatch log group for the api container.
+#   FIREBASE_PROJECT_ID   Firebase project id.
+#   CORS_ORIGINS          Comma-separated list of allowed CORS origins.
+#   S3_BUCKET             Images S3 bucket name.
+#   DB_SECRET_ARN         Secrets Manager ARN for DATABASE_URL.
+#   FIREBASE_SSM_ARN      SSM Parameter ARN for the Firebase service-account JSON.
 
 phases:
   pre_build:
@@ -16,6 +50,7 @@ phases:
       - aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin public.ecr.aws
       - COMMIT_SHORT=$(printf '%s' "$CODEBUILD_RESOLVED_SOURCE_VERSION" | cut -c1-8)
       - 'IMAGE_TAG="${COMMIT_SHORT:-latest}"'
+      - 'IMAGE_URI="$ECR_REPO_URL:$IMAGE_TAG"'
       - echo "Building tag $IMAGE_TAG"
 
   build:
@@ -26,10 +61,49 @@ phases:
     commands:
       - docker push "$ECR_REPO_URL:$IMAGE_TAG"
       - docker push "$ECR_REPO_URL:latest"
-      - printf '[{"name":"%s","imageUri":"%s"}]' "$CONTAINER_NAME" "$ECR_REPO_URL:$IMAGE_TAG" > imagedefinitions.json
-      - cat imagedefinitions.json
+
+      # Render taskdef.json. Sentinels are @@NAME@@ — chosen to avoid any
+      # collision with shell parameter expansion or JSON syntax. ARNs and
+      # log group names can contain `/` and `:` but never `|`, so `|` is
+      # safe as the sed delimiter. CORS_ORIGINS is the one value that
+      # could plausibly contain a `,` or `/`; still no `|`, so we're fine.
+      - |
+        sed \
+          -e "s|@@IMAGE_URI@@|$IMAGE_URI|g" \
+          -e "s|@@TASK_FAMILY@@|$TASK_FAMILY|g" \
+          -e "s|@@TASK_CPU@@|$TASK_CPU|g" \
+          -e "s|@@TASK_MEMORY@@|$TASK_MEMORY|g" \
+          -e "s|@@EXECUTION_ROLE_ARN@@|$EXECUTION_ROLE_ARN|g" \
+          -e "s|@@TASK_ROLE_ARN@@|$TASK_ROLE_ARN|g" \
+          -e "s|@@CONTAINER_NAME@@|$CONTAINER_NAME|g" \
+          -e "s|@@CONTAINER_PORT@@|$CONTAINER_PORT|g" \
+          -e "s|@@FIREBASE_PROJECT_ID@@|$FIREBASE_PROJECT_ID|g" \
+          -e "s|@@CORS_ORIGINS@@|$CORS_ORIGINS|g" \
+          -e "s|@@AWS_REGION_NAME@@|$AWS_REGION_NAME|g" \
+          -e "s|@@S3_BUCKET@@|$S3_BUCKET|g" \
+          -e "s|@@LOG_GROUP@@|$LOG_GROUP|g" \
+          -e "s|@@DB_SECRET_ARN@@|$DB_SECRET_ARN|g" \
+          -e "s|@@FIREBASE_SSM_ARN@@|$FIREBASE_SSM_ARN|g" \
+          backend/taskdef.json > taskdef.json
+
+      # Fail fast if any placeholder didn't get substituted (e.g. Terraform
+      # forgot to wire up a new env var). Otherwise the deploy would fail
+      # mid-rollout with a much more confusing AWS API error.
+      - |
+        if grep -E '@@[A-Z_]+@@' taskdef.json; then
+          echo "ERROR: unresolved placeholder(s) in taskdef.json — see above"
+          exit 1
+        fi
+
+      - cp backend/appspec.yaml appspec.yaml
+
+      - echo "--- taskdef.json ---"
+      - cat taskdef.json
+      - echo "--- appspec.yaml ---"
+      - cat appspec.yaml
 
 artifacts:
   files:
-    - imagedefinitions.json
+    - taskdef.json
+    - appspec.yaml
   discard-paths: yes

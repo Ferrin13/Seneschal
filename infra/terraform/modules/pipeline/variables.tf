@@ -70,6 +70,67 @@ variable "task_role_arn" {
   type        = string
 }
 
+# CodeDeploy ECS Blue/Green wiring ------------------------------------
+
+variable "codedeploy_application_name" {
+  description = "Name of the CodeDeploy application targeted by the Deploy stage."
+  type        = string
+}
+
+variable "codedeploy_deployment_group_name" {
+  description = "Deployment group within `codedeploy_application_name`."
+  type        = string
+}
+
+variable "codedeploy_role_arn" {
+  description = "ARN of the CodeDeploy service role. Granted iam:PassRole from the CodePipeline role so the pipeline can hand it to the deploy action."
+  type        = string
+}
+
+# Values sed'd into backend/taskdef.json by the backend CodeBuild
+# project on every build. Keep the spelling identical to the @@NAME@@
+# placeholders in the template.
+
+variable "task_family" {
+  type = string
+}
+
+variable "task_cpu" {
+  type = string
+}
+
+variable "task_memory" {
+  type = string
+}
+
+variable "container_port" {
+  type = number
+}
+
+variable "api_log_group_name" {
+  type = string
+}
+
+variable "firebase_project_id" {
+  type = string
+}
+
+variable "cors_origins" {
+  type = string
+}
+
+variable "s3_images_bucket_name" {
+  type = string
+}
+
+variable "db_secret_arn" {
+  type = string
+}
+
+variable "firebase_ssm_arn" {
+  type = string
+}
+
 # Frontend wiring ------------------------------------------------------
 
 variable "frontend_bucket_name" {

@@ -43,6 +43,14 @@ resource "aws_codebuild_project" "backend" {
       name  = "AWS_DEFAULT_REGION"
       value = var.region
     }
+    # Mirror of AWS_DEFAULT_REGION under a non-reserved name so the
+    # buildspec can sed it into taskdef.json's `AWS_REGION` env entry
+    # without conflicting with the AWS SDK's own consumption of
+    # `AWS_DEFAULT_REGION` inside the running container.
+    environment_variable {
+      name  = "AWS_REGION_NAME"
+      value = var.region
+    }
     environment_variable {
       name  = "AWS_ACCOUNT_ID"
       value = data.aws_caller_identity.current.account_id
@@ -54,6 +62,54 @@ resource "aws_codebuild_project" "backend" {
     environment_variable {
       name  = "CONTAINER_NAME"
       value = var.ecs_task_container_name
+    }
+    environment_variable {
+      name  = "CONTAINER_PORT"
+      value = tostring(var.container_port)
+    }
+    environment_variable {
+      name  = "TASK_FAMILY"
+      value = var.task_family
+    }
+    environment_variable {
+      name  = "TASK_CPU"
+      value = var.task_cpu
+    }
+    environment_variable {
+      name  = "TASK_MEMORY"
+      value = var.task_memory
+    }
+    environment_variable {
+      name  = "EXECUTION_ROLE_ARN"
+      value = var.task_execution_role_arn
+    }
+    environment_variable {
+      name  = "TASK_ROLE_ARN"
+      value = var.task_role_arn
+    }
+    environment_variable {
+      name  = "LOG_GROUP"
+      value = var.api_log_group_name
+    }
+    environment_variable {
+      name  = "FIREBASE_PROJECT_ID"
+      value = var.firebase_project_id
+    }
+    environment_variable {
+      name  = "CORS_ORIGINS"
+      value = var.cors_origins
+    }
+    environment_variable {
+      name  = "S3_BUCKET"
+      value = var.s3_images_bucket_name
+    }
+    environment_variable {
+      name  = "DB_SECRET_ARN"
+      value = var.db_secret_arn
+    }
+    environment_variable {
+      name  = "FIREBASE_SSM_ARN"
+      value = var.firebase_ssm_arn
     }
   }
 

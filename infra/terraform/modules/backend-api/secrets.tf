@@ -8,8 +8,8 @@ data "aws_secretsmanager_secret" "database_url" {
 }
 
 locals {
-  create_db_secret = var.database_url != null
-  use_existing_arn = var.database_url_secret_arn != null
+  create_db_secret  = var.database_url != null
+  use_existing_arn  = var.database_url_secret_arn != null
   use_existing_name = var.database_url_secret_name != null && !local.use_existing_arn && !local.create_db_secret
 
   db_secret_arn = (

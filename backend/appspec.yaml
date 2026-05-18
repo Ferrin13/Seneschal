@@ -1,0 +1,18 @@
+# AppSpec for the CodeDeploy ECS Blue/Green deploy of the Seneschal API.
+#
+# - <TASK_DEFINITION> is substituted by CodeDeploy with the ARN of the
+#   revision it just registered from `taskdef.json` (which our buildspec
+#   renders with the freshly-built image URI).
+# - ContainerName / ContainerPort must match the entries in taskdef.json
+#   AND the `container_name` / `container_port` registered on the ECS
+#   service's load_balancer block (see modules/backend-api/ecs.tf).
+version: 0.0
+Resources:
+  - TargetService:
+      Type: AWS::ECS::Service
+      Properties:
+        TaskDefinition: <TASK_DEFINITION>
+        LoadBalancerInfo:
+          ContainerName: "api"
+          ContainerPort: 8080
+        PlatformVersion: "LATEST"

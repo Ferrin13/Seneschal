@@ -18,10 +18,11 @@ phases:
 
   build:
     commands:
-      # imagedefinitions.json is produced by the previous Build stage and
-      # mounted via the secondary input artifact "build_output".
-      - IMAGE_DEFS="$CODEBUILD_SRC_DIR_build_output/imagedefinitions.json"
-      - IMAGE_URI=$(jq -r '.[0].imageUri' "$IMAGE_DEFS")
+      # taskdef.json is produced by the previous Build stage with the
+      # freshly-pushed image URI sed'd into containerDefinitions[0].image,
+      # and is mounted here via the secondary input artifact "build_output".
+      - TASKDEF="$CODEBUILD_SRC_DIR_build_output/taskdef.json"
+      - IMAGE_URI=$(jq -r '.containerDefinitions[0].image' "$TASKDEF")
       - echo "Running migrations with image $IMAGE_URI"
 
       # Pull the current migrate task def, swap in the new image, register

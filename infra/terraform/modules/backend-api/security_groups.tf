@@ -19,6 +19,19 @@ resource "aws_security_group" "alb" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  # CodeDeploy ECS Blue/Green test listener. Production traffic stays on
+  # 443; this is only for validating the replacement task set during a
+  # deploy. Open to the world so smoke-test scripts can hit it without
+  # extra VPN plumbing — the backing target group still requires a valid
+  # Firebase ID token to do anything useful.
+  ingress {
+    description = "HTTPS test listener for CodeDeploy Blue/Green"
+    from_port   = 8443
+    to_port     = 8443
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     description = "All egress"
     from_port   = 0

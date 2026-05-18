@@ -54,15 +54,16 @@ resource "aws_codepipeline" "backend" {
     name = "Migrate"
 
     action {
-      name = "RunDrizzleMigrate"
+      name     = "RunDrizzleMigrate"
       category = "Build"
       owner    = "AWS"
       provider = "CodeBuild"
       version  = "1"
       # First artifact is the primary: CodeBuild runs from there and reads
       # the buildspec there. Second artifact is mounted at
-      # $CODEBUILD_SRC_DIR_build_output, which is where imagedefinitions.json
-      # lives (produced by the previous Build action).
+      # $CODEBUILD_SRC_DIR_build_output, which is where taskdef.json lives
+      # (produced by the previous Build action). buildspec-migrate.yml
+      # reads the image URI out of taskdef.json's containerDefinitions[0].
       input_artifacts = ["source_output", "build_output"]
 
       configuration = {
@@ -72,6 +73,17 @@ resource "aws_codepipeline" "backend" {
     }
   }
 
+  # CodeDeploy ECS Blue/Green. The build stage emits a fully-rendered
+  # taskdef.json (with the freshly-pushed image URI and every env-specific
+  # value already sed'd in) and the matching appspec.yaml; CodeDeploy
+  # registers a new task definition revision from taskdef.json, swaps the
+  # `<TASK_DEFINITION>` token in appspec.yaml with that revision's ARN,
+  # creates a replacement task set behind the green target group, runs
+  # health checks, then flips the production listener.
+  #
+  # Image URI is baked into taskdef.json by the buildspec, so we do NOT
+  # configure Image1ArtifactName / Image1ContainerName here. (The
+  # CodeDeploy ECS action allows you to use either model.)
   stage {
     name = "Deploy"
 
@@ -79,15 +91,17 @@ resource "aws_codepipeline" "backend" {
       name            = "DeployToEcs"
       category        = "Deploy"
       owner           = "AWS"
-      provider        = "ECS"
+      provider        = "CodeDeployToECS"
       version         = "1"
       input_artifacts = ["build_output"]
 
       configuration = {
-        ClusterName       = var.ecs_cluster_name
-        ServiceName       = var.ecs_service_name
-        FileName          = "imagedefinitions.json"
-        DeploymentTimeout = "10"
+        ApplicationName                = var.codedeploy_application_name
+        DeploymentGroupName            = var.codedeploy_deployment_group_name
+        TaskDefinitionTemplateArtifact = "build_output"
+        TaskDefinitionTemplatePath     = "taskdef.json"
+        AppSpecTemplateArtifact        = "build_output"
+        AppSpecTemplatePath            = "appspec.yaml"
       }
     }
   }

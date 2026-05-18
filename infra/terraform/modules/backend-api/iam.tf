@@ -58,3 +58,30 @@ resource "aws_iam_role" "task" {
   name               = "${var.name_prefix}-task-role"
   assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
 }
+
+# ----- CodeDeploy service role ----------------------------------------
+
+data "aws_iam_policy_document" "codedeploy_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["codedeploy.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "codedeploy" {
+  name               = "${var.name_prefix}-codedeploy-role"
+  assume_role_policy = data.aws_iam_policy_document.codedeploy_assume.json
+}
+
+# AWS-managed policy that grants the CodeDeploy ECS Blue/Green service the
+# permissions it needs (ELB listener manipulation, ECS task set lifecycle,
+# CloudWatch alarm reads, SNS notifications, S3 read of the rev bundle,
+# and PassRole to the ECS task roles via the IAM condition documented in
+# the policy itself).
+resource "aws_iam_role_policy_attachment" "codedeploy_managed" {
+  role       = aws_iam_role.codedeploy.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSCodeDeployRoleForECS"
+}

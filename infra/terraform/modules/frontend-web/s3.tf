@@ -45,9 +45,9 @@ resource "aws_s3_bucket_ownership_controls" "web" {
 
 data "aws_iam_policy_document" "web_bucket" {
   statement {
-    sid     = "AllowCloudFrontOACRead"
-    effect  = "Allow"
-    actions = ["s3:GetObject"]
+    sid       = "AllowCloudFrontOACRead"
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
     resources = ["${aws_s3_bucket.web.arn}/*"]
 
     principals {
