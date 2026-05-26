@@ -78,14 +78,17 @@ data "aws_iam_policy_document" "codepipeline" {
     resources = ["*"]
   }
 
-  # CodeDeploy itself performs the ECS task-definition + service mutations
-  # under its own service role, but the pipeline still needs read access
-  # so the Deploy action can surface failures into the pipeline UI.
+  # The CodeDeployToECS pipeline action registers a new task definition
+  # revision from the taskdef.json in `build_output` *before* creating
+  # the CodeDeploy deployment, and uses the pipeline role to do it.
+  # Read perms are also needed so the action can surface deployment
+  # failures into the pipeline UI.
   statement {
-    sid = "EcsRead"
+    sid = "EcsTaskDefAndRead"
     actions = [
-      "ecs:DescribeServices",
+      "ecs:RegisterTaskDefinition",
       "ecs:DescribeTaskDefinition",
+      "ecs:DescribeServices",
       "ecs:DescribeTasks",
       "ecs:ListTasks",
     ]
