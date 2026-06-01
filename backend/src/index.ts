@@ -11,6 +11,9 @@ import { slotRoutes } from "./routes/slots.js";
 import { timerRoutes } from "./routes/timer.js";
 import { businessRoutes } from "./routes/businesses.js";
 import { expenseRoutes } from "./routes/expenses.js";
+import { messageTemplateRoutes } from "./routes/messageTemplates.js";
+import { groupRoutes } from "./routes/groups.js";
+import { groupMemberRoutes } from "./routes/groupMembers.js";
 import { uploadRoutes } from "./routes/uploads.js";
 
 export async function buildServer() {
@@ -55,6 +58,9 @@ export async function buildServer() {
   await app.register(timerRoutes);
   await app.register(businessRoutes);
   await app.register(expenseRoutes);
+  await app.register(messageTemplateRoutes);
+  await app.register(groupRoutes);
+  await app.register(groupMemberRoutes);
   await app.register(uploadRoutes);
 
   return app;

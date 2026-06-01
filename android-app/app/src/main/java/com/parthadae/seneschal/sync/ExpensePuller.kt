@@ -19,6 +19,9 @@ class ExpensePuller @Inject constructor(
     private val api: SeneschalApi,
     private val expenseDao: ExpenseDao,
 ) : Puller {
+    // Expenses FK into businesses, so run after BusinessPuller.
+    override val order: Int = Puller.ORDER_DEPENDENT
+
     override suspend fun pull() {
         val since = expenseDao.maxUpdatedAt()?.let { Instant.ofEpochMilli(it).toString() }
         val rows = api.getExpenses(since = since)

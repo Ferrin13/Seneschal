@@ -9,7 +9,13 @@ import com.parthadae.seneschal.data.remote.dto.CategoryDto
 import com.parthadae.seneschal.data.remote.dto.CategoryPatchRequest
 import com.parthadae.seneschal.data.remote.dto.ExpenseDto
 import com.parthadae.seneschal.data.remote.dto.ExpensesUpsertRequest
+import com.parthadae.seneschal.data.remote.dto.GroupDto
+import com.parthadae.seneschal.data.remote.dto.GroupMemberDto
+import com.parthadae.seneschal.data.remote.dto.GroupMembersUpsertRequest
+import com.parthadae.seneschal.data.remote.dto.GroupsUpsertRequest
 import com.parthadae.seneschal.data.remote.dto.MeDto
+import com.parthadae.seneschal.data.remote.dto.MessageTemplateDto
+import com.parthadae.seneschal.data.remote.dto.MessageTemplatesUpsertRequest
 import com.parthadae.seneschal.data.remote.dto.PresignedDownloadResponse
 import com.parthadae.seneschal.data.remote.dto.PresignedUploadRequest
 import com.parthadae.seneschal.data.remote.dto.PresignedUploadResponse
@@ -103,6 +109,35 @@ interface SeneschalApi {
 
     @PUT("expenses")
     suspend fun upsertExpenses(@Body body: ExpensesUpsertRequest): List<ExpenseDto>
+
+    @GET("message-templates")
+    suspend fun getMessageTemplates(
+        @Query("since") since: String? = null,
+    ): List<MessageTemplateDto>
+
+    @PUT("message-templates")
+    suspend fun upsertMessageTemplates(
+        @Body body: MessageTemplatesUpsertRequest,
+    ): List<MessageTemplateDto>
+
+    @GET("groups")
+    suspend fun getGroups(
+        @Query("since") since: String? = null,
+    ): List<GroupDto>
+
+    @PUT("groups")
+    suspend fun upsertGroups(@Body body: GroupsUpsertRequest): List<GroupDto>
+
+    @GET("group-members")
+    suspend fun getGroupMembers(
+        @Query("since") since: String? = null,
+        @Query("groupId") groupId: String? = null,
+    ): List<GroupMemberDto>
+
+    @PUT("group-members")
+    suspend fun upsertGroupMembers(
+        @Body body: GroupMembersUpsertRequest,
+    ): List<GroupMemberDto>
 
     @POST("uploads/sign")
     suspend fun signUpload(@Body body: PresignedUploadRequest): PresignedUploadResponse

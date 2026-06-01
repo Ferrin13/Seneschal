@@ -24,8 +24,12 @@ import retrofit2.HttpException
  * 4. Run every bound [Puller] in arbitrary order; each one decides what
  *    "since" cursor to use.
  *
- * Any thrown exception aborts the whole worker; WorkManager retries with
- * the backoff configured in [SyncScheduler].
+ * Steps 3 and 4 are fault-isolated: a single failing outbox handler or
+ * puller (e.g. a 404 from one endpoint) is recorded but does NOT abort the
+ * rest, so an unrelated broken endpoint can't block time-tracking data from
+ * syncing. If anything failed, the worker still reports failure so
+ * WorkManager retries with the backoff configured in [SyncScheduler]; the
+ * pieces that succeeded have already been applied.
  */
 @HiltWorker
 class SyncWorker @AssistedInject constructor(
@@ -46,13 +50,32 @@ class SyncWorker @AssistedInject constructor(
         syncStatusRepository.markStarted()
         return try {
             api.getMe()
-            pushOutbox()
-            for (puller in pullers) {
-                puller.pull()
+            val errors = mutableListOf<String>()
+            pushOutbox(errors)
+            // Sort so parent tables are filled before dependents whose rows
+            // hold a foreign key into them (e.g. businesses before expenses).
+            for (puller in pullers.sortedBy { it.order }) {
+                try {
+                    puller.pull()
+                } catch (t: Throwable) {
+                    android.util.Log.w(
+                        "SyncWorker",
+                        "puller failed: ${puller.javaClass.simpleName}",
+                        t,
+                    )
+                    errors += describeError(t)
+                }
             }
-            syncStatusRepository.markSuccess()
-            Result.success()
+            if (errors.isEmpty()) {
+                syncStatusRepository.markSuccess()
+                Result.success()
+            } else {
+                syncStatusRepository.markFailure(errors.joinToString(" | "))
+                if (runAttemptCount < 5) Result.retry() else Result.failure()
+            }
         } catch (t: Throwable) {
+            // Reaches here only for failures outside the isolated steps
+            // (e.g. `/me` or auth), which legitimately abort the whole sync.
             android.util.Log.w("SyncWorker", "sync failed", t)
             syncStatusRepository.markFailure(describeError(t))
             if (runAttemptCount < 5) Result.retry() else Result.failure()
@@ -79,11 +102,12 @@ class SyncWorker @AssistedInject constructor(
         return "$base — ${body.take(MAX_ERROR_BODY_CHARS)}"
     }
 
-    private suspend fun pushOutbox() {
+    private suspend fun pushOutbox(errors: MutableList<String>) {
         val handlersByKind = outboxHandlers.associateBy { it.kind }
         // Track ids we've already touched in *this* sync so an unknown-kind
-        // row whose attempt counter we just bumped doesn't immediately come
-        // back on the next take().
+        // row whose attempt counter we just bumped — or a row whose handler
+        // just failed — doesn't immediately come back on the next take() and
+        // spin us in an infinite loop.
         val touched = mutableSetOf<Long>()
         while (true) {
             val batch = pendingMutationDao
@@ -94,7 +118,19 @@ class SyncWorker @AssistedInject constructor(
             for ((kind, rows) in batch.groupBy { it.kind }) {
                 val handler = handlersByKind[kind]
                 if (handler != null) {
-                    handler.push(rows)
+                    try {
+                        handler.push(rows)
+                    } catch (t: Throwable) {
+                        // Leave the rows in the DB so a later sync can retry,
+                        // but don't re-take them this run.
+                        android.util.Log.w(
+                            "SyncWorker",
+                            "outbox push failed for kind=$kind",
+                            t,
+                        )
+                        errors += describeError(t)
+                        rows.forEach { touched.add(it.id) }
+                    }
                 } else {
                     rows.forEach {
                         markFailed(it, "unknown kind: $kind")

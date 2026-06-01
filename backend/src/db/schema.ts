@@ -272,3 +272,118 @@ export type Business = typeof businesses.$inferSelect;
 export type NewBusiness = typeof businesses.$inferInsert;
 export type Expense = typeof expenses.$inferSelect;
 export type NewExpense = typeof expenses.$inferInsert;
+
+/**
+ * A reusable plain-text message body the user can send to a group via the
+ * group-texting flow. v1 has no variable interpolation; the body is sent
+ * verbatim to each recipient. Synced offline-first using the same
+ * `client_updated_at` LWW pattern as expenses.
+ */
+export const messageTemplates = pgTable(
+  "message_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    clientUpdatedAt: timestamp("client_updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    userIdx: index("message_templates_user_idx").on(t.userId),
+    userUpdatedIdx: index("message_templates_user_updated_idx").on(
+      t.userId,
+      t.updatedAt
+    ),
+  })
+);
+
+/**
+ * A named bag of contacts the user can send a message template to. Members
+ * live in `group_members`. Soft-deleted via `deletedAt`.
+ */
+export const groups = pgTable(
+  "groups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    clientUpdatedAt: timestamp("client_updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    userIdx: index("groups_user_idx").on(t.userId),
+    userUpdatedIdx: index("groups_user_updated_idx").on(t.userId, t.updatedAt),
+  })
+);
+
+/**
+ * A single contact (display name + phone number) within a group. We snapshot
+ * the name and number into our own row rather than reading from the system
+ * Contacts provider on every send, so messages still work if the contact
+ * changes or the user revokes contacts access. `contactLookupKey` is kept
+ * around so we can re-pick the same contact later if desired.
+ *
+ * Group deletion uses `onDelete: restrict` because groups are soft-deleted
+ * (we never actually drop the parent row); members are independently
+ * soft-deleted via the same outbox upsert path.
+ */
+export const groupMembers = pgTable(
+  "group_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => groups.id, { onDelete: "restrict" }),
+    displayName: text("display_name").notNull(),
+    phoneNumber: text("phone_number").notNull(),
+    contactLookupKey: text("contact_lookup_key"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    clientUpdatedAt: timestamp("client_updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    userGroupIdx: index("group_members_user_group_idx").on(t.userId, t.groupId),
+    userUpdatedIdx: index("group_members_user_updated_idx").on(
+      t.userId,
+      t.updatedAt
+    ),
+  })
+);
+
+export type MessageTemplate = typeof messageTemplates.$inferSelect;
+export type NewMessageTemplate = typeof messageTemplates.$inferInsert;
+export type Group = typeof groups.$inferSelect;
+export type NewGroup = typeof groups.$inferInsert;
+export type GroupMember = typeof groupMembers.$inferSelect;
+export type NewGroupMember = typeof groupMembers.$inferInsert;

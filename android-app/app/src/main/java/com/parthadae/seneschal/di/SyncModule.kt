@@ -5,8 +5,14 @@ import com.parthadae.seneschal.sync.BusinessPuller
 import com.parthadae.seneschal.sync.CategoryActivityPuller
 import com.parthadae.seneschal.sync.ExpensePuller
 import com.parthadae.seneschal.sync.ExpenseUpsertOutboxHandler
+import com.parthadae.seneschal.sync.GroupMemberPuller
+import com.parthadae.seneschal.sync.GroupMemberUpsertOutboxHandler
+import com.parthadae.seneschal.sync.GroupPuller
+import com.parthadae.seneschal.sync.GroupUpsertOutboxHandler
 import com.parthadae.seneschal.sync.ImageAttacher
 import com.parthadae.seneschal.sync.ImageUploadOutboxHandler
+import com.parthadae.seneschal.sync.MessageTemplatePuller
+import com.parthadae.seneschal.sync.MessageTemplateUpsertOutboxHandler
 import com.parthadae.seneschal.sync.OutboxHandler
 import com.parthadae.seneschal.sync.Puller
 import com.parthadae.seneschal.sync.SlotPuller
@@ -52,6 +58,34 @@ abstract class SyncModule {
     @Binds
     @IntoSet
     abstract fun bindExpensePuller(impl: ExpensePuller): Puller
+
+    @Binds
+    @IntoSet
+    abstract fun bindMessageTemplateUpsertHandler(
+        impl: MessageTemplateUpsertOutboxHandler
+    ): OutboxHandler
+
+    @Binds
+    @IntoSet
+    abstract fun bindGroupUpsertHandler(impl: GroupUpsertOutboxHandler): OutboxHandler
+
+    @Binds
+    @IntoSet
+    abstract fun bindGroupMemberUpsertHandler(
+        impl: GroupMemberUpsertOutboxHandler
+    ): OutboxHandler
+
+    @Binds
+    @IntoSet
+    abstract fun bindMessageTemplatePuller(impl: MessageTemplatePuller): Puller
+
+    @Binds
+    @IntoSet
+    abstract fun bindGroupPuller(impl: GroupPuller): Puller
+
+    @Binds
+    @IntoSet
+    abstract fun bindGroupMemberPuller(impl: GroupMemberPuller): Puller
 
     @Binds
     @IntoSet

@@ -1,6 +1,7 @@
 package com.parthadae.seneschal.ui.stats
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DateRangePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,7 +31,9 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberDateRangePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -57,30 +64,48 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
-import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.temporal.TemporalAdjusters
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
-enum class StatsRange(val label: String) { Today("Today"), Week("Week"), Month("Month") }
+enum class StatsRange(val label: String) {
+    Today("Today"),
+    Week("7 Days"),
+    Custom("Custom"),
+}
+
+/** Inclusive-on-both-ends span of calendar days for the Custom range. */
+data class DateRange(val start: LocalDate, val endInclusive: LocalDate)
 
 /**
- * One row in the stats list: time spent on a specific activity with a
- * specific (possibly empty) `notes` value. Two slots with the same
- * activity but different notes intentionally produce separate rows so
- * the user can see how time splits across the variants they typed.
+ * Time spent on one specific (possibly empty) `notes` value within a single
+ * activity. These are the sub-sections shown under each activity group.
  */
-data class ActivityNotesTotal(
-    val activity: Activity,
-    val category: Category,
+data class NoteTotal(
     val notes: String?,
     val totalMs: Long,
 )
 
+/**
+ * One activity group in the stats list. All slots for the same primary
+ * activity are aggregated together regardless of notes, then the time is
+ * broken down per distinct note in [notes] (sorted by time spent).
+ */
+data class ActivityTotal(
+    val activity: Activity,
+    val category: Category,
+    val totalMs: Long,
+    val notes: List<NoteTotal>,
+)
+
 data class StatsUiState(
     val range: StatsRange = StatsRange.Today,
-    val totals: List<ActivityNotesTotal> = emptyList(),
+    /** Human-readable suffix for the "Logged Xh …" summary line. */
+    val rangeDescription: String = "today",
+    val activities: List<ActivityTotal> = emptyList(),
     val totalLoggedMs: Long = 0L,
 )
 
@@ -89,72 +114,114 @@ class StatsViewModel @Inject constructor(
     slotRepo: TimeSlotRepository,
     activityRepo: ActivityRepository,
 ) : ViewModel() {
+    private val zone = ZoneId.systemDefault()
+
     private val _range = MutableStateFlow(StatsRange.Today)
     val range: StateFlow<StatsRange> = _range.asStateFlow()
 
-    private val zone = ZoneId.systemDefault()
+    private val _customRange = MutableStateFlow(defaultCustomRange())
+    val customRange: StateFlow<DateRange> = _customRange.asStateFlow()
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val state: StateFlow<StatsUiState> = _range.flatMapLatest { range ->
-        val (fromMs, toMs) = rangeBounds(range)
-        combine(
-            slotRepo.observeRange(fromMs, toMs),
-            activityRepo.activitiesById,
-            activityRepo.categoriesById,
-        ) { slots, actsById, catsById ->
-            buildState(range, slots, actsById, catsById)
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StatsUiState())
+    val state: StateFlow<StatsUiState> =
+        combine(_range, _customRange) { range, custom -> range to custom }
+            .flatMapLatest { (range, custom) ->
+                val (fromMs, toMs) = rangeBounds(range, custom)
+                combine(
+                    slotRepo.observeRange(fromMs, toMs),
+                    activityRepo.activitiesById,
+                    activityRepo.categoriesById,
+                ) { slots, actsById, catsById ->
+                    buildState(range, custom, slots, actsById, catsById)
+                }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StatsUiState())
 
     fun setRange(r: StatsRange) { _range.value = r }
 
-    private fun rangeBounds(range: StatsRange): Pair<Long, Long> {
+    fun setCustomRange(start: LocalDate, endInclusive: LocalDate) {
+        // Guard against the picker handing back an inverted range.
+        val (s, e) = if (start <= endInclusive) start to endInclusive else endInclusive to start
+        _customRange.value = DateRange(s, e)
+        _range.value = StatsRange.Custom
+    }
+
+    private fun defaultCustomRange(): DateRange {
+        val today = LocalDate.now(zone)
+        return DateRange(today.minusDays(29), today)
+    }
+
+    private fun rangeBounds(range: StatsRange, custom: DateRange): Pair<Long, Long> {
         val today = LocalDate.now(zone)
         val (start, end) = when (range) {
             StatsRange.Today -> today to today.plusDays(1)
-            StatsRange.Week -> {
-                val monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
-                monday to monday.plusDays(7)
-            }
-            StatsRange.Month -> {
-                val first = today.withDayOfMonth(1)
-                first to first.plusMonths(1)
-            }
+            // "Last 7 days": today plus the six preceding days.
+            StatsRange.Week -> today.minusDays(6) to today.plusDays(1)
+            // Inclusive end date, so advance one day for the half-open upper bound.
+            StatsRange.Custom -> custom.start to custom.endInclusive.plusDays(1)
         }
         val fromMs = start.atStartOfDay(zone).toInstant().toEpochMilli()
         val toMs = end.atStartOfDay(zone).toInstant().toEpochMilli()
         return fromMs to toMs
     }
 
+    private fun describeRange(range: StatsRange, custom: DateRange): String = when (range) {
+        StatsRange.Today -> "today"
+        StatsRange.Week -> "in the last 7 days"
+        StatsRange.Custom -> {
+            val fmt = DateTimeFormatter.ofPattern("MMM d")
+            "from ${fmt.format(custom.start)} to ${fmt.format(custom.endInclusive)}"
+        }
+    }
+
     private fun buildState(
         range: StatsRange,
+        custom: DateRange,
         slots: List<TimeSlot>,
         actsById: Map<String, Activity>,
         catsById: Map<String, Category>,
     ): StatsUiState {
-        // Key on (activityId, normalizedNotes) so identical notes collapse
-        // into one row but distinct notes (including null vs. typed) split.
-        // Pair is hashable, which a Triple-with-null isn't always friendly
-        // with in older Kotlin stdlibs.
+        // First tally time per (activityId, normalizedNotes). Blank notes are
+        // treated as "no notes" so accidental whitespace doesn't fragment a row.
         val totalsMs = HashMap<Pair<String, String?>, Long>()
         var loggedMs = 0L
         slots.forEach { s ->
             val activityId = s.primaryActivityId ?: return@forEach
-            // Treat blank notes as "no notes" so accidental whitespace
-            // doesn't fragment a row.
-            val key = activityId to s.notes?.trim()?.takeIf { it.isNotEmpty() }
+            val notes = s.notes?.trim()?.takeIf { it.isNotEmpty() }
+            val key = activityId to notes
             totalsMs[key] = (totalsMs[key] ?: 0L) + SLOT_MS
             loggedMs += SLOT_MS
         }
-        val totals = totalsMs.entries
-            .mapNotNull { (key, ms) ->
-                val (activityId, notes) = key
+
+        // Then roll the per-notes tallies up into one group per activity, with
+        // the note variants kept as sub-sections.
+        val notesByActivity = HashMap<String, MutableList<NoteTotal>>()
+        val activityTotalMs = HashMap<String, Long>()
+        totalsMs.forEach { (key, ms) ->
+            val (activityId, notes) = key
+            notesByActivity.getOrPut(activityId) { mutableListOf() }.add(NoteTotal(notes, ms))
+            activityTotalMs[activityId] = (activityTotalMs[activityId] ?: 0L) + ms
+        }
+
+        val activities = notesByActivity.entries
+            .mapNotNull { (activityId, noteTotals) ->
                 val act = actsById[activityId] ?: return@mapNotNull null
                 val cat = catsById[act.categoryId] ?: return@mapNotNull null
-                ActivityNotesTotal(activity = act, category = cat, notes = notes, totalMs = ms)
+                ActivityTotal(
+                    activity = act,
+                    category = cat,
+                    totalMs = activityTotalMs[activityId] ?: 0L,
+                    notes = noteTotals.sortedByDescending { it.totalMs },
+                )
             }
             .sortedByDescending { it.totalMs }
-        return StatsUiState(range = range, totals = totals, totalLoggedMs = loggedMs)
+
+        return StatsUiState(
+            range = range,
+            rangeDescription = describeRange(range, custom),
+            activities = activities,
+            totalLoggedMs = loggedMs,
+        )
     }
 }
 
@@ -165,7 +232,8 @@ fun StatsScreen(
     onNavigateHome: (() -> Unit)? = null,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
-    var selectedIndex by remember { mutableStateOf(0) }
+    val customRange by vm.customRange.collectAsStateWithLifecycle()
+    var showRangePicker by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -200,39 +268,121 @@ fun StatsScreen(
             SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
                 StatsRange.entries.forEachIndexed { i, r ->
                     SegmentedButton(
-                        selected = i == selectedIndex,
+                        selected = r == state.range,
                         onClick = {
-                            selectedIndex = i
                             vm.setRange(r)
+                            // Picking "Custom" should immediately surface the
+                            // calendar so the user can choose their window.
+                            if (r == StatsRange.Custom) showRangePicker = true
                         },
                         shape = SegmentedButtonDefaults.itemShape(i, StatsRange.entries.size),
                         label = { Text(r.label) },
                     )
                 }
             }
+            if (state.range == StatsRange.Custom) {
+                Spacer(Modifier.height(8.dp))
+                CustomRangeSummary(customRange) { showRangePicker = true }
+            }
             Spacer(Modifier.height(16.dp))
-            StackedBar(state.totals)
+            StackedBar(state.activities)
             Spacer(Modifier.height(8.dp))
             Text(
-                "Logged ${formatHm(state.totalLoggedMs)} this ${state.range.label.lowercase()}",
+                "Logged ${formatHm(state.totalLoggedMs)} ${state.rangeDescription}",
                 style = MaterialTheme.typography.labelMedium,
             )
             Spacer(Modifier.height(16.dp))
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(
-                    state.totals,
-                    // Activity + notes uniquely identify a row; without an
-                    // explicit key, identical activity names with different
-                    // notes can confuse Compose's diffing.
-                    key = { "${it.activity.id}|${it.notes ?: ""}" },
-                ) { row -> ActivityNotesRow(row, state.totalLoggedMs) }
+                    state.activities,
+                    key = { it.activity.id },
+                ) { group -> ActivityGroup(group, state.totalLoggedMs) }
             }
         }
+    }
+
+    if (showRangePicker) {
+        DateRangePickerDialog(
+            initial = customRange,
+            onConfirm = { start, end ->
+                vm.setCustomRange(start, end)
+                showRangePicker = false
+            },
+            onDismiss = { showRangePicker = false },
+        )
     }
 }
 
 @Composable
-private fun StackedBar(totals: List<ActivityNotesTotal>) {
+private fun CustomRangeSummary(range: DateRange, onClick: () -> Unit) {
+    val fmt = DateTimeFormatter.ofPattern("MMM d, yyyy")
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 4.dp),
+    ) {
+        Icon(
+            Icons.Outlined.Edit,
+            contentDescription = "Change date range",
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.size(8.dp))
+        Text(
+            "${fmt.format(range.start)}  –  ${fmt.format(range.endInclusive)}",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DateRangePickerDialog(
+    initial: DateRange,
+    onConfirm: (LocalDate, LocalDate) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // Material's date picker works in UTC-midnight epoch millis, so convert
+    // through ZoneOffset.UTC in both directions to avoid off-by-one days.
+    val pickerState = rememberDateRangePickerState(
+        initialSelectedStartDateMillis = initial.start.toUtcMillis(),
+        initialSelectedEndDateMillis = initial.endInclusive.toUtcMillis(),
+    )
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val s = pickerState.selectedStartDateMillis
+                    val e = pickerState.selectedEndDateMillis
+                    if (s != null && e != null) {
+                        onConfirm(s.toUtcLocalDate(), e.toUtcLocalDate())
+                    }
+                },
+                enabled = pickerState.selectedStartDateMillis != null &&
+                    pickerState.selectedEndDateMillis != null,
+            ) { Text("OK") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    ) {
+        DateRangePicker(state = pickerState)
+    }
+}
+
+private fun LocalDate.toUtcMillis(): Long =
+    atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+
+private fun Long.toUtcLocalDate(): LocalDate =
+    Instant.ofEpochMilli(this).atZone(ZoneOffset.UTC).toLocalDate()
+
+@Composable
+private fun StackedBar(activities: List<ActivityTotal>) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -240,15 +390,15 @@ private fun StackedBar(totals: List<ActivityNotesTotal>) {
             .clip(RoundedCornerShape(7.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant),
     ) {
-        val total = totals.sumOf { it.totalMs }.coerceAtLeast(1L)
-        totals.forEach { row ->
-            val w = row.totalMs.toFloat() / total.toFloat()
+        val total = activities.sumOf { it.totalMs }.coerceAtLeast(1L)
+        activities.forEach { group ->
+            val w = group.totalMs.toFloat() / total.toFloat()
             if (w > 0f) {
                 Box(
                     modifier = Modifier
                         .weight(w)
                         .fillMaxWidth()
-                        .background(row.category.color),
+                        .background(group.category.color),
                 )
             }
         }
@@ -256,38 +406,66 @@ private fun StackedBar(totals: List<ActivityNotesTotal>) {
 }
 
 @Composable
-private fun ActivityNotesRow(row: ActivityNotesTotal, totalLoggedMs: Long) {
+private fun ActivityGroup(group: ActivityTotal, totalLoggedMs: Long) {
     val pct = if (totalLoggedMs > 0)
-        (row.totalMs * 100f / totalLoggedMs).toInt() else 0
+        (group.totalMs * 100f / totalLoggedMs).toInt() else 0
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        // Activity header: color dot, name, and the activity's combined total.
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .background(group.category.color, CircleShape),
+                )
+                Spacer(Modifier.size(8.dp))
+                Text(group.activity.name, fontWeight = FontWeight.Medium)
+            }
+            Text("${formatHm(group.totalMs)} · ${pct}%")
+        }
+        // Note breakdown sub-sections. Skip when the only entry is "no notes",
+        // since the header already conveys that total.
+        val showNotes = group.notes.size > 1 || group.notes.firstOrNull()?.notes != null
+        if (showNotes) {
+            group.notes.forEach { note ->
+                NoteRow(note, group.totalMs)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoteRow(note: NoteTotal, activityTotalMs: Long) {
+    val pct = if (activityTotalMs > 0)
+        (note.totalMs * 100f / activityTotalMs).toInt() else 0
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
+            // Indent so notes nest visually under the activity name.
+            .padding(start = 20.dp, top = 6.dp),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
+        Text(
+            text = note.notes ?: "No notes",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontStyle = if (note.notes == null) FontStyle.Italic else FontStyle.Normal,
             modifier = Modifier.weight(1f),
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(12.dp)
-                    .background(row.category.color, CircleShape),
-            )
-            Spacer(Modifier.size(8.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(row.activity.name, fontWeight = FontWeight.Medium)
-                row.notes?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-        Text("${formatHm(row.totalMs)} · ${pct}%")
+        )
+        Spacer(Modifier.size(8.dp))
+        Text(
+            "${formatHm(note.totalMs)} · ${pct}%",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

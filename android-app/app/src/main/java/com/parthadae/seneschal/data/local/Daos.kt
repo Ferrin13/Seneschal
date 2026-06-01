@@ -170,6 +170,90 @@ interface ExpenseDao {
 }
 
 @Dao
+interface MessageTemplateDao {
+    @Query("SELECT * FROM message_templates WHERE deletedAt IS NULL ORDER BY title COLLATE NOCASE")
+    fun observeActive(): Flow<List<MessageTemplateEntity>>
+
+    @Query("SELECT * FROM message_templates WHERE id = :id LIMIT 1")
+    suspend fun byId(id: String): MessageTemplateEntity?
+
+    @Query("SELECT MAX(updatedAt) FROM message_templates")
+    suspend fun maxUpdatedAt(): Long?
+
+    @Upsert
+    suspend fun upsertAll(rows: List<MessageTemplateEntity>)
+
+    @Query("DELETE FROM message_templates WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
+@Dao
+interface GroupDao {
+    @Query("SELECT * FROM `groups` WHERE deletedAt IS NULL ORDER BY name COLLATE NOCASE")
+    fun observeActive(): Flow<List<GroupEntity>>
+
+    @Query("SELECT * FROM `groups` WHERE id = :id LIMIT 1")
+    suspend fun byId(id: String): GroupEntity?
+
+    @Query("SELECT MAX(updatedAt) FROM `groups`")
+    suspend fun maxUpdatedAt(): Long?
+
+    @Upsert
+    suspend fun upsertAll(rows: List<GroupEntity>)
+
+    /**
+     * Soft-delete locally so the FK from group_members stays valid; the
+     * outbox upsert will tombstone the row server-side.
+     */
+    @Query(
+        "UPDATE `groups` SET deletedAt = :deletedAtMs, " +
+            "clientUpdatedAt = :clientUpdatedAtMs, updatedAt = :updatedAtMs " +
+            "WHERE id = :id"
+    )
+    suspend fun softDeleteById(
+        id: String,
+        deletedAtMs: Long,
+        clientUpdatedAtMs: Long,
+        updatedAtMs: Long,
+    )
+}
+
+@Dao
+interface GroupMemberDao {
+    @Query(
+        "SELECT * FROM group_members WHERE groupId = :groupId AND deletedAt IS NULL " +
+            "ORDER BY displayName COLLATE NOCASE"
+    )
+    fun observeForGroup(groupId: String): Flow<List<GroupMemberEntity>>
+
+    @Query(
+        "SELECT * FROM group_members WHERE groupId = :groupId AND deletedAt IS NULL " +
+            "ORDER BY displayName COLLATE NOCASE"
+    )
+    suspend fun forGroup(groupId: String): List<GroupMemberEntity>
+
+    @Query("SELECT * FROM group_members WHERE id = :id LIMIT 1")
+    suspend fun byId(id: String): GroupMemberEntity?
+
+    @Query(
+        "SELECT groupId AS groupId, COUNT(*) AS count FROM group_members " +
+            "WHERE deletedAt IS NULL GROUP BY groupId"
+    )
+    fun observeMemberCounts(): Flow<List<GroupMemberCount>>
+
+    @Query("SELECT MAX(updatedAt) FROM group_members")
+    suspend fun maxUpdatedAt(): Long?
+
+    @Upsert
+    suspend fun upsertAll(rows: List<GroupMemberEntity>)
+
+    @Query("DELETE FROM group_members WHERE id = :id")
+    suspend fun deleteById(id: String)
+}
+
+data class GroupMemberCount(val groupId: String, val count: Int)
+
+@Dao
 interface PendingMutationDao {
     @Query("SELECT * FROM pending_mutations ORDER BY id ASC LIMIT :limit")
     suspend fun take(limit: Int): List<PendingMutationEntity>

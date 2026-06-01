@@ -22,6 +22,13 @@
       "when": 1778950245213,
       "tag": "0002_motionless_reaper",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779823995213,
+      "tag": "0003_typical_maddog",
+      "breakpoints": true
     }
   ]
 }

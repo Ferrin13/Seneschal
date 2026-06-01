@@ -7,6 +7,12 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!--
+      Used by the in-app multi-select contacts picker in the group-texting
+      flow. Requested at runtime when the user opens the picker; if denied,
+      the picker prompts the user to grant access or back out.
+    -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
 
     <!--
       We don't declare android.hardware.camera as required: the in-app

@@ -152,3 +152,73 @@ data class ExpenseEntity(
     val clientUpdatedAt: Long,
     val deletedAt: Long?,
 )
+
+/**
+ * Reusable plain-text message body the user can pick when launching a
+ * group send. v1 stores the body verbatim with no variable interpolation.
+ * Synced offline-first using the same client_updated_at LWW pattern as
+ * expenses.
+ */
+@Entity(
+    tableName = "message_templates",
+    indices = [Index("updatedAt")],
+)
+data class MessageTemplateEntity(
+    @PrimaryKey val id: String,
+    val title: String,
+    val body: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val clientUpdatedAt: Long,
+    val deletedAt: Long?,
+)
+
+/**
+ * A named bag of contacts the user can target with a send. Members live
+ * in `group_members` and reference this row's id. Soft-deleted via
+ * `deletedAt`; we never hard-delete a group locally, since the FK from
+ * group_members points back here.
+ */
+@Entity(
+    tableName = "groups",
+    indices = [Index("updatedAt")],
+)
+data class GroupEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val clientUpdatedAt: Long,
+    val deletedAt: Long?,
+)
+
+/**
+ * One contact (snapshotted display name + phone number) within a group.
+ * We snapshot rather than re-reading from the system Contacts provider on
+ * every send so messaging still works if the contact changes or the user
+ * revokes contacts access. `contactLookupKey` is retained so we can
+ * re-pick the same contact later if desired.
+ */
+@Entity(
+    tableName = "group_members",
+    foreignKeys = [
+        ForeignKey(
+            entity = GroupEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["groupId"],
+            onDelete = ForeignKey.NO_ACTION,
+        )
+    ],
+    indices = [Index("groupId"), Index("updatedAt")],
+)
+data class GroupMemberEntity(
+    @PrimaryKey val id: String,
+    val groupId: String,
+    val displayName: String,
+    val phoneNumber: String,
+    val contactLookupKey: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val clientUpdatedAt: Long,
+    val deletedAt: Long?,
+)

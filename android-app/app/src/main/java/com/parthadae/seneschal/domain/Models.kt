@@ -5,6 +5,9 @@ import com.parthadae.seneschal.data.local.ActivityEntity
 import com.parthadae.seneschal.data.local.BusinessEntity
 import com.parthadae.seneschal.data.local.CategoryEntity
 import com.parthadae.seneschal.data.local.ExpenseEntity
+import com.parthadae.seneschal.data.local.GroupEntity
+import com.parthadae.seneschal.data.local.GroupMemberEntity
+import com.parthadae.seneschal.data.local.MessageTemplateEntity
 import com.parthadae.seneschal.data.local.TimeSlotEntity
 import java.time.Instant
 
@@ -114,6 +117,61 @@ fun ExpenseEntity.toDomain() = Expense(
     updatedAtMs = updatedAt,
     clientUpdatedAtMs = clientUpdatedAt,
     isDeleted = deletedAt != null,
+)
+
+data class MessageTemplate(
+    val id: String,
+    val title: String,
+    val body: String,
+    val createdAtMs: Long,
+    val updatedAtMs: Long,
+)
+
+data class Group(
+    val id: String,
+    val name: String,
+    val createdAtMs: Long,
+    val updatedAtMs: Long,
+)
+
+data class GroupMember(
+    val id: String,
+    val groupId: String,
+    val displayName: String,
+    val phoneNumber: String,
+    val contactLookupKey: String?,
+)
+
+/**
+ * A `Group` paired with its current active member count. Cheap to compute
+ * via DAO aggregation and useful for the groups list screen.
+ */
+data class GroupSummary(
+    val group: Group,
+    val memberCount: Int,
+)
+
+fun MessageTemplateEntity.toDomain() = MessageTemplate(
+    id = id,
+    title = title,
+    body = body,
+    createdAtMs = createdAt,
+    updatedAtMs = updatedAt,
+)
+
+fun GroupEntity.toDomain() = Group(
+    id = id,
+    name = name,
+    createdAtMs = createdAt,
+    updatedAtMs = updatedAt,
+)
+
+fun GroupMemberEntity.toDomain() = GroupMember(
+    id = id,
+    groupId = groupId,
+    displayName = displayName,
+    phoneNumber = phoneNumber,
+    contactLookupKey = contactLookupKey,
 )
 
 private fun parseHexColor(hex: String): Color {

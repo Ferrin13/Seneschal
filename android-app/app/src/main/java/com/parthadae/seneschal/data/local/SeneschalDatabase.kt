@@ -12,8 +12,11 @@ import androidx.room.RoomDatabase
         PendingMutationEntity::class,
         BusinessEntity::class,
         ExpenseEntity::class,
+        MessageTemplateEntity::class,
+        GroupEntity::class,
+        GroupMemberEntity::class,
     ],
-    version = 3,
+    version = 6,
     exportSchema = false,
 )
 abstract class SeneschalDatabase : RoomDatabase() {
@@ -24,4 +27,7 @@ abstract class SeneschalDatabase : RoomDatabase() {
     abstract fun pendingMutationDao(): PendingMutationDao
     abstract fun businessDao(): BusinessDao
     abstract fun expenseDao(): ExpenseDao
+    abstract fun messageTemplateDao(): MessageTemplateDao
+    abstract fun groupDao(): GroupDao
+    abstract fun groupMemberDao(): GroupMemberDao
 }

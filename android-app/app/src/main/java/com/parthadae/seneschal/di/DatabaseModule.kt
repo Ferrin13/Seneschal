@@ -6,6 +6,12 @@ import com.parthadae.seneschal.data.local.ActivityDao
 import com.parthadae.seneschal.data.local.BusinessDao
 import com.parthadae.seneschal.data.local.CategoryDao
 import com.parthadae.seneschal.data.local.ExpenseDao
+import com.parthadae.seneschal.data.local.GroupDao
+import com.parthadae.seneschal.data.local.GroupMemberDao
+import com.parthadae.seneschal.data.local.MIGRATION_3_4
+import com.parthadae.seneschal.data.local.MIGRATION_4_5
+import com.parthadae.seneschal.data.local.MIGRATION_5_6
+import com.parthadae.seneschal.data.local.MessageTemplateDao
 import com.parthadae.seneschal.data.local.PendingMutationDao
 import com.parthadae.seneschal.data.local.RunningTimerDao
 import com.parthadae.seneschal.data.local.SeneschalDatabase
@@ -24,7 +30,7 @@ object DatabaseModule {
     @Singleton
     fun database(@ApplicationContext context: Context): SeneschalDatabase =
         Room.databaseBuilder(context, SeneschalDatabase::class.java, "seneschal.db")
-            .fallbackToDestructiveMigration()
+            .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
             .build()
 
     @Provides fun categoryDao(db: SeneschalDatabase): CategoryDao = db.categoryDao()
@@ -35,4 +41,8 @@ object DatabaseModule {
         db.pendingMutationDao()
     @Provides fun businessDao(db: SeneschalDatabase): BusinessDao = db.businessDao()
     @Provides fun expenseDao(db: SeneschalDatabase): ExpenseDao = db.expenseDao()
+    @Provides fun messageTemplateDao(db: SeneschalDatabase): MessageTemplateDao =
+        db.messageTemplateDao()
+    @Provides fun groupDao(db: SeneschalDatabase): GroupDao = db.groupDao()
+    @Provides fun groupMemberDao(db: SeneschalDatabase): GroupMemberDao = db.groupMemberDao()
 }

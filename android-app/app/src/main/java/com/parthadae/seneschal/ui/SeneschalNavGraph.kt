@@ -25,6 +25,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.parthadae.seneschal.ui.activities.ActivitiesScreen
 import com.parthadae.seneschal.ui.expenses.ExpenseTrackingFlow
+import com.parthadae.seneschal.ui.grouptext.GroupTextingFlow
 import com.parthadae.seneschal.ui.home.HomeScreen
 import com.parthadae.seneschal.ui.home.PlaceholderFeatureScreen
 import com.parthadae.seneschal.ui.settings.SettingsScreen
@@ -86,11 +87,7 @@ fun SeneschalNavGraph() {
             ExpenseTrackingFlow(onNavigateHome = { navController.popBackStack() })
         }
         composable(RootRoutes.GROUP_TEXT) {
-            PlaceholderFeatureScreen(
-                title = "Group texting",
-                description = "Group texting is not available yet. This screen will appear in a future update.",
-                onBack = { navController.popBackStack() },
-            )
+            GroupTextingFlow(onNavigateHome = { navController.popBackStack() })
         }
         composable(RootRoutes.CLIPBOARD) {
             PlaceholderFeatureScreen(
