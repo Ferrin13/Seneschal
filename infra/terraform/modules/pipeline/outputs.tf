@@ -13,3 +13,7 @@ output "frontend_pipeline_name" {
 output "artifacts_bucket" {
   value = aws_s3_bucket.artifacts.bucket
 }
+
+output "agent_pipeline_name" {
+  value = var.enable_agent_pipeline ? aws_codepipeline.agent[0].name : null
+}

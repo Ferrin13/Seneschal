@@ -95,7 +95,7 @@ write_files:
       WorkingDirectory=/opt/browser/app/agent
       ExecStartPre=/opt/browser/write-env.sh
       EnvironmentFile=/opt/browser/agent.env
-      ExecStart=/usr/bin/node dist/index.js
+      ExecStart=/usr/bin/node dist/worker.js
       Restart=always
       RestartSec=10
 
@@ -117,9 +117,32 @@ write_files:
       AGENT_TOKEN=$TOKEN
       CHROME_CDP_URL=http://127.0.0.1:9222
       AGENT_NAME=${agent_name}
+      TEMPORAL_ADDRESS=${temporal_address}
+      TEMPORAL_NAMESPACE=${temporal_namespace}
+      TEMPORAL_BROWSER_TASK_QUEUE=${browser_task_queue}
       EOF
       chown browser:browser /opt/browser/agent.env
       chmod 600 /opt/browser/agent.env
+
+  # ---- Agent deploy: pull the CI-built artifact from S3 and restart ----
+  # Invoked at boot and by the agent pipeline's Deploy stage (via SSM
+  # RunCommand). Keeps parity with the rest of the app: CI builds the
+  # artifact, the target just pulls it — no source checkout or npm on the box.
+  - path: /opt/browser/deploy-agent.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      TMP="$(mktemp -d)"
+      echo "Fetching agent artifact from s3://${agent_releases_bucket}/agent/latest/agent.tar.gz"
+      aws s3 cp "s3://${agent_releases_bucket}/agent/latest/agent.tar.gz" "$TMP/agent.tar.gz" --region "${region}"
+      rm -rf /opt/browser/app/agent
+      mkdir -p /opt/browser/app/agent
+      tar -xzf "$TMP/agent.tar.gz" -C /opt/browser/app/agent
+      chown -R browser:browser /opt/browser/app
+      rm -rf "$TMP"
+      systemctl restart scraper-agent
+      echo "Agent deployed and restarted."
 
   # ---- Main setup script ----
   - path: /opt/browser/setup.sh
@@ -163,15 +186,15 @@ write_files:
 
       # Dedicated unprivileged user + profile dir
       id browser >/dev/null 2>&1 || useradd -m -s /bin/bash browser
-      mkdir -p /opt/browser/profile
+      mkdir -p /opt/browser/profile /opt/browser/app/agent
       chown -R browser:browser /opt/browser
 
-      # Build the scraper agent
-      git clone --branch "${repo_branch}" --depth 1 "${repo_url}" /opt/browser/app
-      cd /opt/browser/app/agent
-      npm ci
-      npm run build
-      chown -R browser:browser /opt/browser/app
+      # Pull the CI-built scraper agent artifact from S3. Best-effort: on the
+      # very first boot the artifact may not exist yet (the agent pipeline
+      # hasn't run). The scraper-agent service simply retries until the first
+      # deploy uploads it and triggers a redeploy via SSM.
+      /opt/browser/deploy-agent.sh || \
+        echo "Agent artifact not available yet; will start after the first agent pipeline deploy."
 
       # Caddy config: TLS for the FQDN, basic auth, proxy to noVNC.
       HASH="$(caddy hash-password --plaintext '${novnc_password}')"

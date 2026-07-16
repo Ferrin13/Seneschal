@@ -40,6 +40,9 @@ version: 0.2
 #   S3_BUCKET             Images S3 bucket name.
 #   DB_SECRET_ARN         Secrets Manager ARN for DATABASE_URL.
 #   FIREBASE_SSM_ARN      SSM Parameter ARN for the Firebase service-account JSON.
+#   TEMPORAL_ADDRESS      host:port of the self-hosted Temporal frontend.
+#   CRAIGSLIST_SITE       Craigslist site slug (e.g. "boise").
+#   OPENROUTER_SECRET_ARN Secrets Manager ARN for the OpenRouter API key.
 
 phases:
   pre_build:
@@ -84,6 +87,9 @@ phases:
           -e "s|@@LOG_GROUP@@|$LOG_GROUP|g" \
           -e "s|@@DB_SECRET_ARN@@|$DB_SECRET_ARN|g" \
           -e "s|@@FIREBASE_SSM_ARN@@|$FIREBASE_SSM_ARN|g" \
+          -e "s|@@TEMPORAL_ADDRESS@@|$TEMPORAL_ADDRESS|g" \
+          -e "s|@@CRAIGSLIST_SITE@@|$CRAIGSLIST_SITE|g" \
+          -e "s|@@OPENROUTER_SECRET_ARN@@|$OPENROUTER_SECRET_ARN|g" \
           backend/taskdef.json > taskdef.json
 
       # Fail fast if any placeholder didn't get substituted (e.g. Terraform

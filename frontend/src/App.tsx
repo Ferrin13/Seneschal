@@ -6,12 +6,20 @@ import {
   Button,
   CircularProgress,
   Container,
+  Divider,
+  Drawer,
+  IconButton,
+  List,
+  ListItemButton,
+  ListItemText,
+  ListSubheader,
   Stack,
   Tab,
   Tabs,
   Toolbar,
   Typography,
 } from "@mui/material";
+import MenuIcon from "@mui/icons-material/Menu";
 import { useState } from "react";
 import {
   Navigate,
@@ -27,24 +35,43 @@ import { MarketplaceView } from "./MarketplaceView";
 import { DealsView } from "./DealsView";
 import { SettingsView } from "./SettingsView";
 
-/** Top-level navigation tabs, each mapped to its own routed path. */
-const NAV_TABS = [
-  { path: "/time-tracking", label: "Time Tracking", element: <TimeTrackingView /> },
-  { path: "/targets", label: "Targets", element: <MarketplaceView /> },
+/**
+ * The app is split into two independent sections so navigation stays simple:
+ * a Time Tracking area and a Deal Hunter area. Each section has its own
+ * (non-scrollable) tab bar rather than one crowded, horizontally-scrolling bar.
+ */
+const TIME_PATH = "/time-tracking";
+
+/** Sub-tabs within the Deal Hunter section. */
+const HUNTER_TABS = [
   { path: "/deals", label: "Deals", element: <DealsView /> },
+  { path: "/targets", label: "Targets", element: <MarketplaceView /> },
   { path: "/settings", label: "Settings", element: <SettingsView /> },
 ] as const;
+
+/** Default landing path for each primary section. */
+const HUNTER_DEFAULT = HUNTER_TABS[0].path;
+
+type Section = "time" | "hunter";
+
+function sectionForPath(pathname: string): Section {
+  return HUNTER_TABS.some((t) => pathname.startsWith(t.path))
+    ? "hunter"
+    : "time";
+}
 
 export default function App() {
   const { user, loading } = useAuth();
   const [signInError, setSignInError] = useState<string | null>(null);
+  const [navOpen, setNavOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Drive the tab bar off the URL; unknown paths fall back to the first tab.
-  const activeTab =
-    NAV_TABS.find((t) => location.pathname.startsWith(t.path))?.path ??
-    NAV_TABS[0].path;
+  // Drive both nav bars off the URL.
+  const section = sectionForPath(location.pathname);
+  const activeHunterTab =
+    HUNTER_TABS.find((t) => location.pathname.startsWith(t.path))?.path ??
+    HUNTER_DEFAULT;
 
   const handleSignIn = async () => {
     setSignInError(null);
@@ -60,10 +87,36 @@ export default function App() {
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
       <AppBar position="sticky" elevation={1}>
-        <Toolbar>
-          <Typography variant="h6" sx={{ flexGrow: 1 }}>
-            Seneschal
-          </Typography>
+        <Toolbar sx={{ gap: { xs: 1, sm: 3 } }}>
+          {user ? (
+            <IconButton
+              color="inherit"
+              edge="start"
+              aria-label="Open navigation"
+              onClick={() => setNavOpen(true)}
+              sx={{ display: { xs: "inline-flex", md: "none" } }}
+            >
+              <MenuIcon />
+            </IconButton>
+          ) : null}
+          <Typography variant="h6">Seneschal</Typography>
+          {user ? (
+            <Tabs
+              value={section}
+              onChange={(_e, v: Section) =>
+                navigate(v === "time" ? TIME_PATH : HUNTER_DEFAULT)
+              }
+              textColor="inherit"
+              indicatorColor="secondary"
+              variant="scrollable"
+              allowScrollButtonsMobile
+              sx={{ minHeight: 64, display: { xs: "none", md: "flex" } }}
+            >
+              <Tab value="time" label="Time Tracking" sx={{ minHeight: 64 }} />
+              <Tab value="hunter" label="Deal Hunter" sx={{ minHeight: 64 }} />
+            </Tabs>
+          ) : null}
+          <Box sx={{ flexGrow: 1 }} />
           {loading ? (
             <CircularProgress size={20} sx={{ color: "inherit" }} />
           ) : user ? (
@@ -71,10 +124,18 @@ export default function App() {
               {user.photoURL ? (
                 <Avatar src={user.photoURL} sx={{ width: 32, height: 32 }} />
               ) : null}
-              <Typography variant="body2">
+              <Typography
+                variant="body2"
+                sx={{ display: { xs: "none", sm: "block" } }}
+              >
                 {user.displayName ?? user.email}
               </Typography>
-              <Button color="inherit" variant="outlined" onClick={signOut}>
+              <Button
+                color="inherit"
+                variant="outlined"
+                onClick={signOut}
+                sx={{ display: { xs: "none", sm: "inline-flex" } }}
+              >
                 Sign out
               </Button>
             </Stack>
@@ -92,39 +153,81 @@ export default function App() {
         </Toolbar>
       </AppBar>
 
-      <Container maxWidth={false} sx={{ py: 4 }}>
+      {user ? (
+        <Drawer
+          anchor="left"
+          open={navOpen}
+          onClose={() => setNavOpen(false)}
+          sx={{ display: { md: "none" } }}
+        >
+          <Box
+            sx={{ width: 260 }}
+            role="presentation"
+            onClick={() => setNavOpen(false)}
+          >
+            <List>
+              <ListItemButton
+                selected={section === "time"}
+                onClick={() => navigate(TIME_PATH)}
+              >
+                <ListItemText primary="Time Tracking" />
+              </ListItemButton>
+            </List>
+            <Divider />
+            <List
+              subheader={<ListSubheader disableSticky>Deal Hunter</ListSubheader>}
+            >
+              {HUNTER_TABS.map((t) => (
+                <ListItemButton
+                  key={t.path}
+                  selected={location.pathname.startsWith(t.path)}
+                  onClick={() => navigate(t.path)}
+                >
+                  <ListItemText primary={t.label} />
+                </ListItemButton>
+              ))}
+            </List>
+            <Divider />
+            <List>
+              <ListItemButton onClick={signOut}>
+                <ListItemText primary="Sign out" />
+              </ListItemButton>
+            </List>
+          </Box>
+        </Drawer>
+      ) : null}
+
+      <Container maxWidth={false} sx={{ py: { xs: 2, sm: 4 } }}>
         {loading ? (
           <Stack alignItems="center" sx={{ mt: 8 }}>
             <CircularProgress />
           </Stack>
         ) : user ? (
           <Stack spacing={3}>
-            <Tabs
-              value={activeTab}
-              onChange={(_e, v: string) => navigate(v)}
-              variant="scrollable"
-              allowScrollButtonsMobile
-            >
-              {NAV_TABS.map((t) => (
-                <Tab key={t.path} value={t.path} label={t.label} />
-              ))}
-            </Tabs>
+            {section === "hunter" ? (
+              <Tabs
+                value={activeHunterTab}
+                onChange={(_e, v: string) => navigate(v)}
+                variant="scrollable"
+                allowScrollButtonsMobile
+                sx={{ display: { xs: "none", md: "flex" } }}
+              >
+                {HUNTER_TABS.map((t) => (
+                  <Tab key={t.path} value={t.path} label={t.label} />
+                ))}
+              </Tabs>
+            ) : null}
             <Routes>
-              <Route
-                path="/"
-                element={<Navigate to={NAV_TABS[0].path} replace />}
-              />
-              {NAV_TABS.map((t) => (
+              <Route path="/" element={<Navigate to={TIME_PATH} replace />} />
+              <Route path={TIME_PATH} element={<TimeTrackingView />} />
+              {HUNTER_TABS.map((t) => (
                 <Route
                   key={t.path}
                   path={t.path === "/deals" ? "/deals/*" : t.path}
                   element={t.element}
                 />
               ))}
-              <Route
-                path="*"
-                element={<Navigate to={NAV_TABS[0].path} replace />}
-              />
+              <Route path="*" element={<Navigate to={TIME_PATH} replace />} />
             </Routes>
           </Stack>
         ) : (

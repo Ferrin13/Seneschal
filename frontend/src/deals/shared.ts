@@ -103,6 +103,21 @@ export const DISPOSITION_TINT: Record<Disposition, string | undefined> = {
   sold: "rgba(46, 125, 50, 0.10)",
 };
 
+/**
+ * Opaque equivalents of {@link DISPOSITION_TINT} (each tint flattened over the
+ * white paper background). Used by the detail panel so a sticky element (the
+ * close bar) can match the panel background exactly without letting scrolled
+ * content bleed through a translucent color.
+ */
+export const DISPOSITION_PANEL_BG: Record<Disposition, string | undefined> = {
+  none: undefined,
+  not_a_fit: "#fbeeee",
+  not_a_good_deal: "#fbeeee",
+  keep_watching: "#e6f3fa",
+  reached_out: "#e8f1fb",
+  sold: "#eaf2eb",
+};
+
 export const DISPOSITION_OPTIONS: Disposition[] = [
   "none",
   "not_a_fit",

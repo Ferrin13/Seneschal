@@ -30,11 +30,14 @@
         { "name": "FIREBASE_PROJECT_ID",  "value": "@@FIREBASE_PROJECT_ID@@" },
         { "name": "CORS_ORIGINS",         "value": "@@CORS_ORIGINS@@" },
         { "name": "AWS_REGION",           "value": "@@AWS_REGION_NAME@@" },
-        { "name": "S3_BUCKET",            "value": "@@S3_BUCKET@@" }
+        { "name": "S3_BUCKET",            "value": "@@S3_BUCKET@@" },
+        { "name": "TEMPORAL_ADDRESS",     "value": "@@TEMPORAL_ADDRESS@@" },
+        { "name": "CRAIGSLIST_SITE",      "value": "@@CRAIGSLIST_SITE@@" }
       ],
       "secrets": [
         { "name": "DATABASE_URL",                         "valueFrom": "@@DB_SECRET_ARN@@" },
-        { "name": "GOOGLE_APPLICATION_CREDENTIALS_JSON",  "valueFrom": "@@FIREBASE_SSM_ARN@@" }
+        { "name": "GOOGLE_APPLICATION_CREDENTIALS_JSON",  "valueFrom": "@@FIREBASE_SSM_ARN@@" },
+        { "name": "OPENROUTER_API_KEY",                   "valueFrom": "@@OPENROUTER_SECRET_ARN@@" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",

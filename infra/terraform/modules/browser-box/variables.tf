@@ -62,19 +62,30 @@ variable "novnc_password" {
   sensitive   = true
 }
 
-variable "repo_url" {
-  description = "Git URL cloned on the box to build the scraper agent."
+variable "agent_releases_bucket" {
+  description = "S3 bucket name holding the CI-built scraper-agent artifact. The box downloads s3://<bucket>/agent/latest/agent.tar.gz at boot (and on each deploy) instead of cloning + building from source."
   type        = string
-}
-
-variable "repo_branch" {
-  description = "Git branch to check out for the agent."
-  type        = string
-  default     = "main"
 }
 
 variable "agent_name" {
   description = "Identifier this box reports to the API."
+  type        = string
+  default     = "browser-box"
+}
+
+variable "temporal_address" {
+  description = "host:port of the self-hosted Temporal frontend (Cloud Map DNS). The agent is a Temporal activity worker and connects here directly."
+  type        = string
+}
+
+variable "temporal_namespace" {
+  description = "Temporal namespace the agent worker uses."
+  type        = string
+  default     = "default"
+}
+
+variable "browser_task_queue" {
+  description = "Temporal task queue the agent services (Facebook load-and-parse activities)."
   type        = string
   default     = "browser-box"
 }

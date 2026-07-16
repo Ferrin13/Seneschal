@@ -4,6 +4,7 @@ import {
   CardContent,
   CardMedia,
   Divider,
+  Link,
   Stack,
   Typography,
 } from "@mui/material";
@@ -89,6 +90,7 @@ export function CandidateCard({
         ) : null}
         <Typography
           variant="subtitle1"
+          component="div"
           title={c.title ?? ""}
           sx={{
             fontWeight: 700,
@@ -99,7 +101,16 @@ export function CandidateCard({
             overflow: "hidden",
           }}
         >
-          {c.title ?? "(untitled)"}{" "}
+          <Link
+            href={c.listingUrl}
+            target="_blank"
+            rel="noreferrer"
+            color="inherit"
+            underline="hover"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {c.title ?? "(untitled)"}
+          </Link>{" "}
           <PlatformIcon
             platform={c.platform}
             sx={{ fontSize: "1rem", verticalAlign: "text-bottom" }}
@@ -110,10 +121,16 @@ export function CandidateCard({
       {c.thumbnailUrl ? (
         <CardMedia
           component="img"
-          height="150"
           image={c.thumbnailUrl}
           alt={c.title ?? ""}
           referrerPolicy="no-referrer"
+          sx={{
+            width: "100%",
+            // On mobile the card is full-width, so show the whole image at its
+            // natural aspect ratio; on larger screens keep a compact thumbnail.
+            height: { xs: "auto", sm: 150 },
+            objectFit: { xs: "contain", sm: "cover" },
+          }}
         />
       ) : null}
 

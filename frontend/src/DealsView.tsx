@@ -14,8 +14,6 @@ import {
   Select,
   Slider,
   Stack,
-  Tab,
-  Tabs,
   Typography,
 } from "@mui/material";
 import TuneIcon from "@mui/icons-material/Tune";
@@ -252,18 +250,6 @@ export function DealsView() {
       ))}
 
       <Box>
-        <Tabs
-          value={tab}
-          onChange={(_e, v) => setTab(v)}
-          variant="scrollable"
-          allowScrollButtonsMobile
-          sx={{ mb: 2 }}
-        >
-          {TABS.map((t) => (
-            <Tab key={t.value} value={t.value} label={t.label} />
-          ))}
-        </Tabs>
-
         <Box
           sx={{
             border: 1,
@@ -280,7 +266,25 @@ export function DealsView() {
             useFlexGap
             alignItems="flex-start"
           >
-            <FormControl size="small" sx={{ minWidth: 200 }}>
+            <FormControl size="small" sx={{ minWidth: { xs: "100%", sm: 170 } }}>
+              <InputLabel id="status-label">Status</InputLabel>
+              <Select
+                labelId="status-label"
+                label="Status"
+                value={tab}
+                onChange={(e) =>
+                  setTab(e.target.value as CandidateStatus | "all")
+                }
+              >
+                {TABS.map((t) => (
+                  <MenuItem key={t.value} value={t.value}>
+                    {t.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <FormControl size="small" sx={{ minWidth: { xs: "100%", sm: 200 } }}>
               <InputLabel id="sort-label">Sort by</InputLabel>
               <Select
                 labelId="sort-label"
@@ -296,7 +300,7 @@ export function DealsView() {
               </Select>
             </FormControl>
 
-            <FormControl size="small" sx={{ minWidth: 160 }}>
+            <FormControl size="small" sx={{ minWidth: { xs: "100%", sm: 160 } }}>
               <InputLabel id="posted-label">Posted</InputLabel>
               <Select
                 labelId="posted-label"
@@ -312,7 +316,10 @@ export function DealsView() {
               </Select>
             </FormControl>
 
-            <FormControl size="small" sx={{ minWidth: 190 }}>
+            <FormControl
+              size="small"
+              sx={{ minWidth: { xs: "100%", sm: 190 }, maxWidth: { sm: 240 } }}
+            >
               <InputLabel id="platform-filter-label">Search type</InputLabel>
               <Select
                 labelId="platform-filter-label"
@@ -343,7 +350,10 @@ export function DealsView() {
             </FormControl>
 
             {targets.length > 0 ? (
-              <FormControl size="small" sx={{ minWidth: 220 }}>
+              <FormControl
+                size="small"
+                sx={{ minWidth: { xs: "100%", sm: 220 }, maxWidth: { sm: 260 } }}
+              >
                 <InputLabel id="target-filter-label">Target</InputLabel>
                 <Select
                   labelId="target-filter-label"
@@ -377,7 +387,10 @@ export function DealsView() {
               </FormControl>
             ) : null}
 
-            <FormControl size="small" sx={{ minWidth: 210 }}>
+            <FormControl
+              size="small"
+              sx={{ minWidth: { xs: "100%", sm: 210 }, maxWidth: { sm: 260 } }}
+            >
               <InputLabel id="disposition-filter-label">Disposition</InputLabel>
               <Select
                 labelId="disposition-filter-label"
@@ -424,7 +437,7 @@ export function DealsView() {
 
             {showAdvanced ? (
               <>
-                <Box sx={{ width: 180, px: 1 }}>
+                <Box sx={{ width: { xs: "100%", sm: 180 }, px: 1 }}>
                   <Typography variant="caption" color="text.secondary">
                     Min deal score: {minDeal}
                   </Typography>
@@ -438,7 +451,7 @@ export function DealsView() {
                   />
                 </Box>
 
-                <Box sx={{ width: 180, px: 1 }}>
+                <Box sx={{ width: { xs: "100%", sm: 180 }, px: 1 }}>
                   <Typography variant="caption" color="text.secondary">
                     Min value score: {minValue}
                   </Typography>
@@ -452,7 +465,7 @@ export function DealsView() {
                   />
                 </Box>
 
-                <Box sx={{ width: 180, px: 1 }}>
+                <Box sx={{ width: { xs: "100%", sm: 180 }, px: 1 }}>
                   <Typography variant="caption" color="text.secondary">
                     Min fit score: {minFit}
                   </Typography>
@@ -493,7 +506,8 @@ export function DealsView() {
           <Box
             sx={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+              gridTemplateColumns:
+                "repeat(auto-fill, minmax(min(100%, 260px), 1fr))",
               gap: 2,
             }}
           >

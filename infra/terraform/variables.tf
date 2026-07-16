@@ -133,6 +133,79 @@ variable "cors_origins" {
   default     = null
 }
 
+# --- Deal hunter (Temporal + worker + LLM) ------------------------------
+
+variable "openrouter_api_key" {
+  description = "OpenRouter API key. Required by the deal hunter (all LLM traffic: triage, comps, evaluation). Terraform stores it in Secrets Manager and injects it into both the API and worker tasks."
+  type        = string
+  sensitive   = true
+}
+
+variable "craigslist_site" {
+  description = "Craigslist site slug the deal hunter searches (e.g. \"boise\"). Must be non-empty: it is injected into the API task and the shared config validates it as a min-length-1 string, so an empty value would crash the API on boot."
+  type        = string
+  default     = "boise"
+
+  validation {
+    condition     = length(var.craigslist_site) > 0
+    error_message = "craigslist_site must be a non-empty Craigslist site slug (e.g. \"boise\")."
+  }
+}
+
+variable "temporal_name_prefix" {
+  description = "Resource-name prefix for the self-hosted Temporal cluster + its RDS instance. Deliberately separate from name_prefix (seneschal) so the cluster can be reused as shared infra across products."
+  type        = string
+  default     = "parthadae"
+}
+
+variable "temporal_namespace_domain" {
+  description = "Cloud Map private DNS namespace for the Temporal cluster. Clients reach it at temporal.<domain>:7233."
+  type        = string
+  default     = "parthadae.internal"
+}
+
+variable "temporal_cpu" {
+  description = "Fargate CPU units for the Temporal server task."
+  type        = number
+  default     = 512
+}
+
+variable "temporal_memory" {
+  description = "Fargate memory (MiB) for the Temporal server task."
+  type        = number
+  default     = 1024
+}
+
+variable "temporal_db_instance_class" {
+  description = "RDS instance class for the Temporal database."
+  type        = string
+  default     = "db.t4g.micro"
+}
+
+variable "temporal_db_deletion_protection" {
+  description = "Enable deletion protection on the Temporal RDS instance."
+  type        = bool
+  default     = false
+}
+
+variable "worker_cpu" {
+  description = "Fargate CPU units for the deal-hunter worker."
+  type        = number
+  default     = 512
+}
+
+variable "worker_memory" {
+  description = "Fargate memory (MiB) for the deal-hunter worker."
+  type        = number
+  default     = 1024
+}
+
+variable "worker_desired_count" {
+  description = "Number of deal-hunter worker tasks."
+  type        = number
+  default     = 1
+}
+
 # --- CI/CD --------------------------------------------------------------
 
 variable "enable_pipeline" {
@@ -210,18 +283,6 @@ variable "agent_token" {
   type        = string
   default     = null
   sensitive   = true
-}
-
-variable "browser_repo_url" {
-  description = "Git URL the browser box clones to build the scraper agent."
-  type        = string
-  default     = null
-}
-
-variable "browser_repo_branch" {
-  description = "Git branch the browser box checks out for the agent."
-  type        = string
-  default     = "main"
 }
 
 variable "browser_ssh_public_key" {

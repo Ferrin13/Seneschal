@@ -24,7 +24,7 @@ data "aws_iam_policy_document" "task_execution_secrets" {
   statement {
     sid       = "ReadDbSecret"
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [local.db_secret_arn]
+    resources = concat([local.db_secret_arn], var.extra_secret_arns)
   }
 
   statement {

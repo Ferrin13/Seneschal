@@ -7,6 +7,7 @@ import {
   Collapse,
   Divider,
   FormControl,
+  IconButton,
   InputLabel,
   Link,
   MenuItem,
@@ -21,6 +22,9 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useEffect, useState } from "react";
 import {
   api,
@@ -34,7 +38,7 @@ import { DealScoreBadge, ScorePill, StatusBadge } from "./DealBadges";
 import {
   DISPOSITION,
   DISPOSITION_OPTIONS,
-  DISPOSITION_TINT,
+  DISPOSITION_PANEL_BG,
   PLATFORM_COLOR,
   STAGE_LABEL,
   ageText,
@@ -42,6 +46,124 @@ import {
   eventReason,
   money,
 } from "./shared";
+
+/**
+ * Large, clickable image carousel for the detail view. Shows one image at a
+ * time so photos stay big; clicking the image (or the arrows) advances, and the
+ * dots jump to a specific photo. Falls back to a plain image when there's only
+ * one.
+ */
+function ImageCarousel({ images, alt }: { images: string[]; alt: string }) {
+  const [idx, setIdx] = useState(0);
+  const count = images.length;
+  const go = (n: number) => setIdx((prev) => (prev + n + count) % count);
+
+  const imgSx = {
+    width: "100%",
+    borderRadius: 1,
+    display: "block",
+    maxHeight: { xs: 360, sm: 420 },
+    objectFit: "contain",
+    bgcolor: "action.hover",
+  } as const;
+
+  if (count === 1) {
+    return (
+      <Box
+        component="img"
+        src={images[0]}
+        alt={alt}
+        referrerPolicy="no-referrer"
+        sx={{ ...imgSx, mb: 2 }}
+      />
+    );
+  }
+
+  return (
+    <Box sx={{ mb: 2 }}>
+      <Box sx={{ position: "relative" }}>
+        <Box
+          component="img"
+          src={images[idx]}
+          alt={`${alt} ${idx + 1} of ${count}`}
+          referrerPolicy="no-referrer"
+          onClick={() => go(1)}
+          sx={{ ...imgSx, cursor: "pointer" }}
+        />
+        <IconButton
+          aria-label="Previous image"
+          onClick={() => go(-1)}
+          size="small"
+          sx={{
+            position: "absolute",
+            top: "50%",
+            left: 8,
+            transform: "translateY(-50%)",
+            bgcolor: "rgba(0,0,0,0.45)",
+            color: "#fff",
+            "&:hover": { bgcolor: "rgba(0,0,0,0.65)" },
+          }}
+        >
+          <ChevronLeftIcon />
+        </IconButton>
+        <IconButton
+          aria-label="Next image"
+          onClick={() => go(1)}
+          size="small"
+          sx={{
+            position: "absolute",
+            top: "50%",
+            right: 8,
+            transform: "translateY(-50%)",
+            bgcolor: "rgba(0,0,0,0.45)",
+            color: "#fff",
+            "&:hover": { bgcolor: "rgba(0,0,0,0.65)" },
+          }}
+        >
+          <ChevronRightIcon />
+        </IconButton>
+        <Box
+          sx={{
+            position: "absolute",
+            bottom: 8,
+            right: 8,
+            px: 1,
+            py: 0.25,
+            borderRadius: 1,
+            bgcolor: "rgba(0,0,0,0.55)",
+            color: "#fff",
+            fontSize: 12,
+          }}
+        >
+          {idx + 1} / {count}
+        </Box>
+      </Box>
+      <Stack
+        direction="row"
+        spacing={0.75}
+        justifyContent="center"
+        sx={{ mt: 1, flexWrap: "wrap" }}
+        useFlexGap
+      >
+        {images.map((_, i) => (
+          <Box
+            key={i}
+            role="button"
+            aria-label={`Go to image ${i + 1}`}
+            onClick={() => setIdx(i)}
+            sx={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              cursor: "pointer",
+              bgcolor: i === idx ? "primary.main" : "action.disabled",
+            }}
+          />
+        ))}
+      </Stack>
+    </Box>
+  );
+}
 
 /** A single 1-10 accuracy score with an optional note. */
 function AccuracyRating({
@@ -319,18 +441,47 @@ export function CandidateDetailPanel({
     };
   }, [id]);
 
+  // Sticky close affordance. It blends into the panel by using the same
+  // (opaque) background as the content beneath it, with no divider, so it reads
+  // as part of the sidebar rather than a separate bar.
+  const makeCloseBar = (bg?: string) => (
+    <Box
+      sx={{
+        position: "sticky",
+        top: 0,
+        zIndex: 2,
+        display: "flex",
+        justifyContent: "flex-end",
+        alignItems: "center",
+        bgcolor: bg ?? "background.paper",
+        px: 1,
+        py: 0.5,
+      }}
+    >
+      <IconButton onClick={onClose} size="small" aria-label="Close deal details">
+        <CloseIcon />
+      </IconButton>
+    </Box>
+  );
+
   if (error) {
     return (
-      <Box sx={{ p: 3 }}>
-        <Alert severity="error">{error}</Alert>
-      </Box>
+      <>
+        {makeCloseBar()}
+        <Box sx={{ p: 3 }}>
+          <Alert severity="error">{error}</Alert>
+        </Box>
+      </>
     );
   }
   if (!detail) {
     return (
-      <Box sx={{ p: 3, textAlign: "center" }}>
-        <CircularProgress />
-      </Box>
+      <>
+        {makeCloseBar()}
+        <Box sx={{ p: 3, textAlign: "center" }}>
+          <CircularProgress />
+        </Box>
+      </>
     );
   }
 
@@ -338,7 +489,18 @@ export function CandidateDetailPanel({
   const advanced = evaluations.find((e) => e.tier === "advanced");
   const triage = evaluations.find((e) => e.tier === "triage");
   const triageReason = triage?.rationale ?? c.triageReason;
-  const cover = listing?.images.find((i) => i.url)?.url ?? c.thumbnailUrl;
+  // All saved images for this listing, in order; fall back to the candidate
+  // thumbnail when the listing hasn't been deep-scraped yet.
+  const savedImages = (listing?.images ?? [])
+    .filter((im): im is typeof im & { url: string } => Boolean(im.url))
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((im) => im.url);
+  const gallery =
+    savedImages.length > 0
+      ? savedImages
+      : c.thumbnailUrl
+        ? [c.thumbnailUrl]
+        : [];
   const fitValue = advanced?.fitScore ?? triage?.fitScore ?? c.triageScore ?? null;
   const dealScoreValue = combineDealScore(advanced?.valueScore ?? null, fitValue);
 
@@ -408,8 +570,17 @@ export function CandidateDetailPanel({
         })()
       : null;
 
+  const panelBg = DISPOSITION_PANEL_BG[c.disposition];
+
   return (
-    <Box sx={{ p: 3, bgcolor: DISPOSITION_TINT[c.disposition], minHeight: "100%" }}>
+    <>
+      {makeCloseBar(panelBg)}
+      <Box
+        sx={{
+          p: { xs: 2, sm: 3 },
+          bgcolor: panelBg,
+        }}
+      >
       {c.disposition !== "none" ? (
         <Typography
           variant="caption"
@@ -467,17 +638,17 @@ export function CandidateDetailPanel({
         <StatusBadge status={c.status} />
       </Stack>
 
-      {cover ? (
-        <Box
-          component="img"
-          src={cover}
-          alt={c.title ?? ""}
-          referrerPolicy="no-referrer"
-          sx={{ width: "100%", borderRadius: 1, mb: 2, maxHeight: 260, objectFit: "cover" }}
-        />
+      {gallery.length > 0 ? (
+        <ImageCarousel images={gallery} alt={c.title ?? "image"} />
       ) : null}
 
-      <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
+      <Stack
+        direction="row"
+        spacing={2}
+        flexWrap="wrap"
+        useFlexGap
+        sx={{ mb: 2 }}
+      >
         {ageText(listing?.sourceUpdatedAt ?? c.sourceUpdatedAt) ? (
           <Typography variant="caption" color="text.secondary">
             Updated {ageText(listing?.sourceUpdatedAt ?? c.sourceUpdatedAt)}
@@ -672,6 +843,7 @@ export function CandidateDetailPanel({
       </Typography>
 
       <RatingSection key={c.id} candidateId={c.id} initial={rating} />
-    </Box>
+      </Box>
+    </>
   );
 }

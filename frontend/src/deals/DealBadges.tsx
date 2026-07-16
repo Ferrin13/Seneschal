@@ -1,5 +1,6 @@
 import { Box, Chip, SvgIcon, Tooltip } from "@mui/material";
 import type { SvgIconProps, SxProps, Theme } from "@mui/material/styles";
+import { forwardRef } from "react";
 import FacebookIcon from "@mui/icons-material/Facebook";
 import type { Candidate, CandidateStatus, Platform } from "../api";
 import { DEAL_TIER, dealTier } from "../scoring";
@@ -16,21 +17,26 @@ const PLATFORM_LABEL: Record<Platform, string> = {
   craigslist: "Craigslist",
 };
 
-/** Craigslist's mark: a white peace symbol on the brand purple disc. */
-function CraigslistIcon(props: SvgIconProps) {
-  return (
-    <SvgIcon viewBox="0 0 24 24" {...props}>
-      <circle cx="12" cy="12" r="11" fill="currentColor" />
-      <path
-        d="M12 2 V22 M12 12 L4.6 19.4 M12 12 L19.4 19.4"
-        stroke="#fff"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        fill="none"
-      />
-    </SvgIcon>
-  );
-}
+/**
+ * Craigslist's mark: a white peace symbol on the brand purple disc. Uses
+ * forwardRef so it can be a Tooltip child (Tooltip needs a ref-holding element).
+ */
+const CraigslistIcon = forwardRef<SVGSVGElement, SvgIconProps>(
+  function CraigslistIcon(props, ref) {
+    return (
+      <SvgIcon viewBox="0 0 24 24" ref={ref} {...props}>
+        <circle cx="12" cy="12" r="11" fill="currentColor" />
+        <path
+          d="M12 2 V22 M12 12 L4.6 19.4 M12 12 L19.4 19.4"
+          stroke="#fff"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          fill="none"
+        />
+      </SvgIcon>
+    );
+  }
+);
 
 /**
  * Small source icon shown inline with a listing title. Facebook uses its brand

@@ -111,6 +111,18 @@ resource "aws_codebuild_project" "backend" {
       name  = "FIREBASE_SSM_ARN"
       value = var.firebase_ssm_arn
     }
+    environment_variable {
+      name  = "TEMPORAL_ADDRESS"
+      value = var.temporal_address
+    }
+    environment_variable {
+      name  = "CRAIGSLIST_SITE"
+      value = var.craigslist_site
+    }
+    environment_variable {
+      name  = "OPENROUTER_SECRET_ARN"
+      value = var.openrouter_secret_arn
+    }
   }
 
   source {
@@ -175,6 +187,65 @@ resource "aws_codebuild_project" "backend_migrate" {
   logs_config {
     cloudwatch_logs {
       group_name = aws_cloudwatch_log_group.backend_migrate.name
+    }
+  }
+}
+
+# ----- Backend worker redeploy ----------------------------------------
+# The API is deployed via CodeDeploy blue/green from a rendered taskdef.
+# The worker has no ALB/health-check story, so we simply force a new
+# deployment of its (Terraform-owned) ECS service, which re-pulls the
+# freshly-pushed :latest image.
+
+resource "aws_cloudwatch_log_group" "backend_worker_deploy" {
+  name              = "/aws/codebuild/${var.name_prefix}-backend-worker-deploy"
+  retention_in_days = 30
+}
+
+resource "aws_codebuild_project" "backend_worker_deploy" {
+  name         = "${var.name_prefix}-backend-worker-deploy"
+  service_role = aws_iam_role.codebuild.arn
+
+  artifacts {
+    type = "CODEPIPELINE"
+  }
+
+  environment {
+    type         = "LINUX_CONTAINER"
+    compute_type = "BUILD_GENERAL1_SMALL"
+    image        = "aws/codebuild/standard:7.0"
+
+    environment_variable {
+      name  = "AWS_DEFAULT_REGION"
+      value = var.region
+    }
+    environment_variable {
+      name  = "ECS_CLUSTER"
+      value = var.ecs_cluster_name
+    }
+    environment_variable {
+      name  = "WORKER_SERVICE"
+      value = var.worker_service_name
+    }
+  }
+
+  source {
+    type      = "CODEPIPELINE"
+    buildspec = <<-EOT
+      version: 0.2
+      phases:
+        build:
+          commands:
+            - echo "Forcing new deployment of $WORKER_SERVICE on $ECS_CLUSTER"
+            - aws ecs update-service --cluster "$ECS_CLUSTER" --service "$WORKER_SERVICE" --force-new-deployment
+            - echo "Waiting for the worker service to reach a steady state..."
+            - aws ecs wait services-stable --cluster "$ECS_CLUSTER" --services "$WORKER_SERVICE"
+    EOT
+  }
+
+  logs_config {
+    cloudwatch_logs {
+      group_name = aws_cloudwatch_log_group.backend_worker_deploy.name
     }
   }
 }
@@ -274,6 +345,137 @@ resource "aws_codebuild_project" "frontend_deploy" {
   logs_config {
     cloudwatch_logs {
       group_name = aws_cloudwatch_log_group.frontend_deploy.name
+    }
+  }
+}
+
+# ----- Scraper agent build (browser box artifact) ---------------------
+# Mirrors the frontend pattern: CI builds, then ships the artifact to S3.
+# Packages the compiled agent + production node_modules into a tarball the
+# browser box pulls at boot / on deploy. Playwright's browser download is
+# skipped because the agent drives an already-running Chrome over CDP.
+
+resource "aws_cloudwatch_log_group" "agent_build" {
+  count             = var.enable_agent_pipeline ? 1 : 0
+  name              = "/aws/codebuild/${var.name_prefix}-agent-build"
+  retention_in_days = 30
+}
+
+resource "aws_codebuild_project" "agent_build" {
+  count        = var.enable_agent_pipeline ? 1 : 0
+  name         = "${var.name_prefix}-agent-build"
+  service_role = aws_iam_role.codebuild.arn
+
+  artifacts {
+    type = "CODEPIPELINE"
+  }
+
+  environment {
+    type         = "LINUX_CONTAINER"
+    compute_type = "BUILD_GENERAL1_SMALL"
+    image        = "aws/codebuild/standard:7.0"
+
+    environment_variable {
+      name  = "AWS_DEFAULT_REGION"
+      value = var.region
+    }
+    environment_variable {
+      name  = "RELEASES_BUCKET"
+      value = var.agent_releases_bucket_name
+    }
+  }
+
+  source {
+    type      = "CODEPIPELINE"
+    buildspec = <<-EOT
+      version: 0.2
+      env:
+        variables:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      phases:
+        install:
+          runtime-versions:
+            nodejs: 20
+        build:
+          commands:
+            - COMMIT_SHORT=$(printf '%s' "$CODEBUILD_RESOLVED_SOURCE_VERSION" | cut -c1-8)
+            - cd agent
+            - npm ci
+            - npm run build
+            # Drop dev deps so only the runtime closure ships to the box.
+            - npm prune --omit=dev
+            - tar -czf /tmp/agent.tar.gz dist node_modules package.json package-lock.json
+            - aws s3 cp /tmp/agent.tar.gz "s3://$RELEASES_BUCKET/agent/$COMMIT_SHORT/agent.tar.gz"
+            - aws s3 cp /tmp/agent.tar.gz "s3://$RELEASES_BUCKET/agent/latest/agent.tar.gz"
+            - echo "Uploaded agent artifact ($COMMIT_SHORT)"
+    EOT
+  }
+
+  logs_config {
+    cloudwatch_logs {
+      group_name = aws_cloudwatch_log_group.agent_build[0].name
+    }
+  }
+}
+
+# ----- Scraper agent deploy (SSM RunCommand to the browser box) --------
+
+resource "aws_cloudwatch_log_group" "agent_deploy" {
+  count             = var.enable_agent_pipeline ? 1 : 0
+  name              = "/aws/codebuild/${var.name_prefix}-agent-deploy"
+  retention_in_days = 30
+}
+
+resource "aws_codebuild_project" "agent_deploy" {
+  count        = var.enable_agent_pipeline ? 1 : 0
+  name         = "${var.name_prefix}-agent-deploy"
+  service_role = aws_iam_role.codebuild.arn
+
+  artifacts {
+    type = "CODEPIPELINE"
+  }
+
+  environment {
+    type         = "LINUX_CONTAINER"
+    compute_type = "BUILD_GENERAL1_SMALL"
+    image        = "aws/codebuild/standard:7.0"
+
+    environment_variable {
+      name  = "AWS_DEFAULT_REGION"
+      value = var.region
+    }
+    environment_variable {
+      name  = "BROWSER_INSTANCE_ID"
+      value = var.browser_box_instance_id
+    }
+  }
+
+  source {
+    type      = "CODEPIPELINE"
+    buildspec = <<-EOT
+      version: 0.2
+      phases:
+        build:
+          commands:
+            - echo "Triggering agent redeploy on $BROWSER_INSTANCE_ID"
+            - |
+              CMD_ID=$(aws ssm send-command \
+                --instance-ids "$BROWSER_INSTANCE_ID" \
+                --document-name "AWS-RunShellScript" \
+                --comment "Deploy scraper agent" \
+                --parameters 'commands=["/opt/browser/deploy-agent.sh"]' \
+                --query "Command.CommandId" --output text)
+            - echo "SSM command $CMD_ID dispatched; waiting..."
+            - aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$BROWSER_INSTANCE_ID" || true
+            - STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$BROWSER_INSTANCE_ID" --query "Status" --output text)
+            - echo "SSM command status: $STATUS"
+            - test "$STATUS" = "Success"
+    EOT
+  }
+
+  logs_config {
+    cloudwatch_logs {
+      group_name = aws_cloudwatch_log_group.agent_deploy[0].name
     }
   }
 }

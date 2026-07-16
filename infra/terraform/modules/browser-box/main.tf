@@ -91,6 +91,22 @@ data "aws_iam_policy_document" "read_token" {
       values   = ["secretsmanager.${data.aws_region.current.name}.amazonaws.com"]
     }
   }
+  # Pull the CI-built scraper-agent artifact.
+  statement {
+    sid       = "ReadAgentArtifact"
+    actions   = ["s3:GetObject"]
+    resources = ["arn:aws:s3:::${var.agent_releases_bucket}/agent/*"]
+  }
+  statement {
+    sid       = "ListAgentBucket"
+    actions   = ["s3:ListBucket"]
+    resources = ["arn:aws:s3:::${var.agent_releases_bucket}"]
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["agent/*"]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "read_token" {
@@ -127,9 +143,11 @@ resource "aws_instance" "box" {
     agent_token_secret_arn = var.agent_token_secret_arn
     browser_fqdn           = var.browser_fqdn
     novnc_password         = var.novnc_password
-    repo_url               = var.repo_url
-    repo_branch            = var.repo_branch
+    agent_releases_bucket  = var.agent_releases_bucket
     agent_name             = var.agent_name
+    temporal_address       = var.temporal_address
+    temporal_namespace     = var.temporal_namespace
+    browser_task_queue     = var.browser_task_queue
   }))
 
   # Replacing user_data alone shouldn't recycle the box (and wipe the FB

@@ -54,12 +54,17 @@ data "aws_iam_policy_document" "codepipeline" {
       "codebuild:BatchGetBuilds",
       "codebuild:StopBuild",
     ]
-    resources = [
-      aws_codebuild_project.backend.arn,
-      aws_codebuild_project.backend_migrate.arn,
-      aws_codebuild_project.frontend_build.arn,
-      aws_codebuild_project.frontend_deploy.arn,
-    ]
+    resources = concat(
+      [
+        aws_codebuild_project.backend.arn,
+        aws_codebuild_project.backend_migrate.arn,
+        aws_codebuild_project.backend_worker_deploy.arn,
+        aws_codebuild_project.frontend_build.arn,
+        aws_codebuild_project.frontend_deploy.arn,
+      ],
+      aws_codebuild_project.agent_build[*].arn,
+      aws_codebuild_project.agent_deploy[*].arn,
+    )
   }
 
   # Required for the CodeDeployToECS pipeline action: CodePipeline reads
@@ -236,9 +241,11 @@ data "aws_iam_policy_document" "codebuild" {
   }
 
   # Used by the migrate CodeBuild step to register a new revision of the
-  # migrate task def, run it on Fargate, wait, and check the exit code.
+  # migrate task def, run it on Fargate, wait, and check the exit code; and
+  # by the worker-deploy step to force a new deployment of the worker service
+  # (UpdateService + DescribeServices for the `wait services-stable` poll).
   statement {
-    sid = "EcsRunMigrate"
+    sid = "EcsRunMigrateAndDeployWorker"
     actions = [
       "ecs:DescribeTaskDefinition",
       "ecs:RegisterTaskDefinition",
@@ -246,6 +253,8 @@ data "aws_iam_policy_document" "codebuild" {
       "ecs:DescribeTasks",
       "ecs:StopTask",
       "ecs:ListTasks",
+      "ecs:UpdateService",
+      "ecs:DescribeServices",
     ]
     resources = ["*"]
   }
@@ -258,6 +267,43 @@ data "aws_iam_policy_document" "codebuild" {
       test     = "StringEqualsIfExists"
       variable = "iam:PassedToService"
       values   = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+
+  # Agent pipeline: upload the built artifact to the releases bucket.
+  dynamic "statement" {
+    for_each = var.enable_agent_pipeline ? [1] : []
+    content {
+      sid       = "AgentArtifactUpload"
+      actions   = ["s3:PutObject"]
+      resources = ["${var.agent_releases_bucket_arn}/agent/*"]
+    }
+  }
+
+  # Agent pipeline: redeploy the browser box via SSM RunCommand.
+  dynamic "statement" {
+    for_each = var.enable_agent_pipeline ? [1] : []
+    content {
+      sid = "AgentSsmDeploy"
+      actions = [
+        "ssm:SendCommand",
+      ]
+      resources = [
+        "arn:aws:ec2:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:instance/${var.browser_box_instance_id}",
+        "arn:aws:ssm:${data.aws_region.current.name}::document/AWS-RunShellScript",
+      ]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = var.enable_agent_pipeline ? [1] : []
+    content {
+      sid = "AgentSsmPoll"
+      actions = [
+        "ssm:GetCommandInvocation",
+        "ssm:ListCommandInvocations",
+      ]
+      resources = ["*"]
     }
   }
 }

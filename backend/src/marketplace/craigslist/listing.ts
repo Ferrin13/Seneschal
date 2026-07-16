@@ -119,18 +119,30 @@ export async function craigslistListing(url: string): Promise<DeepListing> {
   }
 
   // Images: JSON-LD image array first, then gallery/og fallbacks.
-  const imageUrls = new Set<string>();
+  //
+  // Craigslist serves the same photo at several sizes
+  // (`..._1200x900.jpg`, `_600x450`, `_300x300`, `_50x50c`). JSON-LD/og give a
+  // mid-size render while the gallery <img> `src` is often a small thumbnail, so
+  // naively collecting every URL yields one full-res image followed by low-res
+  // duplicates. Key each photo by its size-agnostic id and always request the
+  // largest variant so every carousel image is full quality with no dupes.
+  const CL_IMG = /^(https?:\/\/images\.craigslist\.org\/.+)_\d+x\d+c?\.(jpe?g|png)$/i;
+  const byKey = new Map<string, string>();
+  const addUrl = (u: string | undefined | null) => {
+    if (!u || !u.startsWith("http")) return;
+    const base = u.match(CL_IMG)?.[1];
+    if (base) byKey.set(base, `${base}_1200x900.jpg`);
+    else if (!byKey.has(u)) byKey.set(u, u);
+  };
   if (ld?.image) {
     const arr = Array.isArray(ld.image) ? ld.image : [ld.image];
-    for (const u of arr) if (u) imageUrls.add(u);
+    for (const u of arr) addUrl(u);
   }
-  const og = $('meta[property="og:image"]').attr("content");
-  if (og) imageUrls.add(og);
+  addUrl($('meta[property="og:image"]').attr("content"));
   $(".gallery img, figure img, .slide img").each((_, el) => {
-    const src = $(el).attr("src");
-    if (src && src.startsWith("http")) imageUrls.add(src);
+    addUrl($(el).attr("src"));
   });
-  const images = [...imageUrls].map((sourceUrl) => ({ sourceUrl }));
+  const images = [...byKey.values()].map((sourceUrl) => ({ sourceUrl }));
 
   const hasContent = !!(title || priceCents != null || description);
 
