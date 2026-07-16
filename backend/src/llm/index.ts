@@ -38,7 +38,7 @@ export type LlmUsage = {
 /** Attribution for cost accounting; when present, the call is logged to DB. */
 export type LlmUsageContext = {
   userId: string;
-  purpose: "search_expansion" | "triage" | "advanced" | "other";
+  purpose: "search_expansion" | "triage" | "comps" | "advanced" | "other";
   candidateId?: string | null;
   listingId?: string | null;
   targetId?: string | null;
@@ -76,6 +76,11 @@ export async function llmComplete(opts: {
   model?: string;
   /** OpenRouter server tools (e.g. [{ type: "openrouter:web_search" }]). */
   tools?: unknown[];
+  /**
+   * OpenRouter `reasoning` control (e.g. `{ enabled: false }` to turn thinking
+   * off for structured-extraction tasks so it doesn't eat the token budget).
+   */
+  reasoning?: unknown;
   usage?: LlmUsageContext;
 }): Promise<LlmResult> {
   if (!config.OPENROUTER_API_KEY) {
@@ -89,7 +94,8 @@ export async function llmComplete(opts: {
     opts.messages,
     maxTokens,
     opts.json ?? false,
-    opts.tools
+    opts.tools,
+    opts.reasoning
   );
 
   if (opts.usage) {
@@ -101,16 +107,23 @@ export async function llmComplete(opts: {
   return result;
 }
 
-/** Convenience: complete with `json: true` and JSON.parse the result. */
+/**
+ * Convenience: complete and JSON.parse the result. Uses JSON response-format
+ * mode by default; pass `jsonMode: false` to disable it (required alongside
+ * server tools like `openrouter:web_search`, which some providers reject in
+ * JSON mode). Parsing stays defensive either way.
+ */
 export async function llmJson<T>(opts: {
   tier: LlmTier;
   messages: LlmMessage[];
   maxTokens?: number;
   model?: string;
   tools?: unknown[];
+  reasoning?: unknown;
+  jsonMode?: boolean;
   usage?: LlmUsageContext;
 }): Promise<{ data: T; model: string; raw: string; usage: LlmUsage }> {
-  const res = await llmComplete({ ...opts, json: true });
+  const res = await llmComplete({ ...opts, json: opts.jsonMode ?? true });
   const raw = res.text.trim();
   // Providers sometimes wrap JSON in markdown fences; strip them.
   const cleaned = raw
@@ -175,7 +188,8 @@ async function openrouterComplete(
   messages: LlmMessage[],
   maxTokens: number,
   json: boolean,
-  tools?: unknown[]
+  tools?: unknown[],
+  reasoning?: unknown
 ): Promise<LlmResult> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -196,6 +210,7 @@ async function openrouterComplete(
       usage: { include: true },
       ...(json ? { response_format: { type: "json_object" } } : {}),
       ...(tools && tools.length > 0 ? { tools } : {}),
+      ...(reasoning !== undefined ? { reasoning } : {}),
       messages: messages.map((m) => ({ role: m.role, content: content(m) })),
     }),
   });

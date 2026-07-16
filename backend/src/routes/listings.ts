@@ -110,6 +110,8 @@ export const listingRoutes: FastifyPluginAsync = async (app) => {
           evaluation: e
             ? {
                 verdict: e.verdict,
+                valueScore: e.valueScore,
+                fitScore: e.fitScore,
                 confidence: e.confidence,
                 estimatedValueCents: e.estimatedValueCents,
                 rationale: e.rationale,
@@ -149,6 +151,8 @@ export const listingRoutes: FastifyPluginAsync = async (app) => {
         tier: e.tier,
         model: e.model,
         verdict: e.verdict,
+        valueScore: e.valueScore,
+        fitScore: e.fitScore,
         confidence: e.confidence,
         estimatedValueCents: e.estimatedValueCents,
         rationale: e.rationale,

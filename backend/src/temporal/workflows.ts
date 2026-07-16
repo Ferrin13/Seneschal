@@ -5,6 +5,8 @@ import type {
   CandidateRef,
   RunMeta,
   SearchRef,
+  VerifyRef,
+  VerifyResult,
 } from "./types.js";
 import type { HarvestedItem } from "../marketplace/types.js";
 import type { HuntTargetInput } from "./shared.js";
@@ -55,6 +57,14 @@ async function deepScrape(candidate: CandidateRef) {
     return browser.fbDeepScrape({ url: candidate.url });
   }
   return acts.craigslistDeepScrape({ url: candidate.url });
+}
+
+/** Re-fetch a vanished candidate's PDP to confirm it's gone, routing by platform. */
+async function verifyGone(candidate: VerifyRef): Promise<VerifyResult> {
+  if (candidate.platform === "facebook") {
+    return browser.fbVerifyListing({ url: candidate.url });
+  }
+  return acts.verifyCraigslistGone({ url: candidate.url });
 }
 
 /**
@@ -148,7 +158,28 @@ export async function huntTargetWorkflow(input: HuntTargetInput): Promise<{
       }
     }
 
-    await acts.reconcileSeen({ meta, searchId: search.id, seenKeys });
+    const { toVerify } = await acts.reconcileSeen({
+      meta,
+      searchId: search.id,
+      seenKeys,
+    });
+
+    // Promising listings that vanished get a PDP re-check before we call them
+    // sold; a still-live page just fell out of the snapshot and stays active.
+    for (const cand of toVerify) {
+      if (cand.platform === "facebook" && skipFacebook) continue;
+      try {
+        const result = await verifyGone(cand);
+        await acts.finalizeDisappearance({ meta, candidate: cand, result });
+      } catch (err) {
+        if (isLoggedOut(err)) {
+          skipFacebook = true;
+          await acts.flagNeedsLogin({ meta });
+        }
+        // Couldn't verify (e.g. login wall) — leave active, retry next run.
+        continue;
+      }
+    }
   }
 
   return {

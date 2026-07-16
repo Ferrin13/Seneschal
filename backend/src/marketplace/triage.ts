@@ -2,6 +2,7 @@ import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "../db/client.js";
 import { candidates, evaluations, searchTargets } from "../db/schema.js";
 import { llmJson, type LlmImage } from "../llm/index.js";
+import { getModelOverrides, pickModel } from "./modelSettings.js";
 
 /** Oldest pending, not-yet-triaged candidates for a user. */
 async function pendingCandidates(userId: string, limit: number) {
@@ -83,6 +84,7 @@ export async function triagePending(
       )
     );
   const targetsText = targetsBlock(targets);
+  const chosenModel = pickModel("triage", await getModelOverrides(userId), model);
 
   const pending = await pendingCandidates(userId, limit);
 
@@ -105,7 +107,7 @@ export async function triagePending(
 
       const { data, model: usedModel } = await llmJson<TriageResult>({
         tier: "triage",
-        model,
+        model: chosenModel,
         messages: [
           { role: "system", text: SYSTEM },
           { role: "user", text: userText, images },
@@ -138,6 +140,7 @@ export async function triagePending(
           tier: "triage",
           model: usedModel,
           verdict: promising ? "unsure" : "pass",
+          fitScore: score,
           confidence: score != null ? score / 100 : null,
           rationale: reason,
           promptVersion: PROMPT_VERSION,

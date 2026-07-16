@@ -6,6 +6,7 @@ import {
   candidateEvents,
   candidates,
   comps,
+  evaluationRatings,
   evaluations,
   listingImages,
   listings,
@@ -33,6 +34,9 @@ function serializeCandidate(row: CandidateRow) {
     triageReason: row.triageReason,
     promiseScore: row.promiseScore,
     status: row.status,
+    disposition: row.disposition,
+    dispositionNote: row.dispositionNote,
+    dispositionAt: row.dispositionAt?.toISOString() ?? null,
     sourceListedAt: row.sourceListedAt?.toISOString() ?? null,
     sourceUpdatedAt: row.sourceUpdatedAt?.toISOString() ?? null,
     firstSeenAt: row.firstSeenAt.toISOString(),
@@ -47,6 +51,8 @@ function serializeEval(e: EvalRow) {
     id: e.id,
     tier: e.tier,
     verdict: e.verdict,
+    valueScore: e.valueScore,
+    fitScore: e.fitScore,
     confidence: e.confidence,
     estimatedValueCents: e.estimatedValueCents,
     rationale: e.rationale,
@@ -113,41 +119,60 @@ export const candidateRoutes: FastifyPluginAsync = async (app) => {
     if (rows.length === 0) return [];
     const ids = rows.map((r) => r.id);
 
-    // Latest advanced evaluation per candidate.
+    // Latest advanced + triage evaluations per candidate. Triage rationale is
+    // used to backfill a missing triage reason on the card.
     const evalRows = await db
       .select()
       .from(evaluations)
       .where(
         and(
           eq(evaluations.userId, req.auth.userId),
-          eq(evaluations.tier, "advanced"),
           inArray(evaluations.candidateId, ids)
         )
       )
       .orderBy(desc(evaluations.createdAt));
     const latestEval = new Map<string, EvalRow>();
+    const latestTriage = new Map<string, EvalRow>();
     for (const e of evalRows) {
-      if (e.candidateId && !latestEval.has(e.candidateId)) {
+      if (!e.candidateId) continue;
+      if (e.tier === "advanced" && !latestEval.has(e.candidateId)) {
         latestEval.set(e.candidateId, e);
+      } else if (e.tier === "triage" && !latestTriage.has(e.candidateId)) {
+        latestTriage.set(e.candidateId, e);
       }
     }
 
-    // Listing id + comp count per candidate.
+    // Listing id + comp count per candidate. A candidate can have more than
+    // one listing row; prefer the most recently scraped (matches the detail
+    // view) and map every listing back to its candidate for the thumbnail.
     const listingRows = await db
-      .select({ id: listings.id, candidateId: listings.candidateId })
+      .select({
+        id: listings.id,
+        candidateId: listings.candidateId,
+      })
       .from(listings)
       .where(
         and(
           eq(listings.userId, req.auth.userId),
           inArray(listings.candidateId, ids)
         )
-      );
+      )
+      .orderBy(desc(listings.scrapedAt));
     const listingByCandidate = new Map<string, string>();
+    const listingToCandidate = new Map<string, string>();
     for (const l of listingRows) {
-      if (l.candidateId) listingByCandidate.set(l.candidateId, l.id);
+      if (!l.candidateId) continue;
+      listingToCandidate.set(l.id, l.candidateId);
+      if (!listingByCandidate.has(l.candidateId)) {
+        listingByCandidate.set(l.candidateId, l.id);
+      }
     }
     const listingIds = listingRows.map((l) => l.id);
     const compCounts = new Map<string, number>();
+    // First scraped image across any of a candidate's listings — a card
+    // thumbnail fallback for platforms (e.g. Craigslist) whose search tiles
+    // carry no thumbnail.
+    const thumbByCandidate = new Map<string, string>();
     if (listingIds.length > 0) {
       const counts = await db
         .select({
@@ -158,13 +183,31 @@ export const candidateRoutes: FastifyPluginAsync = async (app) => {
         .where(inArray(comps.listingId, listingIds))
         .groupBy(comps.listingId);
       for (const c of counts) compCounts.set(c.listingId, c.n);
+
+      const imgs = await db
+        .select({
+          listingId: listingImages.listingId,
+          sourceUrl: listingImages.sourceUrl,
+        })
+        .from(listingImages)
+        .where(inArray(listingImages.listingId, listingIds))
+        .orderBy(asc(listingImages.sortOrder));
+      for (const im of imgs) {
+        const cid = listingToCandidate.get(im.listingId);
+        if (cid && im.sourceUrl && !thumbByCandidate.has(cid)) {
+          thumbByCandidate.set(cid, im.sourceUrl);
+        }
+      }
     }
 
     return rows.map((r) => {
       const e = latestEval.get(r.id);
       const listingId = listingByCandidate.get(r.id) ?? null;
+      const base = serializeCandidate(r);
       return {
-        ...serializeCandidate(r),
+        ...base,
+        thumbnailUrl: base.thumbnailUrl ?? thumbByCandidate.get(r.id) ?? null,
+        triageReason: base.triageReason ?? latestTriage.get(r.id)?.rationale ?? null,
         listingId,
         compsCount: listingId ? compCounts.get(listingId) ?? 0 : 0,
         evaluation: e ? serializeEval(e) : null,
@@ -237,6 +280,17 @@ export const candidateRoutes: FastifyPluginAsync = async (app) => {
       )
       .orderBy(asc(candidateEvents.createdAt));
 
+    const [rating] = await db
+      .select()
+      .from(evaluationRatings)
+      .where(
+        and(
+          eq(evaluationRatings.candidateId, id),
+          eq(evaluationRatings.userId, req.auth.userId)
+        )
+      )
+      .limit(1);
+
     return {
       candidate: serializeCandidate(candidate),
       listing: listingOut,
@@ -257,7 +311,57 @@ export const candidateRoutes: FastifyPluginAsync = async (app) => {
         detail: ev.detail,
         createdAt: ev.createdAt.toISOString(),
       })),
+      rating: rating
+        ? {
+            id: rating.id,
+            candidateId: rating.candidateId,
+            evaluationId: rating.evaluationId,
+            fitAccuracy: rating.fitAccuracy,
+            fitNote: rating.fitNote,
+            valueAccuracy: rating.valueAccuracy,
+            valueNote: rating.valueNote,
+            createdAt: rating.createdAt.toISOString(),
+            updatedAt: rating.updatedAt.toISOString(),
+          }
+        : null,
     };
+  });
+
+  /**
+   * Set the user's manual disposition (and optional note) for a candidate.
+   * `not_a_fit` and `sold` are terminal — the hunt pipeline stops updating
+   * those candidates.
+   */
+  app.patch("/marketplace/candidates/:id/disposition", async (req, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const body = z
+      .object({
+        disposition: z.enum([
+          "none",
+          "not_a_fit",
+          "not_a_good_deal",
+          "keep_watching",
+          "reached_out",
+          "sold",
+        ]),
+        note: z.string().trim().max(2000).nullish(),
+      })
+      .parse(req.body);
+
+    const [updated] = await db
+      .update(candidates)
+      .set({
+        disposition: body.disposition,
+        dispositionNote: body.note ?? null,
+        dispositionAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(eq(candidates.id, id), eq(candidates.userId, req.auth.userId))
+      )
+      .returning();
+    if (!updated) return reply.code(404).send({ error: "not_found" });
+    return serializeCandidate(updated);
   });
 
   /**

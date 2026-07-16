@@ -42,17 +42,28 @@ export async function webComps(
   const { data } = await llmJson<WebCompsResult>({
     tier: "advanced",
     model: opts.model,
+    // Web search is incompatible with JSON response-format mode on some
+    // providers ("Web Search cannot be used with JSON mode"), so we disable
+    // JSON mode and rely on the prompt + defensive parsing instead.
+    jsonMode: false,
     tools: [
       {
         type: "openrouter:web_search",
         parameters: { engine: "auto", max_total_results: opts.maxResults ?? 10 },
       },
     ],
+    // This is a structured-extraction task, not a reasoning one. Turning
+    // reasoning off stops thinking tokens from consuming the completion budget
+    // (which was truncating the JSON mid-array and breaking parsing), and keeps
+    // cost down on reasoning-capable models.
+    reasoning: { enabled: false },
     messages: [
       { role: "system", text: SYSTEM },
       { role: "user", text: `Item: ${query}` },
     ],
-    maxTokens: 1200,
+    // Generous cap: several comps with long marketplace URLs plus a summary can
+    // run past 1k tokens; too small truncates the JSON and fails the parse.
+    maxTokens: 4000,
     usage: opts.usage,
   });
 

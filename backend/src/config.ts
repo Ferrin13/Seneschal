@@ -56,8 +56,12 @@ const schema = z.object({
   // Optional attribution headers OpenRouter uses for app ranking.
   OPENROUTER_SITE_URL: z.string().url().optional(),
   OPENROUTER_APP_NAME: z.string().min(1).default("Seneschal"),
-  LLM_TRIAGE_MODEL: z.string().min(1).default("openai/gpt-5.6-sol"),
-  LLM_ADVANCED_MODEL: z.string().min(1).default("openai/gpt-5.6-terra"),
+  LLM_TRIAGE_MODEL: z.string().min(1).default("openai/gpt-5.6-terra"),
+  LLM_ADVANCED_MODEL: z.string().min(1).default("openai/gpt-5.6-sol"),
+  // Price-comparables web research. Its own knob because the web_search tool
+  // stuffs fetched results into the prompt (tens of thousands of tokens per
+  // call), so a cheaper model keeps this dominant cost in check.
+  LLM_COMPS_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
 
   // eBay Browse API (client-credentials) for price comps.
   EBAY_CLIENT_ID: z.string().min(1).optional(),

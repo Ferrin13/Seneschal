@@ -16,6 +16,21 @@ export type CandidateRef = {
   externalId: string | null;
 };
 
+/** A promising candidate that vanished from search and needs a PDP re-check. */
+export type VerifyRef = {
+  id: string;
+  platform: Platform;
+  url: string;
+  title: string | null;
+  misses: number;
+};
+
+/** Result of re-fetching a listing's PDP to confirm it's really gone. */
+export type VerifyResult = {
+  gone: boolean;
+  reason: string | null;
+};
+
 /** Temporal traceability passed to activities so events link back to a run. */
 export type RunMeta = {
   userId: string;
@@ -32,4 +47,6 @@ export type RunMeta = {
 export interface BrowserActivities {
   fbHarvestSearch(input: { searchUrl: string }): Promise<HarvestedItem[]>;
   fbDeepScrape(input: { url: string }): Promise<DeepListing>;
+  /** Re-open a listing PDP to confirm it's gone/sold before we mark it sold. */
+  fbVerifyListing(input: { url: string }): Promise<VerifyResult>;
 }

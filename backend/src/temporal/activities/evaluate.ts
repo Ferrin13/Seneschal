@@ -11,22 +11,34 @@ import {
   searches,
 } from "../../db/schema.js";
 import { llmJson, type LlmImage } from "../../llm/index.js";
+import { getModelOverrides, pickModel } from "../../marketplace/modelSettings.js";
+import {
+  GOOD_DEAL_MIN,
+  NOTIFY_FIT_MIN,
+  clampScore,
+  dealScore,
+  legacyVerdict,
+  promiseScore,
+} from "../../marketplace/scoring.js";
 import { presignGet } from "../../marketplace/storage.js";
 import type { RunMeta } from "../types.js";
 import { logEvent } from "./util.js";
 
-const PROMPT_VERSION = "advanced-v2";
+const PROMPT_VERSION = "advanced-v3";
 const MAX_IMAGES = 6;
 
-const SYSTEM = `You are an expert reseller evaluating whether a marketplace listing (Facebook or Craigslist) is a genuinely good deal for the user.
+const SYSTEM = `You are an expert reseller evaluating a marketplace listing (Facebook or Craigslist) for the user.
 You are given the user's targets/rules, the full listing (title, description, price, condition, seller, location, how long ago it was posted/updated), listing photos, and price comparables from an internet search and the user's own history.
-Estimate the item's fair resale/market value, then decide.
-Be decisive but honest: only call something a good deal when the asking price is clearly below fair value AND it fits the user's intent and rules.
+First estimate the item's fair resale/market value, then score two independent axes from 0 to 100:
+- "valueScore": how good the asking price is versus fair market value. 85-100 = great steal, 65-84 = clearly below market, 40-64 = roughly fair, 0-39 = overpriced. Base this ONLY on price vs. value, not on relevance.
+- "fitScore": how well the listing matches the user's target and rules. 85-100 = exact match, 40-64 = loosely related, 0-39 = wrong item or violates a stated rule.
+Also give "confidence" (0.0-1.0): how sure you are of these scores given the available info.
 Respond ONLY with JSON:
-{"verdict":"good_deal"|"pass"|"unsure","confidence":0.0-1.0,"estimatedValueCents":integer|null,"rationale":"2-3 sentences"}`;
+{"valueScore":0-100,"fitScore":0-100,"confidence":0.0-1.0,"estimatedValueCents":integer|null,"rationale":"2-3 sentences"}`;
 
 type AdvancedResult = {
-  verdict?: "good_deal" | "pass" | "unsure";
+  valueScore?: number;
+  fitScore?: number;
   confidence?: number;
   estimatedValueCents?: number | null;
   rationale?: string;
@@ -63,16 +75,6 @@ async function targetContext(candidateId: string | null): Promise<string> {
   }`;
 }
 
-/** Map a verdict + confidence into a 0-100 promise score for UI ranking. */
-function promiseFromVerdict(
-  verdict: string,
-  confidence: number | null
-): number {
-  const base = verdict === "good_deal" ? 80 : verdict === "unsure" ? 50 : 15;
-  const conf = confidence != null ? Math.round(confidence * 20) : 0;
-  return Math.max(0, Math.min(100, base + conf));
-}
-
 /**
  * Advanced-LLM evaluation of a single scraped listing + its comps. Writes an
  * `advanced` evaluation, updates the candidate's promise score, raises a deal
@@ -82,7 +84,12 @@ export async function finalEvaluate(input: {
   meta: RunMeta;
   listingId: string;
   candidateId: string;
-}): Promise<{ verdict: string; confidence: number | null }> {
+}): Promise<{
+  verdict: string;
+  valueScore: number | null;
+  fitScore: number | null;
+  confidence: number | null;
+}> {
   const { meta, listingId, candidateId } = input;
 
   const [listing] = await db
@@ -90,7 +97,8 @@ export async function finalEvaluate(input: {
     .from(listings)
     .where(and(eq(listings.id, listingId), eq(listings.userId, meta.userId)))
     .limit(1);
-  if (!listing) return { verdict: "unsure", confidence: null };
+  if (!listing)
+    return { verdict: "unsure", valueScore: null, fitScore: null, confidence: null };
 
   const ctx = await targetContext(candidateId);
 
@@ -144,9 +152,10 @@ export async function finalEvaluate(input: {
     `\nComparables:\n${compsText}`,
   ].join("\n");
 
+  const overrides = await getModelOverrides(meta.userId);
   const { data, model: usedModel } = await llmJson<AdvancedResult>({
     tier: "advanced",
-    model: meta.model,
+    model: pickModel("advanced", overrides, meta.model),
     messages: [
       { role: "system", text: SYSTEM },
       { role: "user", text: userText, images },
@@ -160,7 +169,7 @@ export async function finalEvaluate(input: {
     },
   });
 
-  const verdict = data.verdict ?? "unsure";
+  const fitScore = clampScore(data.fitScore);
   const confidence =
     typeof data.confidence === "number"
       ? Math.max(0, Math.min(1, data.confidence))
@@ -169,8 +178,19 @@ export async function finalEvaluate(input: {
     typeof data.estimatedValueCents === "number"
       ? Math.round(data.estimatedValueCents)
       : null;
+  // Prefer a savings-based deal score (absolute dollars saved weighted over
+  // percentage); fall back to the model's own valueScore when we lack an
+  // estimate to compare the price against.
+  const valueScore =
+    dealScore(listing.priceCents, estimatedValueCents) ??
+    clampScore(data.valueScore);
   const rationale = data.rationale ?? null;
-  const promise = promiseFromVerdict(verdict, confidence);
+  const verdict = legacyVerdict(valueScore);
+  const promise = promiseScore(valueScore, fitScore);
+  const isGoodDeal =
+    valueScore != null &&
+    valueScore >= GOOD_DEAL_MIN &&
+    (fitScore == null || fitScore >= NOTIFY_FIT_MIN);
 
   await db.transaction(async (tx) => {
     const [evalRow] = await tx
@@ -182,6 +202,8 @@ export async function finalEvaluate(input: {
         tier: "advanced",
         model: usedModel,
         verdict,
+        valueScore,
+        fitScore,
         confidence,
         estimatedValueCents,
         rationale,
@@ -195,7 +217,7 @@ export async function finalEvaluate(input: {
       .set({ promiseScore: promise, updatedAt: new Date() })
       .where(eq(candidates.id, candidateId));
 
-    if (verdict === "good_deal") {
+    if (isGoodDeal) {
       await tx.insert(notifications).values({
         userId: meta.userId,
         listingId,
@@ -211,13 +233,22 @@ export async function finalEvaluate(input: {
     }
   });
 
-  await logEvent(meta, candidateId, "evaluated", `Verdict: ${verdict}`, {
-    verdict,
-    confidence,
-    estimatedValueCents,
-    model: usedModel,
-    compCount: compRows.length,
-  });
+  await logEvent(
+    meta,
+    candidateId,
+    "evaluated",
+    `Value ${valueScore ?? "?"}/100 · fit ${fitScore ?? "?"}/100`,
+    {
+      valueScore,
+      fitScore,
+      verdict,
+      confidence,
+      estimatedValueCents,
+      rationale,
+      model: usedModel,
+      compCount: compRows.length,
+    }
+  );
 
-  return { verdict, confidence };
+  return { verdict, valueScore, fitScore, confidence };
 }

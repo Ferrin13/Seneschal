@@ -1,13 +1,29 @@
+import * as cheerio from "cheerio";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "../../db/client.js";
 import { candidates, listings, notifications, searches } from "../../db/schema.js";
 import { craigslistSearch } from "../../marketplace/craigslist/search.js";
+import { CRAIGSLIST_HEADERS } from "../../marketplace/craigslist/url.js";
 import type { HarvestedItem } from "../../marketplace/types.js";
-import type { CandidateRef, RunMeta, SearchRef } from "../types.js";
+import type {
+  CandidateRef,
+  RunMeta,
+  SearchRef,
+  VerifyRef,
+  VerifyResult,
+} from "../types.js";
 import { logEvent } from "./util.js";
 
 /** Number of consecutive misses before a listing is considered gone. */
 const DISAPPEAR_THRESHOLD = 2;
+
+/**
+ * Terminal user dispositions. Candidates in these states are "done" from the
+ * user's perspective, so the hunt pipeline stops refreshing them.
+ */
+export function isFrozenDisposition(d: string | null | undefined): boolean {
+  return d === "not_a_fit" || d === "sold";
+}
 
 /** Active, non-deleted searches for a target. */
 export async function getActiveSearches(input: {
@@ -61,7 +77,7 @@ export async function upsertHarvest(input: {
     const listedAt = it.listedAt ? new Date(it.listedAt) : null;
 
     const [existing] = await db
-      .select({ id: candidates.id })
+      .select({ id: candidates.id, disposition: candidates.disposition })
       .from(candidates)
       .where(
         and(
@@ -72,6 +88,9 @@ export async function upsertHarvest(input: {
       .limit(1);
 
     if (existing) {
+      // Terminal user dispositions freeze the candidate: don't refresh or
+      // re-queue it for triage/evaluation.
+      if (isFrozenDisposition(existing.disposition)) continue;
       await db
         .update(candidates)
         .set({
@@ -133,16 +152,18 @@ export async function upsertHarvest(input: {
 }
 
 /**
- * Detect sold/disappeared candidates: any active candidate for this search not
- * seen in the latest run accrues a miss; past the threshold it's marked sold
- * (if it was promising) or disappeared, its listing gets `disappearedAt`, and a
- * notification is raised for good deals that vanished.
+ * Detect vanished candidates: any active candidate for this search not seen in
+ * the latest run accrues a miss. Past the threshold, a non-promising listing is
+ * marked `disappeared` on the cheap absence heuristic, while a promising one is
+ * held back and returned in `toVerify` so the workflow can re-fetch its PDP and
+ * confirm it's really gone before calling it sold (avoids false positives from
+ * a listing merely aging out of the search window).
  */
 export async function reconcileSeen(input: {
   meta: RunMeta;
   searchId: string;
   seenKeys: string[];
-}): Promise<{ missed: number; closed: number }> {
+}): Promise<{ missed: number; closed: number; toVerify: VerifyRef[] }> {
   const { meta, searchId, seenKeys } = input;
   const now = new Date();
 
@@ -161,9 +182,12 @@ export async function reconcileSeen(input: {
   const seen = new Set(seenKeys);
   let missed = 0;
   let closed = 0;
+  const toVerify: VerifyRef[] = [];
 
   for (const c of active) {
     if (seen.has(c.dedupeKey)) continue;
+    // Don't track absence for candidates the user has already dispositioned.
+    if (isFrozenDisposition(c.disposition)) continue;
     missed += 1;
     const misses = (c.missedRuns ?? 0) + 1;
 
@@ -175,46 +199,130 @@ export async function reconcileSeen(input: {
       continue;
     }
 
-    // Promising items that vanish are most likely sold.
     const wasPromising =
       c.triageStatus === "promising" || (c.promiseScore ?? 0) >= 60;
-    const status = wasPromising ? "sold" : "disappeared";
-    closed += 1;
 
+    if (wasPromising) {
+      // Record the miss but defer the verdict to PDP re-check.
+      await db
+        .update(candidates)
+        .set({ missedRuns: misses, updatedAt: now })
+        .where(eq(candidates.id, c.id));
+      toVerify.push({
+        id: c.id,
+        platform: c.platform,
+        url: c.listingUrl,
+        title: c.title,
+        misses,
+      });
+      continue;
+    }
+
+    // Non-promising listings keep the cheap absence heuristic.
+    closed += 1;
     await db
       .update(candidates)
-      .set({ status, missedRuns: misses, updatedAt: now })
+      .set({ status: "disappeared", missedRuns: misses, updatedAt: now })
       .where(eq(candidates.id, c.id));
-
     await db
       .update(listings)
-      .set({ disappearedAt: now, isSold: status === "sold", updatedAt: now })
+      .set({ disappearedAt: now, isSold: false, updatedAt: now })
       .where(
         and(
           eq(listings.userId, meta.userId),
           eq(listings.candidateId, c.id)
         )
       );
-
-    await logEvent(
-      meta,
-      c.id,
-      status === "sold" ? "sold" : "disappeared",
-      status === "sold"
-        ? "Promising listing disappeared — likely sold"
-        : "Listing no longer in search results",
-      { misses }
-    );
-
-    if (wasPromising) {
-      await db.insert(notifications).values({
-        userId: meta.userId,
-        kind: "deal",
-        title: "Likely sold",
-        body: `A promising listing ("${c.title ?? "untitled"}") disappeared from search — probably sold.`,
-      });
-    }
+    await logEvent(meta, c.id, "disappeared", "Listing no longer in search results", {
+      misses,
+    });
   }
 
-  return { missed, closed };
+  return { missed, closed, toVerify };
+}
+
+/**
+ * Re-fetch a Craigslist PDP to confirm a vanished listing is truly gone. A
+ * deleted/expired post returns 404/410 or shows a removed banner; anything else
+ * (still-live page, or a transient/network/blocked error) counts as not gone so
+ * we never false-positive a "sold".
+ */
+export async function verifyCraigslistGone(input: {
+  url: string;
+}): Promise<VerifyResult> {
+  try {
+    const res = await fetch(input.url, {
+      headers: CRAIGSLIST_HEADERS,
+      redirect: "follow",
+    });
+    if (res.status === 404 || res.status === 410) {
+      return { gone: true, reason: `http_${res.status}` };
+    }
+    if (!res.ok) {
+      return { gone: false, reason: `http_${res.status}` };
+    }
+    const html = await res.text();
+    const $ = cheerio.load(html);
+    if ($(".removed, .post-expired-note").length > 0) {
+      return { gone: true, reason: "removed_banner" };
+    }
+    if (/this posting has (been deleted|expired)/i.test(html)) {
+      return { gone: true, reason: "expired_text" };
+    }
+    return { gone: false, reason: "still_live" };
+  } catch (err) {
+    return { gone: false, reason: `error:${(err as Error).message}` };
+  }
+}
+
+/**
+ * Resolve a verified promising candidate. If the PDP re-check confirms it's
+ * gone, mark it sold (listing `disappearedAt`/`isSold`, a `sold` event, and a
+ * "likely sold" notification). If it's still live it merely fell out of the
+ * snapshot (e.g. aged past Facebook's recency window) — reset its miss counter
+ * and keep it active.
+ */
+export async function finalizeDisappearance(input: {
+  meta: RunMeta;
+  candidate: VerifyRef;
+  result: VerifyResult;
+}): Promise<{ sold: boolean }> {
+  const { meta, candidate, result } = input;
+  const now = new Date();
+
+  if (!result.gone) {
+    await db
+      .update(candidates)
+      .set({ missedRuns: 0, status: "active", updatedAt: now })
+      .where(eq(candidates.id, candidate.id));
+    return { sold: false };
+  }
+
+  await db
+    .update(candidates)
+    .set({ status: "sold", updatedAt: now })
+    .where(eq(candidates.id, candidate.id));
+  await db
+    .update(listings)
+    .set({ disappearedAt: now, isSold: true, updatedAt: now })
+    .where(
+      and(
+        eq(listings.userId, meta.userId),
+        eq(listings.candidateId, candidate.id)
+      )
+    );
+  await logEvent(
+    meta,
+    candidate.id,
+    "sold",
+    "Listing confirmed gone on re-check — likely sold",
+    { reason: result.reason, misses: candidate.misses }
+  );
+  await db.insert(notifications).values({
+    userId: meta.userId,
+    kind: "deal",
+    title: "Likely sold",
+    body: `A promising listing ("${candidate.title ?? "untitled"}") is gone on re-check — probably sold.`,
+  });
+  return { sold: true };
 }

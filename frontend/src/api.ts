@@ -119,6 +119,10 @@ export type Evaluation = {
   id: string;
   tier: "triage" | "advanced";
   verdict: Verdict;
+  /** Deal quality (price vs. market), 0-100. */
+  valueScore: number | null;
+  /** Match to the user's target + rules, 0-100. */
+  fitScore: number | null;
   confidence: number | null;
   estimatedValueCents: number | null;
   rationale: string | null;
@@ -127,6 +131,15 @@ export type Evaluation = {
 };
 
 export type CandidateStatus = "active" | "sold" | "disappeared";
+
+/** The user's manual disposition of a deal. */
+export type Disposition =
+  | "none"
+  | "not_a_fit"
+  | "not_a_good_deal"
+  | "keep_watching"
+  | "reached_out"
+  | "sold";
 
 /** A promise-ranked candidate card from GET /marketplace/candidates. */
 export type Candidate = {
@@ -144,6 +157,9 @@ export type Candidate = {
   triageReason: string | null;
   promiseScore: number | null;
   status: CandidateStatus;
+  disposition: Disposition;
+  dispositionNote: string | null;
+  dispositionAt: string | null;
   sourceListedAt: string | null;
   sourceUpdatedAt: string | null;
   firstSeenAt: string;
@@ -204,12 +220,35 @@ export type CandidateEvent = {
   createdAt: string;
 };
 
+/** A user's 1-10 accuracy feedback on a candidate's fit and deal scores. */
+export type EvaluationRating = {
+  id: string;
+  candidateId: string;
+  evaluationId: string | null;
+  /** How accurate the fit score was, 1-10. */
+  fitAccuracy: number | null;
+  fitNote: string | null;
+  /** How accurate the deal (value) score was, 1-10. */
+  valueAccuracy: number | null;
+  valueNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EvaluationRatingInput = {
+  fitAccuracy?: number | null;
+  fitNote?: string | null;
+  valueAccuracy?: number | null;
+  valueNote?: string | null;
+};
+
 export type CandidateDetail = {
   candidate: Candidate;
   listing: Listing | null;
   comps: Comp[];
   evaluations: Evaluation[];
   events: CandidateEvent[];
+  rating: EvaluationRating | null;
 };
 
 export type DealNotification = {
@@ -222,6 +261,16 @@ export type DealNotification = {
   createdAt: string;
 };
 
+export type ModelStepConfig = {
+  step: string;
+  label: string;
+  description: string;
+  default: string;
+  model: string | null;
+};
+
+export type ModelSettings = { steps: ModelStepConfig[] };
+
 export type LlmUsage = {
   totalCalls: number;
   totalCostUsd: number;
@@ -233,7 +282,13 @@ export type LlmUsage = {
     promptTokens: number;
     completionTokens: number;
   }[];
-  byPurpose: { purpose: string; calls: number; costUsd: number }[];
+  byPurpose: {
+    purpose: string;
+    calls: number;
+    costUsd: number;
+    promptTokens: number;
+    completionTokens: number;
+  }[];
   recent: {
     id: string;
     purpose: string;
@@ -323,6 +378,19 @@ export const api = {
     ) as Promise<Candidate[]>,
   candidateDetail: (id: string) =>
     authedFetch(`/marketplace/candidates/${id}`) as Promise<CandidateDetail>,
+  rateCandidate: (id: string, body: EvaluationRatingInput) =>
+    authedFetch(`/marketplace/candidates/${id}/rating`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }) as Promise<EvaluationRating>,
+  setDisposition: (
+    id: string,
+    body: { disposition: Disposition; note?: string | null }
+  ) =>
+    authedFetch(`/marketplace/candidates/${id}/disposition`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }) as Promise<Candidate>,
   listings: () => authedFetch("/marketplace/listings") as Promise<Listing[]>,
   triage: (model?: string) =>
     authedFetch("/marketplace/triage", {
@@ -354,6 +422,13 @@ export const api = {
     }>,
   llmUsage: () =>
     authedFetch("/marketplace/llm-usage") as Promise<LlmUsage>,
+  modelSettings: () =>
+    authedFetch("/settings/models") as Promise<ModelSettings>,
+  updateModelSettings: (overrides: Record<string, string | null>) =>
+    authedFetch("/settings/models", {
+      method: "PUT",
+      body: JSON.stringify({ overrides }),
+    }) as Promise<ModelSettings>,
   notifications: () =>
     authedFetch("/marketplace/notifications") as Promise<DealNotification[]>,
   updateNotification: (id: string, status: DealNotification["status"]) =>

@@ -23,6 +23,12 @@ export type DeepImage = {
   caption?: string | null;
 };
 
+/** Result of re-fetching a listing PDP to confirm it's gone/sold. */
+export type VerifyResult = {
+  gone: boolean;
+  reason: string | null;
+};
+
 export type DeepListing = {
   platform: "facebook";
   externalId: string | null;

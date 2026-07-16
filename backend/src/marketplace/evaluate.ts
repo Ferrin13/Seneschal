@@ -11,20 +11,31 @@ import {
   searches,
 } from "../db/schema.js";
 import { llmJson, type LlmImage } from "../llm/index.js";
+import { getModelOverrides, pickModel } from "./modelSettings.js";
+import {
+  GOOD_DEAL_MIN,
+  NOTIFY_FIT_MIN,
+  clampScore,
+  dealScore,
+  legacyVerdict,
+} from "./scoring.js";
 import { presignGet } from "./storage.js";
 
-const PROMPT_VERSION = "advanced-v1";
+const PROMPT_VERSION = "advanced-v3";
 const MAX_IMAGES = 6;
 
-const SYSTEM = `You are an expert reseller evaluating whether a Facebook Marketplace listing is a genuinely good deal for the user.
+const SYSTEM = `You are an expert reseller evaluating a Facebook Marketplace listing for the user.
 You are given the user's targets/rules, the full listing (title, description, price, condition, seller, location), listing photos, and any price comparables from other marketplaces or the user's own history.
-Estimate the item's fair resale/market value, then decide.
-Be decisive but honest: only call something a good deal when the asking price is clearly below fair value AND it fits the user's intent and rules.
+First estimate the item's fair resale/market value, then score two independent axes from 0 to 100:
+- "valueScore": how good the asking price is versus fair market value. 85-100 = great steal, 65-84 = clearly below market, 40-64 = roughly fair, 0-39 = overpriced. Base this ONLY on price vs. value, not on relevance.
+- "fitScore": how well the listing matches the user's target and rules. 85-100 = exact match, 40-64 = loosely related, 0-39 = wrong item or violates a stated rule.
+Also give "confidence" (0.0-1.0): how sure you are of these scores given the available info.
 Respond ONLY with JSON:
-{"verdict":"good_deal"|"pass"|"unsure","confidence":0.0-1.0,"estimatedValueCents":integer|null,"rationale":"2-3 sentences"}`;
+{"valueScore":0-100,"fitScore":0-100,"confidence":0.0-1.0,"estimatedValueCents":integer|null,"rationale":"2-3 sentences"}`;
 
 type AdvancedResult = {
-  verdict?: "good_deal" | "pass" | "unsure";
+  valueScore?: number;
+  fitScore?: number;
   confidence?: number;
   estimatedValueCents?: number | null;
   rationale?: string;
@@ -92,6 +103,11 @@ export async function evaluatePending(
   model?: string
 ): Promise<EvaluateRun> {
   const run: EvaluateRun = { evaluated: 0, goodDeals: 0, errors: 0 };
+  const chosenModel = pickModel(
+    "advanced",
+    await getModelOverrides(userId),
+    model
+  );
 
   // Listing ids that already have an advanced evaluation.
   const done = await db
@@ -172,7 +188,7 @@ export async function evaluatePending(
 
       const { data, model: usedModel } = await llmJson<AdvancedResult>({
         tier: "advanced",
-        model,
+        model: chosenModel,
         messages: [
           { role: "system", text: SYSTEM },
           { role: "user", text: userText, images },
@@ -186,7 +202,7 @@ export async function evaluatePending(
         },
       });
 
-      const verdict = data.verdict ?? "unsure";
+      const fitScore = clampScore(data.fitScore);
       const confidence =
         typeof data.confidence === "number"
           ? Math.max(0, Math.min(1, data.confidence))
@@ -195,7 +211,18 @@ export async function evaluatePending(
         typeof data.estimatedValueCents === "number"
           ? Math.round(data.estimatedValueCents)
           : null;
+      // Prefer a savings-based deal score (absolute dollars saved weighted over
+      // percentage); fall back to the model's own valueScore when we lack an
+      // estimate to compare the price against.
+      const valueScore =
+        dealScore(listing.priceCents, estimatedValueCents) ??
+        clampScore(data.valueScore);
       const rationale = data.rationale ?? null;
+      const verdict = legacyVerdict(valueScore);
+      const isGoodDeal =
+        valueScore != null &&
+        valueScore >= GOOD_DEAL_MIN &&
+        (fitScore == null || fitScore >= NOTIFY_FIT_MIN);
 
       await db.transaction(async (tx) => {
         const [evalRow] = await tx
@@ -207,6 +234,8 @@ export async function evaluatePending(
             tier: "advanced",
             model: usedModel,
             verdict,
+            valueScore,
+            fitScore,
             confidence,
             estimatedValueCents,
             rationale,
@@ -215,7 +244,7 @@ export async function evaluatePending(
           })
           .returning({ id: evaluations.id });
 
-        if (verdict === "good_deal") {
+        if (isGoodDeal) {
           await tx.insert(notifications).values({
             userId,
             listingId: listing.id,
@@ -232,7 +261,7 @@ export async function evaluatePending(
       });
 
       run.evaluated += 1;
-      if (verdict === "good_deal") run.goodDeals += 1;
+      if (isGoodDeal) run.goodDeals += 1;
     } catch {
       run.errors += 1;
     }

@@ -1,0 +1,1 @@
+ALTER TYPE "public"."mp_llm_purpose" ADD VALUE 'comps' BEFORE 'advanced';

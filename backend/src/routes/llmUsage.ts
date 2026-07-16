@@ -42,10 +42,13 @@ export const llmUsageRoutes: FastifyPluginAsync = async (app) => {
         purpose: llmCalls.purpose,
         calls: sql<number>`count(*)::int`,
         costUsd: sql<number>`coalesce(sum(${llmCalls.costUsd}), 0)`,
+        promptTokens: sql<number>`coalesce(sum(${llmCalls.promptTokens}), 0)::int`,
+        completionTokens: sql<number>`coalesce(sum(${llmCalls.completionTokens}), 0)::int`,
       })
       .from(llmCalls)
       .where(eq(llmCalls.userId, userId))
-      .groupBy(llmCalls.purpose);
+      .groupBy(llmCalls.purpose)
+      .orderBy(desc(sql`coalesce(sum(${llmCalls.costUsd}), 0)`));
 
     const recentRows = await db
       .select()
@@ -69,6 +72,8 @@ export const llmUsageRoutes: FastifyPluginAsync = async (app) => {
         purpose: p.purpose,
         calls: p.calls,
         costUsd: Number(p.costUsd),
+        promptTokens: p.promptTokens,
+        completionTokens: p.completionTokens,
       })),
       recent: recentRows.map((r) => ({
         id: r.id,

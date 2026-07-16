@@ -13,16 +13,38 @@ import {
   Typography,
 } from "@mui/material";
 import { useState } from "react";
+import {
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import { useAuth } from "./auth";
 import { signInWithGoogle, signOut } from "./firebase";
 import { TimeTrackingView } from "./TimeTrackingView";
 import { MarketplaceView } from "./MarketplaceView";
 import { DealsView } from "./DealsView";
+import { SettingsView } from "./SettingsView";
+
+/** Top-level navigation tabs, each mapped to its own routed path. */
+const NAV_TABS = [
+  { path: "/time-tracking", label: "Time Tracking", element: <TimeTrackingView /> },
+  { path: "/targets", label: "Targets", element: <MarketplaceView /> },
+  { path: "/deals", label: "Deals", element: <DealsView /> },
+  { path: "/settings", label: "Settings", element: <SettingsView /> },
+] as const;
 
 export default function App() {
   const { user, loading } = useAuth();
   const [signInError, setSignInError] = useState<string | null>(null);
-  const [tab, setTab] = useState(0);
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Drive the tab bar off the URL; unknown paths fall back to the first tab.
+  const activeTab =
+    NAV_TABS.find((t) => location.pathname.startsWith(t.path))?.path ??
+    NAV_TABS[0].path;
 
   const handleSignIn = async () => {
     setSignInError(null);
@@ -70,25 +92,40 @@ export default function App() {
         </Toolbar>
       </AppBar>
 
-      <Container maxWidth="lg" sx={{ py: 4 }}>
+      <Container maxWidth={false} sx={{ py: 4 }}>
         {loading ? (
           <Stack alignItems="center" sx={{ mt: 8 }}>
             <CircularProgress />
           </Stack>
         ) : user ? (
           <Stack spacing={3}>
-            <Tabs value={tab} onChange={(_e, v: number) => setTab(v)}>
-              <Tab label="Time Tracking" />
-              <Tab label="Targets" />
-              <Tab label="Deals" />
+            <Tabs
+              value={activeTab}
+              onChange={(_e, v: string) => navigate(v)}
+              variant="scrollable"
+              allowScrollButtonsMobile
+            >
+              {NAV_TABS.map((t) => (
+                <Tab key={t.path} value={t.path} label={t.label} />
+              ))}
             </Tabs>
-            {tab === 0 ? (
-              <TimeTrackingView />
-            ) : tab === 1 ? (
-              <MarketplaceView />
-            ) : (
-              <DealsView />
-            )}
+            <Routes>
+              <Route
+                path="/"
+                element={<Navigate to={NAV_TABS[0].path} replace />}
+              />
+              {NAV_TABS.map((t) => (
+                <Route
+                  key={t.path}
+                  path={t.path === "/deals" ? "/deals/*" : t.path}
+                  element={t.element}
+                />
+              ))}
+              <Route
+                path="*"
+                element={<Navigate to={NAV_TABS[0].path} replace />}
+              />
+            </Routes>
           </Stack>
         ) : (
           <SignedOut onSignIn={handleSignIn} error={signInError} />

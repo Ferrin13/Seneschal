@@ -2,7 +2,9 @@ import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../db/client.js";
 import { candidates, evaluations, searchTargets } from "../../db/schema.js";
 import { llmJson, type LlmImage } from "../../llm/index.js";
+import { getModelOverrides, pickModel } from "../../marketplace/modelSettings.js";
 import type { RunMeta } from "../types.js";
+import { isFrozenDisposition } from "./search.js";
 import { logEvent } from "./util.js";
 
 const PROMPT_VERSION = "triage-v2";
@@ -59,6 +61,8 @@ export async function triageCandidates(input: {
       )
     );
   const targetsText = targetsBlock(targets);
+  const overrides = await getModelOverrides(meta.userId);
+  const model = pickModel("triage", overrides, meta.model);
 
   const rows = await db
     .select()
@@ -73,6 +77,8 @@ export async function triageCandidates(input: {
   const promisingIds: string[] = [];
 
   for (const c of rows) {
+    // Skip candidates the user has dispositioned as done.
+    if (isFrozenDisposition(c.disposition)) continue;
     try {
       const priceStr =
         c.priceCents != null
@@ -93,7 +99,7 @@ export async function triageCandidates(input: {
 
       const { data, model: usedModel } = await llmJson<TriageResult>({
         tier: "triage",
-        model: meta.model,
+        model,
         messages: [
           { role: "system", text: SYSTEM },
           { role: "user", text: userText, images },
@@ -115,6 +121,7 @@ export async function triageCandidates(input: {
           .set({
             triageStatus: promising ? "promising" : "rejected",
             triageScore: score,
+            triageReason: reason,
             promiseScore: score,
             updatedAt: new Date(),
           })
@@ -126,6 +133,7 @@ export async function triageCandidates(input: {
           tier: "triage",
           model: usedModel,
           verdict: promising ? "unsure" : "pass",
+          fitScore: score,
           confidence: score != null ? score / 100 : null,
           rationale: reason,
           promptVersion: PROMPT_VERSION,

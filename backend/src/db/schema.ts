@@ -427,6 +427,19 @@ export const triageStatus = pgEnum("mp_triage_status", [
   "rejected",
   "skipped",
 ]);
+/**
+ * User's manual disposition of a deal (distinct from the system-detected
+ * `candidateStatus`). `not_a_fit` and `sold` are terminal — the hunt pipeline
+ * stops updating those candidates.
+ */
+export const dispositionStatus = pgEnum("mp_disposition", [
+  "none",
+  "not_a_fit",
+  "not_a_good_deal",
+  "keep_watching",
+  "reached_out",
+  "sold",
+]);
 export const scrapeStatus = pgEnum("mp_scrape_status", [
   "ok",
   "partial",
@@ -461,6 +474,7 @@ export const agentStatus = pgEnum("mp_agent_status", [
 export const llmPurpose = pgEnum("mp_llm_purpose", [
   "search_expansion",
   "triage",
+  "comps",
   "advanced",
   "other",
 ]);
@@ -570,6 +584,10 @@ export const candidates = pgTable(
     promiseScore: integer("promise_score"),
     // Lifecycle + when the source says the listing was posted/updated.
     status: candidateStatus("status").notNull().default("active"),
+    // User's manual disposition; `not_a_fit`/`sold` freeze the candidate.
+    disposition: dispositionStatus("disposition").notNull().default("none"),
+    dispositionNote: text("disposition_note"),
+    dispositionAt: timestamp("disposition_at", { withTimezone: true }),
     sourceListedAt: timestamp("source_listed_at", { withTimezone: true }),
     sourceUpdatedAt: timestamp("source_updated_at", { withTimezone: true }),
     // Snapshot-run bookkeeping for sold/disappearance detection.
@@ -759,6 +777,10 @@ export const evaluations = pgTable(
     tier: evaluationTier("tier").notNull(),
     model: text("model"),
     verdict: evaluationVerdict("verdict"),
+    // Deal quality (price vs. market) and target-fit, each 0-100. `verdict` is
+    // retained for backward compatibility, derived from `valueScore`.
+    valueScore: integer("value_score"),
+    fitScore: integer("fit_score"),
     confidence: doublePrecision("confidence"),
     estimatedValueCents: integer("estimated_value_cents"),
     rationale: text("rationale"),
@@ -772,6 +794,56 @@ export const evaluations = pgTable(
     userIdx: index("mp_evaluations_user_idx").on(t.userId),
     candidateIdx: index("mp_evaluations_candidate_idx").on(t.candidateId),
     listingIdx: index("mp_evaluations_listing_idx").on(t.listingId),
+  })
+);
+
+/**
+ * A user's feedback on how accurate an evaluation was, used to improve the
+ * scoring pipeline. Each rating scores the accuracy of the fit score and the
+ * deal (value) score independently on a 1-10 scale, each with an optional
+ * free-form note. Keyed per user + candidate (one editable rating per deal);
+ * `evaluationId` records which advanced evaluation was on screen when rated.
+ */
+export const evaluationRatings = pgTable(
+  "mp_evaluation_ratings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    candidateId: uuid("candidate_id")
+      .notNull()
+      .references(() => candidates.id, { onDelete: "cascade" }),
+    evaluationId: uuid("evaluation_id").references(() => evaluations.id, {
+      onDelete: "set null",
+    }),
+    // Accuracy of the fit score (target match), 1-10. Null until the user rates.
+    fitAccuracy: integer("fit_accuracy"),
+    fitNote: text("fit_note"),
+    // Accuracy of the deal/value score (price vs. market), 1-10.
+    valueAccuracy: integer("value_accuracy"),
+    valueNote: text("value_note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userCandidateIdx: uniqueIndex("mp_evaluation_ratings_user_candidate_idx").on(
+      t.userId,
+      t.candidateId
+    ),
+    candidateIdx: index("mp_evaluation_ratings_candidate_idx").on(t.candidateId),
+    fitAccuracyCheck: check(
+      "mp_evaluation_ratings_fit_accuracy_check",
+      sql`${t.fitAccuracy} IS NULL OR (${t.fitAccuracy} BETWEEN 1 AND 10)`
+    ),
+    valueAccuracyCheck: check(
+      "mp_evaluation_ratings_value_accuracy_check",
+      sql`${t.valueAccuracy} IS NULL OR (${t.valueAccuracy} BETWEEN 1 AND 10)`
+    ),
   })
 );
 
@@ -948,6 +1020,30 @@ export const llmCalls = pgTable(
     modelIdx: index("mp_llm_calls_model_idx").on(t.userId, t.model),
   })
 );
+
+/**
+ * Per-user preferences. `modelOverrides` maps a pipeline step (e.g. "triage",
+ * "advanced") to the OpenRouter model slug to use for it; missing steps fall
+ * back to the server's tier defaults.
+ */
+export const userSettings = pgTable("user_settings", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  modelOverrides: jsonb("model_overrides")
+    .$type<Record<string, string>>()
+    .notNull()
+    .default({}),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type UserSettings = typeof userSettings.$inferSelect;
+export type NewUserSettings = typeof userSettings.$inferInsert;
 
 export type LlmCall = typeof llmCalls.$inferSelect;
 export type NewLlmCall = typeof llmCalls.$inferInsert;

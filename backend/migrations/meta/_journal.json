@@ -71,6 +71,41 @@
       "when": 1784168329237,
       "tag": "0009_chunky_centennial",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784180771148,
+      "tag": "0010_last_smasher",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1784182148005,
+      "tag": "0011_cloudy_daimon_hellstrom",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784184405911,
+      "tag": "0012_faulty_rattler",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1784185972591,
+      "tag": "0013_rare_ted_forrester",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1784186687386,
+      "tag": "0014_serious_stingray",
+      "breakpoints": true
     }
   ]
 }

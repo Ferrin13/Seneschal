@@ -1,123 +1,88 @@
 import {
   Alert,
   Box,
-  Card,
-  CardContent,
-  CardMedia,
-  Chip,
+  Checkbox,
   CircularProgress,
   Drawer,
-  Divider,
-  Link,
+  FormControl,
+  InputLabel,
+  ListItemText,
+  MenuItem,
+  OutlinedInput,
+  Select,
+  Slider,
   Stack,
   Tab,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
   Tabs,
   Typography,
 } from "@mui/material";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   api,
   type Candidate,
-  type CandidateDetail,
   type CandidateStatus,
   type DealNotification,
-  type LlmUsage,
+  type Disposition,
   type Platform,
-  type Verdict,
+  type Search,
+  type SearchTarget,
 } from "./api";
-
-function money(cents: number | null | undefined): string {
-  return cents != null ? `$${(cents / 100).toFixed(2)}` : "—";
-}
-
-function ageText(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-  if (days <= 0) return "today";
-  if (days === 1) return "1d ago";
-  return `${days}d ago`;
-}
-
-const PLATFORM_COLOR: Record<Platform, "primary" | "secondary"> = {
-  facebook: "primary",
-  craigslist: "secondary",
-};
-
-const VERDICT: Record<
-  "good_deal" | "pass" | "unsure",
-  { label: string; color: "success" | "error" | "warning" }
-> = {
-  good_deal: { label: "Good deal", color: "success" },
-  pass: { label: "Pass", color: "error" },
-  unsure: { label: "Unsure", color: "warning" },
-};
-
-function VerdictChip({
-  verdict,
-  confidence,
-}: {
-  verdict: Verdict;
-  confidence: number | null;
-}) {
-  if (!verdict) return <Chip size="small" variant="outlined" label="Not evaluated" />;
-  const v = VERDICT[verdict];
-  return (
-    <Chip
-      size="small"
-      color={v.color}
-      label={
-        confidence != null
-          ? `${v.label} · ${Math.round(confidence * 100)}%`
-          : v.label
-      }
-    />
-  );
-}
-
-function StatusBadge({ status }: { status: CandidateStatus }) {
-  if (status === "active") return null;
-  return (
-    <Chip
-      size="small"
-      color={status === "sold" ? "warning" : "default"}
-      label={status === "sold" ? "Likely sold" : "Disappeared"}
-    />
-  );
-}
-
-const TABS: { value: CandidateStatus | "all"; label: string }[] = [
-  { value: "active", label: "Active" },
-  { value: "sold", label: "Likely sold" },
-  { value: "disappeared", label: "Disappeared" },
-  { value: "all", label: "All" },
-];
+import { CandidateCard } from "./deals/CandidateCard";
+import { CandidateDetailPanel } from "./deals/CandidateDetailPanel";
+import {
+  DEFAULT_DISPOSITIONS,
+  DISPOSITION,
+  DISPOSITION_OPTIONS,
+  PLATFORMS,
+  POSTED_WITHIN,
+  SORT_OPTIONS,
+  TABS,
+  byDateDesc,
+  candidateFit,
+  candidatePromise,
+  candidateValue,
+  type PostedWithin,
+  type SortKey,
+} from "./deals/shared";
 
 export function DealsView() {
   const [notifications, setNotifications] = useState<DealNotification[] | null>(
     null
   );
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
-  const [usage, setUsage] = useState<LlmUsage | null>(null);
+  const [targets, setTargets] = useState<SearchTarget[]>([]);
+  const [searches, setSearches] = useState<Search[]>([]);
+  const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
+  const [selectedPlatforms, setSelectedPlatforms] =
+    useState<Platform[]>([...PLATFORMS]);
+  const [selectedDispositions, setSelectedDispositions] = useState<Disposition[]>(
+    [...DEFAULT_DISPOSITIONS]
+  );
+  const [sortBy, setSortBy] = useState<SortKey>("value");
+  const [minValue, setMinValue] = useState(0);
+  const [minFit, setMinFit] = useState(0);
+  const [postedWithin, setPostedWithin] = useState<PostedWithin>("any");
   const [tab, setTab] = useState<CandidateStatus | "all">("active");
-  const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // The open deal is reflected in the URL (/deals/:id) so panels are
+  // linkable and back/forward navigation works.
+  const navigate = useNavigate();
+  const params = useParams();
+  const selected = params["*"] ? params["*"] : null;
+  const openDeal = (id: string) => navigate(`/deals/${id}`);
+  const closeDeal = () => navigate("/deals");
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [n, c, u] = await Promise.all([
+      const [n, c] = await Promise.all([
         api.notifications(),
         api.candidates(tab === "all" ? undefined : tab),
-        api.llmUsage(),
       ]);
       setNotifications(n);
       setCandidates(c);
-      setUsage(u);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load deals");
     }
@@ -126,6 +91,100 @@ export function DealsView() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Targets/searches are tab-independent; load once to power the filter.
+  useEffect(() => {
+    void Promise.all([api.targets(), api.searches()])
+      .then(([t, s]) => {
+        setTargets(t);
+        setSearches(s);
+        // Default the target filter to everything selected.
+        setSelectedTargets(t.map((x) => x.id));
+      })
+      .catch(() => {
+        /* filter is best-effort */
+      });
+  }, []);
+
+  const searchToTarget = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of searches) m.set(s.id, s.targetId);
+    return m;
+  }, [searches]);
+
+  const visibleCandidates = useMemo(() => {
+    if (candidates === null) return null;
+    const postedCutoff =
+      postedWithin === "any"
+        ? null
+        : Date.now() - Number(postedWithin) * 86_400_000;
+
+    const filtered = candidates.filter((c) => {
+      if (selectedTargets.length > 0) {
+        const tid = c.searchId ? searchToTarget.get(c.searchId) : undefined;
+        if (tid == null || !selectedTargets.includes(tid)) return false;
+      }
+      if (selectedPlatforms.length > 0 && !selectedPlatforms.includes(c.platform)) {
+        return false;
+      }
+      if (
+        selectedDispositions.length > 0 &&
+        !selectedDispositions.includes(c.disposition)
+      ) {
+        return false;
+      }
+      if (minValue > 0 && (candidateValue(c) ?? -1) < minValue) return false;
+      if (minFit > 0 && (candidateFit(c) ?? -1) < minFit) return false;
+      if (postedCutoff != null) {
+        if (!c.sourceListedAt) return false;
+        if (new Date(c.sourceListedAt).getTime() < postedCutoff) return false;
+      }
+      return true;
+    });
+
+    const sorted = [...filtered];
+    switch (sortBy) {
+      case "posted":
+        sorted.sort(byDateDesc((c) => c.sourceListedAt));
+        break;
+      case "created":
+        sorted.sort(byDateDesc((c) => c.firstSeenAt));
+        break;
+      case "price_asc":
+        sorted.sort(
+          (a, b) => (a.priceCents ?? Infinity) - (b.priceCents ?? Infinity)
+        );
+        break;
+      case "price_desc":
+        sorted.sort(
+          (a, b) => (b.priceCents ?? -Infinity) - (a.priceCents ?? -Infinity)
+        );
+        break;
+      case "value":
+        sorted.sort((a, b) => (candidateValue(b) ?? -1) - (candidateValue(a) ?? -1));
+        break;
+      case "fit":
+        sorted.sort((a, b) => (candidateFit(b) ?? -1) - (candidateFit(a) ?? -1));
+        break;
+      case "promise":
+      default:
+        sorted.sort(
+          (a, b) => (candidatePromise(b) ?? -1) - (candidatePromise(a) ?? -1)
+        );
+        break;
+    }
+    return sorted;
+  }, [
+    candidates,
+    selectedTargets,
+    searchToTarget,
+    selectedPlatforms,
+    selectedDispositions,
+    minValue,
+    minFit,
+    postedWithin,
+    sortBy,
+  ]);
 
   const needsLogin = (notifications ?? []).filter(
     (n) => n.kind === "needs_login" && n.status !== "dismissed"
@@ -158,26 +217,200 @@ export function DealsView() {
         </Alert>
       ))}
 
-      {usage ? <LlmUsagePanel usage={usage} /> : null}
-
       <Box>
         <Tabs
           value={tab}
           onChange={(_e, v) => setTab(v)}
-          sx={{ mb: 2 }}
           variant="scrollable"
           allowScrollButtonsMobile
+          sx={{ mb: 2 }}
         >
           {TABS.map((t) => (
             <Tab key={t.value} value={t.value} label={t.label} />
           ))}
         </Tabs>
 
-        {candidates === null ? (
+        <Box
+          sx={{
+            border: 1,
+            borderColor: "divider",
+            borderRadius: 1,
+            p: 2,
+            mb: 2,
+          }}
+        >
+          <Stack
+            direction="row"
+            spacing={2}
+            flexWrap="wrap"
+            useFlexGap
+            alignItems="flex-start"
+          >
+            <FormControl size="small" sx={{ minWidth: 200 }}>
+              <InputLabel id="sort-label">Sort by</InputLabel>
+              <Select
+                labelId="sort-label"
+                label="Sort by"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortKey)}
+              >
+                {SORT_OPTIONS.map((o) => (
+                  <MenuItem key={o.value} value={o.value}>
+                    {o.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel id="posted-label">Posted</InputLabel>
+              <Select
+                labelId="posted-label"
+                label="Posted"
+                value={postedWithin}
+                onChange={(e) => setPostedWithin(e.target.value as PostedWithin)}
+              >
+                {POSTED_WITHIN.map((o) => (
+                  <MenuItem key={o.value} value={o.value}>
+                    {o.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <FormControl size="small" sx={{ minWidth: 190 }}>
+              <InputLabel id="platform-filter-label">Search type</InputLabel>
+              <Select
+                labelId="platform-filter-label"
+                multiple
+                value={selectedPlatforms}
+                onChange={(e) =>
+                  setSelectedPlatforms(
+                    (typeof e.target.value === "string"
+                      ? e.target.value.split(",")
+                      : e.target.value) as Platform[]
+                  )
+                }
+                input={<OutlinedInput label="Search type" />}
+                renderValue={(selected) =>
+                  selected.length === 0 || selected.length === PLATFORMS.length
+                    ? "All types"
+                    : selected.join(", ")
+                }
+                displayEmpty
+              >
+                {PLATFORMS.map((p) => (
+                  <MenuItem key={p} value={p}>
+                    <Checkbox checked={selectedPlatforms.includes(p)} />
+                    <ListItemText primary={p} />
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            {targets.length > 0 ? (
+              <FormControl size="small" sx={{ minWidth: 220 }}>
+                <InputLabel id="target-filter-label">Target</InputLabel>
+                <Select
+                  labelId="target-filter-label"
+                  multiple
+                  value={selectedTargets}
+                  onChange={(e) =>
+                    setSelectedTargets(
+                      typeof e.target.value === "string"
+                        ? e.target.value.split(",")
+                        : e.target.value
+                    )
+                  }
+                  input={<OutlinedInput label="Target" />}
+                  renderValue={(selected) =>
+                    selected.length === 0 || selected.length === targets.length
+                      ? "All targets"
+                      : targets
+                          .filter((t) => selected.includes(t.id))
+                          .map((t) => t.title)
+                          .join(", ")
+                  }
+                  displayEmpty
+                >
+                  {targets.map((t) => (
+                    <MenuItem key={t.id} value={t.id}>
+                      <Checkbox checked={selectedTargets.includes(t.id)} />
+                      <ListItemText primary={t.title} />
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            ) : null}
+
+            <FormControl size="small" sx={{ minWidth: 210 }}>
+              <InputLabel id="disposition-filter-label">Disposition</InputLabel>
+              <Select
+                labelId="disposition-filter-label"
+                multiple
+                value={selectedDispositions}
+                onChange={(e) =>
+                  setSelectedDispositions(
+                    (typeof e.target.value === "string"
+                      ? e.target.value.split(",")
+                      : e.target.value) as Disposition[]
+                  )
+                }
+                input={<OutlinedInput label="Disposition" />}
+                renderValue={(selected) =>
+                  selected.length === 0 ||
+                  selected.length === DISPOSITION_OPTIONS.length
+                    ? "All dispositions"
+                    : selected.map((d) => DISPOSITION[d].label).join(", ")
+                }
+                displayEmpty
+              >
+                {DISPOSITION_OPTIONS.map((d) => (
+                  <MenuItem key={d} value={d}>
+                    <Checkbox checked={selectedDispositions.includes(d)} />
+                    <ListItemText primary={DISPOSITION[d].label} />
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+
+            <Box sx={{ width: 180, px: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                Min value score: {minValue}
+              </Typography>
+              <Slider
+                size="small"
+                value={minValue}
+                onChange={(_e, v) => setMinValue(v as number)}
+                min={0}
+                max={100}
+                valueLabelDisplay="auto"
+              />
+            </Box>
+
+            <Box sx={{ width: 180, px: 1 }}>
+              <Typography variant="caption" color="text.secondary">
+                Min fit score: {minFit}
+              </Typography>
+              <Slider
+                size="small"
+                value={minFit}
+                onChange={(_e, v) => setMinFit(v as number)}
+                min={0}
+                max={100}
+                valueLabelDisplay="auto"
+              />
+            </Box>
+          </Stack>
+        </Box>
+
+        {visibleCandidates === null ? (
           <CircularProgress />
-        ) : candidates.length === 0 ? (
+        ) : visibleCandidates.length === 0 ? (
           <Typography color="text.secondary" variant="body2">
-            No candidates here yet. Run a hunt from a target to harvest listings.
+            {candidates && candidates.length > 0
+              ? "No candidates match the current filters."
+              : "No candidates here yet. Run a hunt from a target to harvest listings."}
           </Typography>
         ) : (
           <Box
@@ -187,11 +420,11 @@ export function DealsView() {
               gap: 2,
             }}
           >
-            {candidates.map((c) => (
+            {visibleCandidates.map((c) => (
               <CandidateCard
                 key={c.id}
                 candidate={c}
-                onClick={() => setSelected(c.id)}
+                onClick={() => openDeal(c.id)}
               />
             ))}
           </Box>
@@ -201,377 +434,17 @@ export function DealsView() {
       <Drawer
         anchor="right"
         open={selected !== null}
-        onClose={() => setSelected(null)}
+        onClose={closeDeal}
         PaperProps={{ sx: { width: { xs: "100%", sm: 460 } } }}
       >
         {selected ? (
           <CandidateDetailPanel
             id={selected}
-            onClose={() => setSelected(null)}
+            onClose={closeDeal}
+            onChanged={() => void load()}
           />
         ) : null}
       </Drawer>
     </Stack>
-  );
-}
-
-function CandidateCard({
-  candidate: c,
-  onClick,
-}: {
-  candidate: Candidate;
-  onClick: () => void;
-}) {
-  const e = c.evaluation;
-  const listed = ageText(c.sourceListedAt);
-  return (
-    <Card
-      variant="outlined"
-      onClick={onClick}
-      sx={{ cursor: "pointer", "&:hover": { boxShadow: 3 } }}
-    >
-      {c.thumbnailUrl ? (
-        <CardMedia
-          component="img"
-          height="150"
-          image={c.thumbnailUrl}
-          alt={c.title ?? ""}
-        />
-      ) : null}
-      <CardContent>
-        <Stack
-          direction="row"
-          spacing={1}
-          sx={{ mb: 0.5 }}
-          flexWrap="wrap"
-          useFlexGap
-        >
-          <Chip
-            size="small"
-            color={PLATFORM_COLOR[c.platform]}
-            label={c.platform}
-          />
-          {c.promiseScore != null ? (
-            <Chip size="small" variant="outlined" label={`★ ${c.promiseScore}`} />
-          ) : null}
-          <StatusBadge status={c.status} />
-        </Stack>
-        <Typography variant="subtitle2" noWrap title={c.title ?? ""}>
-          {c.title ?? "(untitled)"}
-        </Typography>
-        <Stack
-          direction="row"
-          spacing={1}
-          sx={{ my: 0.5 }}
-          flexWrap="wrap"
-          useFlexGap
-        >
-          <Chip size="small" label={money(c.priceCents)} />
-          <VerdictChip verdict={e?.verdict ?? null} confidence={e?.confidence ?? null} />
-        </Stack>
-        {e?.estimatedValueCents != null ? (
-          <Typography variant="caption" color="text.secondary" display="block">
-            Est. value {money(e.estimatedValueCents)}
-            {c.compsCount ? ` · ${c.compsCount} comps` : ""}
-          </Typography>
-        ) : c.compsCount ? (
-          <Typography variant="caption" color="text.secondary" display="block">
-            {c.compsCount} comps
-          </Typography>
-        ) : null}
-        {e?.rationale ? (
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            display="block"
-            sx={{ mt: 0.5 }}
-          >
-            {e.rationale}
-          </Typography>
-        ) : null}
-        {listed ? (
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            display="block"
-            sx={{ mt: 0.5 }}
-          >
-            Listed {listed}
-          </Typography>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
-}
-
-const STAGE_LABEL: Record<string, string> = {
-  discovered: "Discovered",
-  triaged: "Triaged",
-  deep_scraped: "Deep scraped",
-  comps_gathered: "Comps gathered",
-  evaluated: "Evaluated",
-  sold: "Likely sold",
-  disappeared: "Disappeared",
-  error: "Error",
-};
-
-function CandidateDetailPanel({
-  id,
-  onClose,
-}: {
-  id: string;
-  onClose: () => void;
-}) {
-  const [detail, setDetail] = useState<CandidateDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    setDetail(null);
-    api
-      .candidateDetail(id)
-      .then((d) => {
-        if (live) setDetail(d);
-      })
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : "Failed to load")
-      );
-    return () => {
-      live = false;
-    };
-  }, [id]);
-
-  if (error) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Alert severity="error">{error}</Alert>
-      </Box>
-    );
-  }
-  if (!detail) {
-    return (
-      <Box sx={{ p: 3, textAlign: "center" }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  const { candidate: c, listing, comps, evaluations, events } = detail;
-  const advanced = evaluations.find((e) => e.tier === "advanced");
-  const cover = listing?.images.find((i) => i.url)?.url ?? c.thumbnailUrl;
-
-  return (
-    <Box sx={{ p: 3 }}>
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="flex-start"
-        sx={{ mb: 1 }}
-      >
-        <Typography variant="h6" sx={{ pr: 2 }}>
-          {c.title ?? "(untitled)"}
-        </Typography>
-        <Link component="button" onClick={onClose} sx={{ flexShrink: 0 }}>
-          Close
-        </Link>
-      </Stack>
-
-      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
-        <Chip size="small" color={PLATFORM_COLOR[c.platform]} label={c.platform} />
-        <Chip size="small" label={money(c.priceCents)} />
-        <VerdictChip
-          verdict={advanced?.verdict ?? null}
-          confidence={advanced?.confidence ?? null}
-        />
-        <StatusBadge status={c.status} />
-        {c.promiseScore != null ? (
-          <Chip size="small" variant="outlined" label={`★ ${c.promiseScore}`} />
-        ) : null}
-      </Stack>
-
-      {cover ? (
-        <Box
-          component="img"
-          src={cover}
-          alt={c.title ?? ""}
-          sx={{ width: "100%", borderRadius: 1, mb: 2, maxHeight: 260, objectFit: "cover" }}
-        />
-      ) : null}
-
-      <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-        {ageText(c.sourceListedAt) ? (
-          <Typography variant="caption" color="text.secondary">
-            Listed {ageText(c.sourceListedAt)}
-          </Typography>
-        ) : null}
-        {ageText(listing?.sourceUpdatedAt ?? c.sourceUpdatedAt) ? (
-          <Typography variant="caption" color="text.secondary">
-            Updated {ageText(listing?.sourceUpdatedAt ?? c.sourceUpdatedAt)}
-          </Typography>
-        ) : null}
-        <Typography variant="caption" color="text.secondary">
-          Last seen {ageText(c.lastSeenAt) ?? "today"}
-        </Typography>
-      </Stack>
-
-      {advanced ? (
-        <Alert
-          severity={
-            advanced.verdict === "good_deal"
-              ? "success"
-              : advanced.verdict === "pass"
-                ? "error"
-                : "info"
-          }
-          sx={{ mb: 2 }}
-        >
-          {advanced.estimatedValueCents != null ? (
-            <Typography variant="body2">
-              Est. value {money(advanced.estimatedValueCents)} vs asking{" "}
-              {money(c.priceCents)}
-            </Typography>
-          ) : null}
-          {advanced.rationale ? (
-            <Typography variant="body2">{advanced.rationale}</Typography>
-          ) : null}
-          {advanced.model ? (
-            <Typography variant="caption" color="text.secondary">
-              {advanced.model}
-            </Typography>
-          ) : null}
-        </Alert>
-      ) : null}
-
-      {listing?.description ? (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          {listing.description.slice(0, 600)}
-        </Typography>
-      ) : null}
-
-      <Link href={c.listingUrl} target="_blank" rel="noreferrer">
-        Open original listing
-      </Link>
-
-      {comps.length > 0 ? (
-        <Box sx={{ mt: 3 }}>
-          <Typography variant="subtitle2" gutterBottom>
-            Comparables ({comps.length})
-          </Typography>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Source</TableCell>
-                <TableCell>Match</TableCell>
-                <TableCell align="right">Price</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {comps.map((cp) => (
-                <TableRow key={cp.id}>
-                  <TableCell>
-                    <Chip size="small" variant="outlined" label={cp.source} />
-                  </TableCell>
-                  <TableCell>
-                    {cp.url ? (
-                      <Link href={cp.url} target="_blank" rel="noreferrer">
-                        {cp.matchedTitle ?? "link"}
-                      </Link>
-                    ) : (
-                      cp.matchedTitle ?? "—"
-                    )}
-                  </TableCell>
-                  <TableCell align="right">{money(cp.priceCents)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Box>
-      ) : null}
-
-      <Box sx={{ mt: 3 }}>
-        <Typography variant="subtitle2" gutterBottom>
-          History
-        </Typography>
-        {events.length === 0 ? (
-          <Typography variant="body2" color="text.secondary">
-            No events yet.
-          </Typography>
-        ) : (
-          <Stack spacing={1.5} sx={{ mt: 1 }}>
-            {events.map((ev) => (
-              <Box key={ev.id}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Chip
-                    size="small"
-                    label={STAGE_LABEL[ev.stage] ?? ev.stage}
-                    color={ev.stage === "error" ? "error" : "default"}
-                  />
-                  <Typography variant="caption" color="text.secondary">
-                    {new Date(ev.createdAt).toLocaleString()}
-                  </Typography>
-                </Stack>
-                {ev.message ? (
-                  <Typography variant="body2" sx={{ mt: 0.25 }}>
-                    {ev.message}
-                  </Typography>
-                ) : null}
-              </Box>
-            ))}
-          </Stack>
-        )}
-      </Box>
-
-      <Divider sx={{ my: 2 }} />
-      <Typography variant="caption" color="text.secondary">
-        First seen {new Date(c.firstSeenAt).toLocaleString()}
-      </Typography>
-    </Box>
-  );
-}
-
-function cost(n: number | null): string {
-  return n != null ? `$${n.toFixed(4)}` : "—";
-}
-
-function LlmUsagePanel({ usage }: { usage: LlmUsage }) {
-  return (
-    <Card variant="outlined">
-      <CardContent>
-        <Stack
-          direction="row"
-          justifyContent="space-between"
-          alignItems="baseline"
-          sx={{ mb: 1 }}
-        >
-          <Typography variant="h6">LLM cost (OpenRouter)</Typography>
-          <Typography variant="h6" color="primary">
-            {cost(usage.totalCostUsd)}
-          </Typography>
-        </Stack>
-        <Typography variant="caption" color="text.secondary">
-          {usage.totalCalls} calls · {usage.totalTokens.toLocaleString()} tokens
-        </Typography>
-        {usage.byModel.length > 0 ? (
-          <Table size="small" sx={{ mt: 1 }}>
-            <TableHead>
-              <TableRow>
-                <TableCell>Model</TableCell>
-                <TableCell align="right">Calls</TableCell>
-                <TableCell align="right">Cost</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {usage.byModel.map((m) => (
-                <TableRow key={m.model}>
-                  <TableCell>{m.model}</TableCell>
-                  <TableCell align="right">{m.calls}</TableCell>
-                  <TableCell align="right">{cost(m.costUsd)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : null}
-      </CardContent>
-    </Card>
   );
 }

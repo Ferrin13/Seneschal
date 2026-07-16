@@ -8,6 +8,7 @@ import {
   toPlatformSearches,
   type SearchFilters,
 } from "../marketplace/searchExpansion.js";
+import { getModelOverrides, pickModel } from "../marketplace/modelSettings.js";
 import {
   ensureHuntSchedule,
   removeHuntSchedule,
@@ -186,13 +187,14 @@ export const searchTargetRoutes: FastifyPluginAsync = async (app) => {
       .parse(req.body);
     const target = await loadOwnedTarget(req.auth.userId, id);
 
+    const overrides = await getModelOverrides(req.auth.userId);
     const expanded = await expandTarget({
       userId: req.auth.userId,
       targetId: id,
       title: target.title,
       prompt: target.prompt,
       evalInstructions: target.evalInstructions,
-      model: body?.model,
+      model: pickModel("search_expansion", overrides, body?.model),
     });
     if (expanded.length === 0) return [];
 

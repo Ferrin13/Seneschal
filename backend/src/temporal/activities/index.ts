@@ -9,6 +9,8 @@ export {
   craigslistHarvestSearch,
   upsertHarvest,
   reconcileSeen,
+  verifyCraigslistGone,
+  finalizeDisappearance,
 } from "./search.js";
 export { triageCandidates } from "./triage.js";
 export { craigslistDeepScrape, upsertListing } from "./listing.js";

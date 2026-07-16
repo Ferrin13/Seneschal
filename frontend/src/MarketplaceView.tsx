@@ -168,6 +168,48 @@ function TargetCard({
   const [hunting, setHunting] = useState(false);
   const [huntMsg, setHuntMsg] = useState<string | null>(null);
 
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(target.title);
+  const [prompt, setPrompt] = useState(target.prompt);
+  const [evalInstructions, setEvalInstructions] = useState(
+    target.evalInstructions ?? ""
+  );
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = () => {
+    setTitle(target.title);
+    setPrompt(target.prompt);
+    setEvalInstructions(target.evalInstructions ?? "");
+    setEditing(true);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+  };
+
+  const dirty =
+    title.trim() !== target.title ||
+    prompt.trim() !== target.prompt ||
+    (evalInstructions.trim() || "") !== (target.evalInstructions ?? "");
+
+  const save = async () => {
+    if (!title.trim() || !prompt.trim()) return;
+    setSaving(true);
+    try {
+      await api.updateTarget(target.id, {
+        title: title.trim(),
+        prompt: prompt.trim(),
+        evalInstructions: evalInstructions.trim() || null,
+      });
+      setEditing(false);
+      await onChanged();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : "Failed to update target");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const loadSearches = useCallback(async () => {
     try {
       setSearches(await api.targetSearches(target.id));
@@ -221,49 +263,94 @@ function TargetCard({
   return (
     <Card variant="outlined">
       <CardContent>
-        <Stack
-          direction="row"
-          justifyContent="space-between"
-          alignItems="flex-start"
-        >
-          <Box>
-            <Typography variant="h6">{target.title}</Typography>
-            <Typography color="text.secondary" variant="body2">
-              {target.prompt}
-            </Typography>
-            {target.evalInstructions ? (
-              <Typography
-                color="text.secondary"
-                variant="caption"
-                sx={{ display: "block", mt: 0.5 }}
+        {editing ? (
+          <Stack spacing={2}>
+            <TextField
+              label="Title"
+              size="small"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              fullWidth
+            />
+            <TextField
+              label="What are you looking for?"
+              size="small"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              multiline
+              minRows={2}
+              fullWidth
+            />
+            <TextField
+              label="Evaluation instructions (optional)"
+              size="small"
+              value={evalInstructions}
+              onChange={(e) => setEvalInstructions(e.target.value)}
+              multiline
+              minRows={1}
+              fullWidth
+            />
+            <Stack direction="row" spacing={1}>
+              <Button
+                variant="contained"
+                disabled={saving || !dirty || !title.trim() || !prompt.trim()}
+                onClick={() => void save()}
               >
-                Rules: {target.evalInstructions}
-              </Typography>
-            ) : null}
-          </Box>
-          <Stack direction="row" spacing={1} alignItems="center">
-            {huntMsg ? (
-              <Typography variant="caption" color="text.secondary">
-                {huntMsg}
-              </Typography>
-            ) : null}
-            <Button
-              size="small"
-              variant="contained"
-              disabled={hunting}
-              onClick={() => void hunt()}
-            >
-              {hunting ? "Starting..." : "Hunt now"}
-            </Button>
-            <IconButton
-              size="small"
-              aria-label="delete"
-              onClick={() => void remove()}
-            >
-              &times;
-            </IconButton>
+                {saving ? "Saving..." : "Save"}
+              </Button>
+              <Button variant="text" disabled={saving} onClick={cancelEdit}>
+                Cancel
+              </Button>
+            </Stack>
           </Stack>
-        </Stack>
+        ) : (
+          <Stack
+            direction="row"
+            justifyContent="space-between"
+            alignItems="flex-start"
+          >
+            <Box>
+              <Typography variant="h6">{target.title}</Typography>
+              <Typography color="text.secondary" variant="body2">
+                {target.prompt}
+              </Typography>
+              {target.evalInstructions ? (
+                <Typography
+                  color="text.secondary"
+                  variant="caption"
+                  sx={{ display: "block", mt: 0.5 }}
+                >
+                  Rules: {target.evalInstructions}
+                </Typography>
+              ) : null}
+            </Box>
+            <Stack direction="row" spacing={1} alignItems="center">
+              {huntMsg ? (
+                <Typography variant="caption" color="text.secondary">
+                  {huntMsg}
+                </Typography>
+              ) : null}
+              <Button
+                size="small"
+                variant="contained"
+                disabled={hunting}
+                onClick={() => void hunt()}
+              >
+                {hunting ? "Starting..." : "Hunt now"}
+              </Button>
+              <Button size="small" variant="outlined" onClick={startEdit}>
+                Edit
+              </Button>
+              <IconButton
+                size="small"
+                aria-label="delete"
+                onClick={() => void remove()}
+              >
+                &times;
+              </IconButton>
+            </Stack>
+          </Stack>
+        )}
 
         <Divider sx={{ my: 2 }} />
 

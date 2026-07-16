@@ -1,8 +1,10 @@
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { config } from "../../config.js";
 import { db } from "../../db/client.js";
 import { comps, itemObservations, listings } from "../../db/schema.js";
 import { llmConfigured } from "../../llm/index.js";
 import { webComps } from "../../marketplace/comps/web.js";
+import { getModelOverrides, pickModel } from "../../marketplace/modelSettings.js";
 import type { RunMeta } from "../types.js";
 import { logEvent } from "./util.js";
 
@@ -52,11 +54,13 @@ export async function gatherComps(input: {
 
   if (query && llmConfigured()) {
     try {
+      const overrides = await getModelOverrides(meta.userId);
       const result = await webComps(query, {
-        model: meta.model,
+        model:
+          pickModel("comps", overrides, meta.model) ?? config.LLM_COMPS_MODEL,
         usage: {
           userId: meta.userId,
-          purpose: "other",
+          purpose: "comps",
           listingId,
           candidateId,
         },
@@ -102,6 +106,23 @@ export async function gatherComps(input: {
       .orderBy(desc(itemObservations.observedAt))
       .limit(10);
     if (rows.length > 0) {
+      // Link each internal comp back to the source listing it was observed on
+      // so the UI can open the comparable.
+      const obsListingIds = [
+        ...new Set(
+          rows
+            .map((o) => o.listingId)
+            .filter((id): id is string => id != null)
+        ),
+      ];
+      const urlByListing = new Map<string, string>();
+      if (obsListingIds.length > 0) {
+        const ls = await db
+          .select({ id: listings.id, url: listings.url })
+          .from(listings)
+          .where(inArray(listings.id, obsListingIds));
+        for (const l of ls) urlByListing.set(l.id, l.url);
+      }
       await db.insert(comps).values(
         rows.map((o) => ({
           userId: meta.userId,
@@ -110,7 +131,7 @@ export async function gatherComps(input: {
           matchedTitle: o.normalizedTitle,
           priceCents: o.priceCents,
           currency: o.currency,
-          url: null,
+          url: o.listingId ? urlByListing.get(o.listingId) ?? null : null,
           soldAt: null,
           raw: { observationId: o.id },
         }))
