@@ -19,7 +19,9 @@ async function authedFetch(path: string, init: RequestInit = {}) {
     headers: {
       ...(init.headers ?? {}),
       Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
+      // Only claim a JSON body when one is actually sent. Setting this header
+      // on bodyless POSTs makes Fastify reject with FST_ERR_CTP_EMPTY_JSON_BODY.
+      ...(init.body != null ? { "Content-Type": "application/json" } : {}),
     },
   });
   if (!res.ok) {
@@ -78,6 +80,172 @@ export type Slot = {
   deletedAt: string | null;
 };
 
+export type SearchTarget = {
+  id: string;
+  title: string;
+  prompt: string;
+  evalInstructions: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SearchFilters = {
+  minPriceCents?: number;
+  maxPriceCents?: number;
+  category?: string;
+  radiusMiles?: number;
+  condition?: string[];
+};
+
+export type Platform = "facebook" | "craigslist";
+
+export type Search = {
+  id: string;
+  targetId: string;
+  platform: Platform;
+  query: string;
+  filters: SearchFilters | null;
+  searchUrl: string | null;
+  source: "llm" | "user";
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Verdict = "good_deal" | "pass" | "unsure" | null;
+
+export type Evaluation = {
+  id: string;
+  tier: "triage" | "advanced";
+  verdict: Verdict;
+  confidence: number | null;
+  estimatedValueCents: number | null;
+  rationale: string | null;
+  model: string | null;
+  createdAt: string;
+};
+
+export type CandidateStatus = "active" | "sold" | "disappeared";
+
+/** A promise-ranked candidate card from GET /marketplace/candidates. */
+export type Candidate = {
+  id: string;
+  searchId: string | null;
+  platform: Platform;
+  externalId: string | null;
+  listingUrl: string;
+  title: string | null;
+  thumbnailUrl: string | null;
+  priceCents: number | null;
+  blurb: string | null;
+  triageStatus: "pending" | "promising" | "rejected" | "skipped";
+  triageScore: number | null;
+  triageReason: string | null;
+  promiseScore: number | null;
+  status: CandidateStatus;
+  sourceListedAt: string | null;
+  sourceUpdatedAt: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  createdAt: string;
+  updatedAt: string;
+  listingId: string | null;
+  compsCount: number;
+  evaluation: Evaluation | null;
+};
+
+export type Listing = {
+  id: string;
+  platform: Platform;
+  externalId: string | null;
+  url: string;
+  title: string | null;
+  description: string | null;
+  priceCents: number | null;
+  currency: string | null;
+  conditionLabel: string | null;
+  locationText: string | null;
+  sellerName: string | null;
+  isSold: boolean | null;
+  listedAt: string | null;
+  sourceUpdatedAt: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  disappearedAt: string | null;
+  scrapeStatus: string;
+  scrapedAt: string | null;
+  images: { id: string; url: string | null; sortOrder: number }[];
+};
+
+export type Comp = {
+  id: string;
+  source: "ebay" | "craigslist" | "internal" | "web";
+  matchedTitle: string | null;
+  priceCents: number | null;
+  currency: string | null;
+  url: string | null;
+  soldAt: string | null;
+};
+
+export type CandidateEvent = {
+  id: string;
+  stage:
+    | "discovered"
+    | "triaged"
+    | "deep_scraped"
+    | "comps_gathered"
+    | "evaluated"
+    | "sold"
+    | "disappeared"
+    | "error";
+  message: string | null;
+  detail: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+export type CandidateDetail = {
+  candidate: Candidate;
+  listing: Listing | null;
+  comps: Comp[];
+  evaluations: Evaluation[];
+  events: CandidateEvent[];
+};
+
+export type DealNotification = {
+  id: string;
+  listingId: string | null;
+  kind: string;
+  title: string | null;
+  body: string | null;
+  status: "new" | "seen" | "actioned" | "dismissed";
+  createdAt: string;
+};
+
+export type LlmUsage = {
+  totalCalls: number;
+  totalCostUsd: number;
+  totalTokens: number;
+  byModel: {
+    model: string;
+    calls: number;
+    costUsd: number;
+    promptTokens: number;
+    completionTokens: number;
+  }[];
+  byPurpose: { purpose: string; calls: number; costUsd: number }[];
+  recent: {
+    id: string;
+    purpose: string;
+    model: string;
+    promptTokens: number | null;
+    completionTokens: number | null;
+    totalTokens: number | null;
+    costUsd: number | null;
+    createdAt: string;
+  }[];
+};
+
 export const api = {
   me: () => authedFetch("/me") as Promise<Me>,
   categories: () => authedFetch("/categories") as Promise<Category[]>,
@@ -86,4 +254,111 @@ export const api = {
     authedFetch(
       `/slots?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`
     ) as Promise<Slot[]>,
+
+  // --- Marketplace deal-finder ---
+  targets: () =>
+    authedFetch("/marketplace/targets") as Promise<SearchTarget[]>,
+  createTarget: (body: {
+    title: string;
+    prompt: string;
+    evalInstructions?: string | null;
+  }) =>
+    authedFetch("/marketplace/targets", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }) as Promise<SearchTarget>,
+  updateTarget: (
+    id: string,
+    body: Partial<{
+      title: string;
+      prompt: string;
+      evalInstructions: string | null;
+      isActive: boolean;
+    }>
+  ) =>
+    authedFetch(`/marketplace/targets/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }) as Promise<SearchTarget>,
+  deleteTarget: (id: string) =>
+    authedFetch(`/marketplace/targets/${id}`, {
+      method: "DELETE",
+    }) as Promise<{ ok: true }>,
+  targetSearches: (id: string) =>
+    authedFetch(`/marketplace/targets/${id}/searches`) as Promise<Search[]>,
+  expandTarget: (id: string) =>
+    authedFetch(`/marketplace/targets/${id}/expand`, {
+      method: "POST",
+    }) as Promise<Search[]>,
+  hunt: (id: string, model?: string) =>
+    authedFetch(`/marketplace/targets/${id}/hunt`, {
+      method: "POST",
+      body: JSON.stringify(model ? { model } : {}),
+    }) as Promise<{
+      started: boolean;
+      workflowId: string;
+      runId?: string;
+      error?: string;
+    }>,
+  searches: () => authedFetch("/marketplace/searches") as Promise<Search[]>,
+  updateSearch: (
+    id: string,
+    body: Partial<{
+      query: string;
+      filters: SearchFilters;
+      isActive: boolean;
+    }>
+  ) =>
+    authedFetch(`/marketplace/searches/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }) as Promise<Search>,
+  deleteSearch: (id: string) =>
+    authedFetch(`/marketplace/searches/${id}`, {
+      method: "DELETE",
+    }) as Promise<{ ok: true }>,
+  candidates: (status?: CandidateStatus) =>
+    authedFetch(
+      `/marketplace/candidates${status ? `?status=${status}` : ""}`
+    ) as Promise<Candidate[]>,
+  candidateDetail: (id: string) =>
+    authedFetch(`/marketplace/candidates/${id}`) as Promise<CandidateDetail>,
+  listings: () => authedFetch("/marketplace/listings") as Promise<Listing[]>,
+  triage: (model?: string) =>
+    authedFetch("/marketplace/triage", {
+      method: "POST",
+      body: JSON.stringify(model ? { model } : {}),
+    }) as Promise<{
+      evaluated: number;
+      promising: number;
+      rejected: number;
+      errors: number;
+    }>,
+  gatherComps: () =>
+    authedFetch("/marketplace/comps", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }) as Promise<{
+      listings: number;
+      comps: number;
+      errors: number;
+    }>,
+  evaluate: (model?: string) =>
+    authedFetch("/marketplace/evaluate", {
+      method: "POST",
+      body: JSON.stringify(model ? { model } : {}),
+    }) as Promise<{
+      evaluated: number;
+      goodDeals: number;
+      errors: number;
+    }>,
+  llmUsage: () =>
+    authedFetch("/marketplace/llm-usage") as Promise<LlmUsage>,
+  notifications: () =>
+    authedFetch("/marketplace/notifications") as Promise<DealNotification[]>,
+  updateNotification: (id: string, status: DealNotification["status"]) =>
+    authedFetch(`/marketplace/notifications/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }) as Promise<DealNotification>,
 };

@@ -1,0 +1,195 @@
+#cloud-config
+# Browser box: a persistent headed Chrome (on Xvfb) you log into Facebook via
+# noVNC, plus the scraper agent that drives it over CDP. CDP (9222) and VNC
+# (5900) bind to localhost only; noVNC is exposed via Caddy TLS + basic auth.
+package_update: true
+package_upgrade: false
+
+write_files:
+  # ---- Xvfb virtual display ----
+  - path: /etc/systemd/system/xvfb.service
+    content: |
+      [Unit]
+      Description=X virtual framebuffer
+      After=network.target
+
+      [Service]
+      ExecStart=/usr/bin/Xvfb :99 -screen 0 1920x1080x24 -ac
+      Restart=always
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # ---- Headed Chrome with CDP on localhost, persistent profile ----
+  - path: /etc/systemd/system/chrome.service
+    content: |
+      [Unit]
+      Description=Headed Chrome (CDP)
+      After=xvfb.service
+      Requires=xvfb.service
+
+      [Service]
+      User=browser
+      Environment=DISPLAY=:99
+      ExecStart=/usr/bin/google-chrome-stable \
+        --remote-debugging-port=9222 \
+        --remote-debugging-address=127.0.0.1 \
+        --user-data-dir=/opt/browser/profile \
+        --no-first-run \
+        --no-default-browser-check \
+        --disable-features=Translate \
+        --start-maximized \
+        --window-position=0,0 \
+        --window-size=1920,1080 \
+        https://www.facebook.com/
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # ---- x11vnc: expose the display on localhost only ----
+  - path: /etc/systemd/system/x11vnc.service
+    content: |
+      [Unit]
+      Description=x11vnc for :99
+      After=chrome.service
+      Requires=xvfb.service
+
+      [Service]
+      User=browser
+      Environment=DISPLAY=:99
+      ExecStart=/usr/bin/x11vnc -display :99 -localhost -forever -shared -rfbport 5900 -nopw
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # ---- noVNC websockify bridge (localhost VNC -> localhost 6080) ----
+  - path: /etc/systemd/system/novnc.service
+    content: |
+      [Unit]
+      Description=noVNC websockify
+      After=x11vnc.service
+      Requires=x11vnc.service
+
+      [Service]
+      ExecStart=/usr/bin/websockify --web=/usr/share/novnc 6080 localhost:5900
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # ---- Scraper agent ----
+  - path: /etc/systemd/system/scraper-agent.service
+    content: |
+      [Unit]
+      Description=Seneschal scraper agent
+      After=chrome.service network-online.target
+      Requires=chrome.service
+
+      [Service]
+      User=browser
+      WorkingDirectory=/opt/browser/app/agent
+      ExecStartPre=/opt/browser/write-env.sh
+      EnvironmentFile=/opt/browser/agent.env
+      ExecStart=/usr/bin/node dist/index.js
+      Restart=always
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+
+  # ---- Runtime env writer (fetches the shared token from Secrets Manager) ----
+  - path: /opt/browser/write-env.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      TOKEN="$(aws secretsmanager get-secret-value \
+        --secret-id "${agent_token_secret_arn}" \
+        --region "${region}" \
+        --query SecretString --output text)"
+      cat > /opt/browser/agent.env <<EOF
+      API_BASE_URL=${api_base_url}
+      AGENT_TOKEN=$TOKEN
+      CHROME_CDP_URL=http://127.0.0.1:9222
+      AGENT_NAME=${agent_name}
+      EOF
+      chown browser:browser /opt/browser/agent.env
+      chmod 600 /opt/browser/agent.env
+
+  # ---- Main setup script ----
+  - path: /opt/browser/setup.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euxo pipefail
+
+      export DEBIAN_FRONTEND=noninteractive
+
+      # Base packages
+      apt-get update
+      apt-get install -y curl git jq unzip ca-certificates gnupg \
+        xvfb x11vnc novnc websockify \
+        fonts-liberation fonts-noto-color-emoji
+
+      # Node.js 20
+      curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+      apt-get install -y nodejs
+
+      # AWS CLI v2
+      curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+      unzip -q /tmp/awscliv2.zip -d /tmp
+      /tmp/aws/install || /tmp/aws/install --update
+
+      # Google Chrome (stable)
+      curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+        | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
+      echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+        > /etc/apt/sources.list.d/google-chrome.list
+      apt-get update
+      apt-get install -y google-chrome-stable
+
+      # Caddy (auto-TLS reverse proxy + basic auth)
+      curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key \
+        | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+      echo "deb [signed-by=/usr/share/keyrings/caddy-stable-archive-keyring.gpg] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main" \
+        > /etc/apt/sources.list.d/caddy-stable.list
+      apt-get update
+      apt-get install -y caddy
+
+      # Dedicated unprivileged user + profile dir
+      id browser >/dev/null 2>&1 || useradd -m -s /bin/bash browser
+      mkdir -p /opt/browser/profile
+      chown -R browser:browser /opt/browser
+
+      # Build the scraper agent
+      git clone --branch "${repo_branch}" --depth 1 "${repo_url}" /opt/browser/app
+      cd /opt/browser/app/agent
+      npm ci
+      npm run build
+      chown -R browser:browser /opt/browser/app
+
+      # Caddy config: TLS for the FQDN, basic auth, proxy to noVNC.
+      HASH="$(caddy hash-password --plaintext '${novnc_password}')"
+      cat > /etc/caddy/Caddyfile <<EOF
+      ${browser_fqdn} {
+        basicauth {
+          admin $HASH
+        }
+        reverse_proxy localhost:6080
+      }
+      EOF
+
+      systemctl daemon-reload
+      systemctl enable --now xvfb.service
+      sleep 2
+      systemctl enable --now chrome.service x11vnc.service novnc.service
+      systemctl restart caddy
+      systemctl enable --now scraper-agent.service
+
+runcmd:
+  - ["/bin/bash", "/opt/browser/setup.sh"]

@@ -1,0 +1,122 @@
+{
+  "url": "https://www.facebook.com/marketplace/item/3871393766501383/#",
+  "fbItemId": "3871393766501383",
+  "scrapedAt": "2026-07-15T07:11:54.341Z",
+  "source": "embedded-json",
+  "pageTitle": "(1) Marketplace - Nobel Prize Library Hardcover Set 1971 | Facebook",
+  "listing": {
+    "fbItemId": "3871393766501383",
+    "title": "Nobel Prize Library Hardcover Set 1971",
+    "description": "Excellent condition set of hardcover books\n\n19 books in total\n\nThe tops of the books are dusty along with a few of the front covers\n\nSome wear is seen to a few of the books along the edges of the spine\n\nBooks have never been read and show no damage to the inner pages",
+    "price": {
+      "amount": "65.00",
+      "cents": 6500,
+      "currency": "USD",
+      "formatted": "$65"
+    },
+    "condition": {
+      "code": null,
+      "label": "Used - Good"
+    },
+    "category": {
+      "id": "613858625416355",
+      "path": [
+        "entertainment",
+        "media",
+        "books"
+      ]
+    },
+    "location": {
+      "text": "Caldwell, ID",
+      "latitude": 43.612976074219,
+      "longitude": -116.64733886719
+    },
+    "seller": {
+      "id": "61557557843897",
+      "name": "James Pizarro",
+      "profileUrl": "https://www.facebook.com/61557557843897",
+      "ratingAverage": 5,
+      "ratingCount": 111,
+      "joinTime": 1710511383
+    },
+    "availability": {
+      "status": "AVAILABLE",
+      "isSold": false,
+      "isPending": false,
+      "isLive": true
+    },
+    "createdAt": "2026-07-03T21:33:45.000Z",
+    "images": [
+      {
+        "id": "1645976317530662",
+        "url": "https://scontent.fboi1-1.fna.fbcdn.net/v/t39.84726-6/738954218_1645976327530661_3926717145883027283_n.jpg?stp=dst-jpg_s960x960_tt6&_nc_cat=111&ccb=1-7&_nc_sid=92e707&_nc_ohc=pNe55_kpFCoQ7kNvwG30zcU&_nc_oc=AdqhiXt9dkIehsN7ssnAzck3YVeDmI4Lob6HcmX2ZMa-YbW2tCICaIrhzN5DIQMV8MY&_nc_zt=14&_nc_ht=scontent.fboi1-1.fna&_nc_gid=3xSw5GIod0qjgw5ybcDXuA&_nc_ss=7b2a8&oh=00_AQBeg2tIckHUXxr19bLoBwWU0pVB_4SVeCA798hE3Ckt8g&oe=6A5CF5BE",
+        "width": 960,
+        "height": 722,
+        "caption": "No photo description available."
+      },
+      {
+        "id": "2103796500560898",
+        "url": "https://scontent.fboi1-1.fna.fbcdn.net/v/t45.5328-4/736272876_2103796507227564_6636396527702200726_n.jpg?stp=dst-jpg_s960x960_tt6&_nc_cat=101&ccb=1-7&_nc_sid=247b10&_nc_ohc=-KDxfsDlxJ0Q7kNvwGbqtvv&_nc_oc=AdrLhFnG-MWmAJ_T5Bwst2tckX2jC2yEIVMnKJu09o-TdSUoSzFhp1pl3_UIeIiElYw&_nc_zt=23&_nc_ht=scontent.fboi1-1.fna&_nc_gid=3xSw5GIod0qjgw5ybcDXuA&_nc_ss=7b2a8&oh=00_AQBtpGqFWEzXNw6FYhQnxcZ4eySkXkGC3fjrk9x_re7e9g&oe=6A5D0B2C",
+        "width": 960,
+        "height": 722,
+        "caption": "No photo description available."
+      },
+      {
+        "id": "4055743304557535",
+        "url": "https://scontent.fboi1-1.fna.fbcdn.net/v/t45.5328-4/736412957_4055743307890868_1304586915987598722_n.jpg?stp=dst-jpg_s960x960_tt6&_nc_cat=108&ccb=1-7&_nc_sid=247b10&_nc_ohc=kMTob4BAHMIQ7kNvwHwYe1b&_nc_oc=AdoFmPXDQA-9h7OiPdHc9gsDRg_wlHkuhJubrVqdXef7RqsvnQn-zmiXP1zE-W--iEM&_nc_zt=23&_nc_ht=scontent.fboi1-1.fna&_nc_gid=3xSw5GIod0qjgw5ybcDXuA&_nc_ss=7b2a8&oh=00_AQD0Y5uhdepBJKovnvZVCDtRpzppEf4enBcee8dVF4jr_g&oe=6A5D0804",
+        "width": 960,
+        "height": 722,
+        "caption": "No photo description available."
+      },
+      {
+        "id": "1640248143746374",
+        "url": "https://scontent.fboi1-1.fna.fbcdn.net/v/t45.5328-4/729973066_1640248147079707_3337981396672696839_n.jpg?stp=dst-jpg_s960x960_tt6&_nc_cat=101&ccb=1-7&_nc_sid=247b10&_nc_ohc=YCoLhYAY3icQ7kNvwEGd-dP&_nc_oc=Adq15n5gCjrsdQWYXxFsgSVQmOhYk8L0vWjBp9QFym0cOiaaAqw1r1mc8HSeBb8q-lQ&_nc_zt=23&_nc_ht=scontent.fboi1-1.fna&_nc_gid=3xSw5GIod0qjgw5ybcDXuA&_nc_ss=7b2a8&oh=00_AQDHqtcM_f5OsLT22SUjH-L49qTau2Y8VXWmLSSLl8I6tg&oe=6A5CEF95",
+        "width": 722,
+        "height": 960,
+        "caption": "No photo description available."
+      },
+      {
+        "id": "1334938558156283",
+        "url": "https://scontent.fboi1-1.fna.fbcdn.net/v/t45.5328-4/737401441_1334938564822949_8007680486814191675_n.jpg?stp=dst-jpg_s960x960_tt6&_nc_cat=111&ccb=1-7&_nc_sid=247b10&_nc_ohc=TX9U35x0-k0Q7kNvwH0A4qI&_nc_oc=AdouSe2Rku8G_iXyI1jmZ8Xy4SpdtGC11d1MpJAsmPxS1uP5Fq2oYzcPwFf7hc26qiM&_nc_zt=23&_nc_ht=scontent.fboi1-1.fna&_nc_gid=3xSw5GIod0qjgw5ybcDXuA&_nc_ss=7b2a8&oh=00_AQDMGxT2HzP1ZpDWitM8ROfiKmHqij9iP2jGikqxAadtjQ&oe=6A5D19A6",
+        "width": 722,
+        "height": 960,
+        "caption": "No photo description available."
+      },
+      {
+        "id": "3155384877980565",
+        "url": "https://scontent.fboi1-1.fna.fbcdn.net/v/t45.5328-4/737191142_3155384884647231_1495802717562787040_n.jpg?stp=dst-jpg_s960x960_tt6&_nc_cat=107&ccb=1-7&_nc_sid=247b10&_nc_ohc=9Ar9HY73dcAQ7kNvwE9FtWw&_nc_oc=Ado2MR6VbkiPTOvoihrf_rJCOhr5r0uORgaOfEITdMHQko2vWkAbnienCRiEQmoDfBU&_nc_zt=23&_nc_ht=scontent.fboi1-1.fna&_nc_gid=3xSw5GIod0qjgw5ybcDXuA&_nc_ss=7b2a8&oh=00_AQDPmM0Ls6_qhjq6JKKi1-RGkqquYxQbyW8_ax2db4DMMw&oe=6A5CEB87",
+        "width": 722,
+        "height": 960,
+        "caption": "No photo description available."
+      },
+      {
+        "id": "2521681911587007",
+        "url": "https://scontent.fboi1-1.fna.fbcdn.net/v/t45.5328-4/734644502_2521681914920340_2314621625033310345_n.jpg?stp=dst-jpg_s960x960_tt6&_nc_cat=101&ccb=1-7&_nc_sid=247b10&_nc_ohc=uIldiuOzijkQ7kNvwG-IFGN&_nc_oc=AdqY8qvCjRF2ufzwSKeMQNRCk4khv-N_lPLXV9fZmU3csrP6ywtRc1Ic7s1-FZMcuS8&_nc_zt=23&_nc_ht=scontent.fboi1-1.fna&_nc_gid=3xSw5GIod0qjgw5ybcDXuA&_nc_ss=7b2a8&oh=00_AQCTbzuntZ6943LIJdR9pjvhACZDLznInqAsO_DuvOD3pA&oe=6A5CF729",
+        "width": 960,
+        "height": 722,
+        "caption": "No photo description available."
+      },
+      {
+        "id": "1000220699663805",
+        "url": "https://scontent.fboi1-1.fna.fbcdn.net/v/t45.5328-4/735504494_1000220702997138_8000410967874593008_n.jpg?stp=dst-jpg_s960x960_tt6&_nc_cat=103&ccb=1-7&_nc_sid=247b10&_nc_ohc=hK7sW2qJi5cQ7kNvwGxzSS5&_nc_oc=AdrpZfyj4QRWYP6aGCLt5S-nxOMMPM6mZbxd5--8Bp1ZivRlAqT5TgQkB8FekyHaiYo&_nc_zt=23&_nc_ht=scontent.fboi1-1.fna&_nc_gid=3xSw5GIod0qjgw5ybcDXuA&_nc_ss=7b2a8&oh=00_AQC8Evp3JPFKOjfG-pL374NH_j2b_uiz-cVGYkjxbJtLMw&oe=6A5D1E9D",
+        "width": 960,
+        "height": 722,
+        "caption": "No photo description available."
+      },
+      {
+        "id": "883545841007632",
+        "url": "https://scontent.fboi1-1.fna.fbcdn.net/v/t45.5328-4/739174892_883545847674298_4783562043217786258_n.jpg?stp=dst-jpg_s960x960_tt6&_nc_cat=102&ccb=1-7&_nc_sid=247b10&_nc_ohc=2YsSP77rCWkQ7kNvwGdM3qI&_nc_oc=AdqILXddSV59z77Kvsq8EXf4qEWonUe-Q4WuG7Zbk3uQEqxFu_O0HqYw4qOGWRQdylQ&_nc_zt=23&_nc_ht=scontent.fboi1-1.fna&_nc_gid=3xSw5GIod0qjgw5ybcDXuA&_nc_ss=7b2a8&oh=00_AQAkoSI8LhQGWA89Ym2n1Wjv_Wzc6XJ0FOvYolY-B1e5qg&oe=6A5D1467",
+        "width": 722,
+        "height": 960,
+        "caption": "No photo description available."
+      },
+      {
+        "id": "909410085514521",
+        "url": "https://scontent.fboi1-1.fna.fbcdn.net/v/t45.5328-4/736272874_909410088847854_5595495489940810832_n.jpg?stp=dst-jpg_s960x960_tt6&_nc_cat=110&ccb=1-7&_nc_sid=247b10&_nc_ohc=uQrklrAC0xUQ7kNvwHjVcxT&_nc_oc=AdppnLe_KRXLGLJH5rsnoEkrhNcoYJUx1aOGuP4KQlMRYdQmFlThV1yJPnQP1u6aoFY&_nc_zt=23&_nc_ht=scontent.fboi1-1.fna&_nc_gid=3xSw5GIod0qjgw5ybcDXuA&_nc_ss=7b2a8&oh=00_AQDEWrWBHB0UZOCTVizPIjuvTnWeABo284c7WV6IP_gz1Q&oe=6A5CF8EE",
+        "width": 722,
+        "height": 960,
+        "caption": "No photo description available."
+      }
+    ]
+  }
+}

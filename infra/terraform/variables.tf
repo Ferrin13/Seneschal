@@ -165,3 +165,67 @@ variable "frontend_build_env" {
   default     = {}
   sensitive   = true
 }
+
+# --- Browser box (marketplace deal-finder) ------------------------------
+
+variable "enable_browser_box" {
+  description = "Whether to provision the always-on EC2 browser box + scraper agent."
+  type        = bool
+  default     = false
+}
+
+variable "browser_subdomain" {
+  description = "Subdomain (under hosted_zone_name) for noVNC access to the browser box."
+  type        = string
+  default     = "browser"
+}
+
+variable "browser_subnet_id" {
+  description = "Public subnet ID to launch the browser box into. Defaults to the first existing public subnet."
+  type        = string
+  default     = null
+}
+
+variable "browser_instance_type" {
+  description = "EC2 instance type for the browser box."
+  type        = string
+  default     = "t3.small"
+}
+
+variable "browser_allowed_cidrs" {
+  description = "CIDRs allowed to reach the browser box's noVNC (443) and SSH (22). Lock to your IP(s)."
+  type        = list(string)
+  default     = []
+}
+
+variable "browser_novnc_password" {
+  description = "Plaintext password for noVNC basic auth on the browser box."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "agent_token" {
+  description = "Shared bearer token the scraper agent uses for the API's /agent/* endpoints. Terraform stores it in Secrets Manager. Also set AGENT_TOKEN on the backend to the same value."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "browser_repo_url" {
+  description = "Git URL the browser box clones to build the scraper agent."
+  type        = string
+  default     = null
+}
+
+variable "browser_repo_branch" {
+  description = "Git branch the browser box checks out for the agent."
+  type        = string
+  default     = "main"
+}
+
+variable "browser_ssh_public_key" {
+  description = "Optional SSH public key for the browser box. Empty relies on SSM Session Manager."
+  type        = string
+  default     = ""
+}

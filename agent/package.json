@@ -1,0 +1,27 @@
+{
+  "name": "seneschal-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser-box Temporal worker: drives the logged-in Chrome over CDP to run the Facebook load-and-parse activities for the deal-hunter pipeline.",
+  "type": "module",
+  "main": "dist/worker.js",
+  "scripts": {
+    "dev": "tsx watch src/worker.ts",
+    "start": "node dist/worker.js",
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@temporalio/activity": "^1.20.3",
+    "@temporalio/worker": "^1.20.3",
+    "playwright": "^1.49.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

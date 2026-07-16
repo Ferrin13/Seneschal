@@ -15,6 +15,13 @@ import { messageTemplateRoutes } from "./routes/messageTemplates.js";
 import { groupRoutes } from "./routes/groups.js";
 import { groupMemberRoutes } from "./routes/groupMembers.js";
 import { uploadRoutes } from "./routes/uploads.js";
+import { searchTargetRoutes } from "./routes/searchTargets.js";
+import { searchRoutes } from "./routes/searches.js";
+import { candidateRoutes } from "./routes/candidates.js";
+import { listingRoutes } from "./routes/listings.js";
+import { notificationRoutes } from "./routes/notifications.js";
+import { llmUsageRoutes } from "./routes/llmUsage.js";
+import { huntRoutes } from "./routes/hunt.js";
 
 export async function buildServer() {
   const app = Fastify({
@@ -62,6 +69,13 @@ export async function buildServer() {
   await app.register(groupRoutes);
   await app.register(groupMemberRoutes);
   await app.register(uploadRoutes);
+  await app.register(searchTargetRoutes);
+  await app.register(searchRoutes);
+  await app.register(candidateRoutes);
+  await app.register(listingRoutes);
+  await app.register(notificationRoutes);
+  await app.register(llmUsageRoutes);
+  await app.register(huntRoutes);
 
   return app;
 }

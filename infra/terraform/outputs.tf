@@ -57,3 +57,18 @@ output "frontend_pipeline_name" {
   description = "Name of the CodePipeline that builds and deploys the frontend."
   value       = var.enable_pipeline ? module.pipeline[0].frontend_pipeline_name : null
 }
+
+output "browser_box_url" {
+  description = "noVNC URL for logging the browser box into Facebook."
+  value       = var.enable_browser_box ? module.browser_box[0].browser_url : null
+}
+
+output "browser_box_public_ip" {
+  description = "Elastic IP of the browser box."
+  value       = var.enable_browser_box ? module.browser_box[0].public_ip : null
+}
+
+output "browser_box_instance_id" {
+  description = "Browser box EC2 instance ID (for SSM Session Manager)."
+  value       = var.enable_browser_box ? module.browser_box[0].instance_id : null
+}

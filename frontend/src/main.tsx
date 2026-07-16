@@ -11,7 +11,22 @@ import { AuthProvider } from "./auth";
 const theme = createTheme({
   palette: {
     mode: "light",
-    primary: { main: "#3F51B5" },
+    primary: {
+      main: "#2D1B4E",
+      light: "#4A3570",
+      dark: "#1B0F30",
+      contrastText: "#FFFFFF",
+    },
+    secondary: {
+      main: "#6650A4",
+      light: "#8A76C4",
+      dark: "#453276",
+      contrastText: "#FFFFFF",
+    },
+    background: {
+      default: "#F6F4FA",
+      paper: "#FFFFFF",
+    },
   },
   shape: { borderRadius: 10 },
 });

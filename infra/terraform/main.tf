@@ -57,6 +57,45 @@ module "frontend_web" {
   hosted_zone_id = data.aws_route53_zone.primary.zone_id
 }
 
+# --- Browser box (marketplace deal-finder) ------------------------------
+# Shared token the scraper agent presents to the API's /agent/* endpoints.
+resource "aws_secretsmanager_secret" "agent_token" {
+  count       = var.enable_browser_box ? 1 : 0
+  name        = "${var.name_prefix}/${var.env}/agent-token"
+  description = "Shared bearer token for the scraper agent -> API /agent/* endpoints"
+}
+
+resource "aws_secretsmanager_secret_version" "agent_token" {
+  count         = var.enable_browser_box ? 1 : 0
+  secret_id     = aws_secretsmanager_secret.agent_token[0].id
+  secret_string = var.agent_token
+}
+
+module "browser_box" {
+  count  = var.enable_browser_box ? 1 : 0
+  source = "./modules/browser-box"
+
+  name_prefix = var.name_prefix
+  env         = var.env
+
+  vpc_id    = var.existing_vpc_id
+  subnet_id = coalesce(var.browser_subnet_id, var.existing_public_subnet_ids[0])
+
+  instance_type = var.browser_instance_type
+  allowed_cidrs = var.browser_allowed_cidrs
+
+  hosted_zone_id = data.aws_route53_zone.primary.zone_id
+  browser_fqdn   = "${var.browser_subdomain}.${var.hosted_zone_name}"
+
+  api_base_url           = "https://${local.api_fqdn}"
+  agent_token_secret_arn = aws_secretsmanager_secret.agent_token[0].arn
+  novnc_password         = var.browser_novnc_password
+  repo_url               = var.browser_repo_url
+  repo_branch            = var.browser_repo_branch
+  agent_name             = "browser-box"
+  ssh_public_key         = var.browser_ssh_public_key
+}
+
 module "pipeline" {
   count  = var.enable_pipeline ? 1 : 0
   source = "./modules/pipeline"

@@ -7,6 +7,8 @@ import {
   CircularProgress,
   Container,
   Stack,
+  Tab,
+  Tabs,
   Toolbar,
   Typography,
 } from "@mui/material";
@@ -14,10 +16,13 @@ import { useState } from "react";
 import { useAuth } from "./auth";
 import { signInWithGoogle, signOut } from "./firebase";
 import { TimeTrackingView } from "./TimeTrackingView";
+import { MarketplaceView } from "./MarketplaceView";
+import { DealsView } from "./DealsView";
 
 export default function App() {
   const { user, loading } = useAuth();
   const [signInError, setSignInError] = useState<string | null>(null);
+  const [tab, setTab] = useState(0);
 
   const handleSignIn = async () => {
     setSignInError(null);
@@ -71,7 +76,20 @@ export default function App() {
             <CircularProgress />
           </Stack>
         ) : user ? (
-          <TimeTrackingView />
+          <Stack spacing={3}>
+            <Tabs value={tab} onChange={(_e, v: number) => setTab(v)}>
+              <Tab label="Time Tracking" />
+              <Tab label="Targets" />
+              <Tab label="Deals" />
+            </Tabs>
+            {tab === 0 ? (
+              <TimeTrackingView />
+            ) : tab === 1 ? (
+              <MarketplaceView />
+            ) : (
+              <DealsView />
+            )}
+          </Stack>
         ) : (
           <SignedOut onSignIn={handleSignIn} error={signInError} />
         )}

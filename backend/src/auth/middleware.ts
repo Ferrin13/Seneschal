@@ -22,7 +22,13 @@ const BEARER = /^Bearer\s+(.+)$/i;
 
 // Single-tenant allowlist. Any other identity is rejected at the edge so that
 // no users row, seed data, or downstream resources are ever created for them.
-const ALLOWED_EMAIL = "12aplustech@gmail.com";
+export const ALLOWED_EMAILS = ["info@parthadae.com", "12aplustech@gmail.com"];
+
+export function isAllowedEmail(email: string | null | undefined): boolean {
+  if (!email) return false;
+  const normalized = email.toLowerCase();
+  return ALLOWED_EMAILS.some((allowed) => allowed.toLowerCase() === normalized);
+}
 
 const plugin: FastifyPluginAsync = async (app) => {
   app.decorateRequest("auth", null as unknown as AuthContext);
@@ -30,6 +36,9 @@ const plugin: FastifyPluginAsync = async (app) => {
   app.addHook("onRequest", async (req: FastifyRequest, reply) => {
     // Skip auth for health checks
     if (req.url === "/healthz" || req.url === "/readyz") return;
+    // The browser-box scraper agent authenticates with a shared service token
+    // (see routes/agent.ts), not a Firebase ID token — skip Firebase auth here.
+    if (req.url === "/agent" || req.url.startsWith("/agent/")) return;
 
     const header = req.headers.authorization;
     if (!header) {
@@ -55,7 +64,7 @@ const plugin: FastifyPluginAsync = async (app) => {
     if (
       !email ||
       !decoded.email_verified ||
-      email.toLowerCase() !== ALLOWED_EMAIL
+      !isAllowedEmail(email)
     ) {
       req.log.warn(
         { firebaseUid, email, emailVerified: decoded.email_verified },
