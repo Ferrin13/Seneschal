@@ -452,24 +452,28 @@ resource "aws_codebuild_project" "agent_deploy" {
 
   source {
     type      = "CODEPIPELINE"
+    # NOTE: keep all steps inside a single literal block scalar. Individual
+    # YAML list items that contain ": " (e.g. echo "...status: $STATUS") get
+    # misparsed as mappings, which fails the buildspec with a YAML_FILE_ERROR.
     buildspec = <<-EOT
       version: 0.2
       phases:
         build:
           commands:
-            - echo "Triggering agent redeploy on $BROWSER_INSTANCE_ID"
             - |
+              set -e
+              echo "Triggering agent redeploy on $BROWSER_INSTANCE_ID"
               CMD_ID=$(aws ssm send-command \
                 --instance-ids "$BROWSER_INSTANCE_ID" \
                 --document-name "AWS-RunShellScript" \
                 --comment "Deploy scraper agent" \
                 --parameters 'commands=["/opt/browser/deploy-agent.sh"]' \
                 --query "Command.CommandId" --output text)
-            - echo "SSM command $CMD_ID dispatched; waiting..."
-            - aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$BROWSER_INSTANCE_ID" || true
-            - STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$BROWSER_INSTANCE_ID" --query "Status" --output text)
-            - echo "SSM command status: $STATUS"
-            - test "$STATUS" = "Success"
+              echo "SSM command $CMD_ID dispatched; waiting..."
+              aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$BROWSER_INSTANCE_ID" || true
+              STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$BROWSER_INSTANCE_ID" --query "Status" --output text)
+              echo "SSM command status: $STATUS"
+              test "$STATUS" = "Success"
     EOT
   }
 

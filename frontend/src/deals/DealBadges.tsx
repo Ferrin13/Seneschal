@@ -1,5 +1,6 @@
 import { Box, Chip, SvgIcon, Tooltip } from "@mui/material";
-import type { SvgIconProps, SxProps, Theme } from "@mui/material/styles";
+import type { SxProps, Theme } from "@mui/material/styles";
+import type { SvgIconProps } from "@mui/material";
 import { forwardRef } from "react";
 import FacebookIcon from "@mui/icons-material/Facebook";
 import type { Candidate, CandidateStatus, Platform } from "../api";
