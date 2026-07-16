@@ -1,6 +1,10 @@
 import { llmConfigured, llmJson } from "../../llm/index.js";
 import type { LlmUsageContext } from "../../llm/index.js";
+import { repairCraigslistCompUrl } from "../craigslist/url.js";
 import type { RawComp } from "./ebay.js";
+
+/** Whether to research used/secondhand resale prices or brand-new/retail. */
+export type CompCondition = "new" | "used";
 
 /**
  * Gather price comparables via an internet search, using OpenRouter's
@@ -9,13 +13,32 @@ import type { RawComp } from "./ebay.js";
  * normalized comps; token/cost is logged via the usage context.
  */
 
-const SYSTEM = `You are a resale-pricing researcher. Given an item, search the web for what comparable items currently sell for (marketplaces, retail, recent sold/asking prices). Prefer same or very similar make/model/condition.
+function buildSystem(region: string, condition: CompCondition): string {
+  const conditionRules =
+    condition === "used"
+      ? `You are researching USED / secondhand RESALE prices only.
+- Focus on used-item marketplaces and recent sold/asking prices for pre-owned units: eBay sold "used" listings, Facebook Marketplace, Craigslist, OfferUp, Nextdoor, local classifieds.
+- EXCLUDE brand-new, sealed, or retail/MSRP prices — those are gathered separately.
+- In "note", say the condition and whether the price is sold or asking (e.g. "used - sold", "used - asking").`
+      : `You are researching BRAND-NEW / retail prices only.
+- Focus on the current new/retail price for this item: manufacturer/retailer pages, MSRP, Amazon/Walmart/Best Buy new listings, eBay "brand new" listings.
+- EXCLUDE used/secondhand/refurbished prices — those are gathered separately.
+- In "note", say the price is retail/new and name the seller (e.g. "new - retail MSRP", "new - Amazon").`;
+  return `You are a resale-pricing researcher. Given an item, search the web for what comparable items currently sell for. Prefer the same or a very similar make/model.
+${conditionRules}
 Return ONLY JSON:
-{"comps":[{"title":"...","priceCents":integer,"currency":"USD","url":"source url","note":"e.g. sold/asking/retail"}],"estimatedValueCents":integer|null,"summary":"one sentence"}
+{"comps":[{"title":"...","priceCents":integer,"currency":"USD","url":"source url","note":"see below"}],"estimatedValueCents":integer|null,"summary":"one sentence"}
 Rules:
 - priceCents is the price in cents (e.g. $450.00 -> 45000).
+- estimatedValueCents is your best single estimate of the ${
+    condition === "used" ? "typical used resale" : "brand-new/retail"
+  } price.
 - Include 3-8 of the most relevant comps; omit anything you cannot price.
-- Use real source URLs you actually found.`;
+- Use real source URLs you actually found.
+- LOCATION: This item is being resold in ${region}. For local, in-person marketplaces (Facebook Marketplace, Craigslist, OfferUp, Nextdoor, local classifieds), ONLY include listings located in or near that area — exclude out-of-area local listings, as prices and demand differ by region.
+- Nationwide online sources where location doesn't affect price (eBay sold/asking, Amazon, retailer/MSRP pages, shippable marketplaces) are fine regardless of location; label them accordingly in "note".
+- Prefer local comps; use nationwide online prices mainly to fill gaps when local data is sparse.`;
+}
 
 type WebComp = {
   title?: string;
@@ -37,7 +60,13 @@ export function webCompsConfigured(): boolean {
 
 export async function webComps(
   query: string,
-  opts: { model?: string; usage: LlmUsageContext; maxResults?: number }
+  opts: {
+    model?: string;
+    usage: LlmUsageContext;
+    maxResults?: number;
+    region: string;
+    condition: CompCondition;
+  }
 ): Promise<{ comps: RawComp[]; estimatedValueCents: number | null; summary: string | null }> {
   const { data } = await llmJson<WebCompsResult>({
     tier: "advanced",
@@ -58,8 +87,11 @@ export async function webComps(
     // cost down on reasoning-capable models.
     reasoning: { enabled: false },
     messages: [
-      { role: "system", text: SYSTEM },
-      { role: "user", text: `Item: ${query}` },
+      { role: "system", text: buildSystem(opts.region, opts.condition) },
+      {
+        role: "user",
+        text: `Item: ${query}\nResale location: ${opts.region}\nResearch ${opts.condition} prices.`,
+      },
     ],
     // Generous cap: several comps with long marketplace URLs plus a summary can
     // run past 1k tokens; too small truncates the JSON and fails the parse.
@@ -68,17 +100,22 @@ export async function webComps(
   });
 
   const raw = Array.isArray(data.comps) ? data.comps : [];
-  const comps: RawComp[] = raw
-    .filter((c) => c && typeof c.priceCents === "number")
-    .map((c) => ({
-      matchedTitle: c.title ?? null,
-      priceCents:
-        typeof c.priceCents === "number" ? Math.round(c.priceCents) : null,
-      currency: c.currency ?? "USD",
-      url: c.url ?? null,
-      soldAt: null,
-      raw: c as Record<string, unknown>,
-    }));
+  const comps: RawComp[] = await Promise.all(
+    raw
+      .filter((c) => c && typeof c.priceCents === "number")
+      .map(async (c) => ({
+        matchedTitle: c.title ?? null,
+        priceCents:
+          typeof c.priceCents === "number" ? Math.round(c.priceCents) : null,
+        currency: c.currency ?? "USD",
+        // LLM-cited Craigslist listing URLs are frequently hallucinated/expired
+        // and 404. Keep the deep-link when it actually resolves; otherwise fall
+        // back to a same-site search. (Original stays in `raw`.)
+        url: await repairCraigslistCompUrl(c.url ?? null, c.title ?? null),
+        soldAt: null,
+        raw: c as Record<string, unknown>,
+      }))
+  );
 
   return {
     comps,

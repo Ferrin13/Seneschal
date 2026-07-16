@@ -14,6 +14,13 @@ export type CandidateRef = {
   platform: Platform;
   url: string;
   externalId: string | null;
+  /**
+   * Whether this candidate should be (re-)triaged this run. True for newly
+   * discovered tiles and for re-seen ones whose price/title changed (or that
+   * were never successfully triaged). Unchanged re-seen tiles are skipped to
+   * avoid redundant LLM calls.
+   */
+  needsTriage: boolean;
 };
 
 /** A promising candidate that vanished from search and needs a PDP re-check. */

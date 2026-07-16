@@ -62,6 +62,15 @@ const schema = z.object({
   // stuffs fetched results into the prompt (tens of thousands of tokens per
   // call), so a cheaper model keeps this dominant cost in check.
   LLM_COMPS_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
+  // Geographic region used to keep local-marketplace comparables relevant.
+  // Nationwide online retail/sold prices are still allowed as a fallback, but
+  // local listings (Craigslist/Facebook/OfferUp) should come from this area.
+  COMPS_REGION: z
+    .string()
+    .min(1)
+    .default(
+      "the Treasure Valley area of Idaho (Boise, Meridian, Nampa, Caldwell, Eagle, Kuna, Star, and Garden City)"
+    ),
 
   // eBay Browse API (client-credentials) for price comps.
   EBAY_CLIENT_ID: z.string().min(1).optional(),
@@ -83,8 +92,13 @@ const schema = z.object({
   TEMPORAL_TASK_QUEUE: z.string().min(1).default(DEFAULT_TASK_QUEUE),
   TEMPORAL_BROWSER_TASK_QUEUE: z.string().min(1).default(BROWSER_TASK_QUEUE),
   // How often each active target auto-hunts (minutes). The backend worker
-  // registers one Temporal Schedule per active target on boot.
+  // registers one Temporal Schedule per active target on boot. Individual
+  // targets can override this via their `huntIntervalMin`.
   TEMPORAL_HUNT_INTERVAL_MIN: z.coerce.number().int().positive().default(30),
+  // Random spread (minutes) added to each scheduled hunt so targets don't all
+  // fire on the exact same tick (spreads load, looks less bot-like). Applied as
+  // Temporal schedule `jitter`; 0 disables it.
+  TEMPORAL_HUNT_JITTER_MIN: z.coerce.number().int().nonnegative().default(2),
 });
 
 const parsed = schema.safeParse(process.env);

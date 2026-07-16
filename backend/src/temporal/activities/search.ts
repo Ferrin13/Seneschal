@@ -59,7 +59,10 @@ export async function craigslistHarvestSearch(input: {
 /**
  * Upsert harvested tiles into candidates, stamping seen timestamps. New tiles
  * get a `discovered` event; re-seen tiles just refresh `lastSeenAt` and reset
- * the miss counter. Returns candidate refs + the dedupe keys seen this run.
+ * the miss counter. Each ref carries a `needsTriage` flag (true for new tiles
+ * or re-seen tiles whose price/title changed) so the workflow can skip
+ * re-triaging unchanged listings. Returns candidate refs + the dedupe keys
+ * seen this run.
  */
 export async function upsertHarvest(input: {
   meta: RunMeta;
@@ -77,7 +80,13 @@ export async function upsertHarvest(input: {
     const listedAt = it.listedAt ? new Date(it.listedAt) : null;
 
     const [existing] = await db
-      .select({ id: candidates.id, disposition: candidates.disposition })
+      .select({
+        id: candidates.id,
+        disposition: candidates.disposition,
+        priceCents: candidates.priceCents,
+        title: candidates.title,
+        triageStatus: candidates.triageStatus,
+      })
       .from(candidates)
       .where(
         and(
@@ -91,6 +100,15 @@ export async function upsertHarvest(input: {
       // Terminal user dispositions freeze the candidate: don't refresh or
       // re-queue it for triage/evaluation.
       if (isFrozenDisposition(existing.disposition)) continue;
+      // Only re-triage when a triage-relevant signal changed. Harvest only
+      // overwrites price/title when the new value is non-null, so mirror that
+      // here. Also re-triage anything that never got a successful triage.
+      const newPrice = it.priceCents ?? null;
+      const newTitle = it.title ?? null;
+      const priceChanged = newPrice != null && newPrice !== existing.priceCents;
+      const titleChanged = newTitle != null && newTitle !== existing.title;
+      const neverTriaged = existing.triageStatus === "pending";
+      const needsTriage = priceChanged || titleChanged || neverTriaged;
       await db
         .update(candidates)
         .set({
@@ -107,6 +125,7 @@ export async function upsertHarvest(input: {
         platform: it.platform,
         url: it.url,
         externalId: it.externalId,
+        needsTriage,
       });
     } else {
       const [row] = await db
@@ -137,6 +156,7 @@ export async function upsertHarvest(input: {
           platform: it.platform,
           url: it.url,
           externalId: it.externalId,
+          needsTriage: true,
         });
         await logEvent(meta, id, "discovered", `Found on ${it.platform}`, {
           searchId,

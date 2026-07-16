@@ -29,14 +29,16 @@ import {
   type Disposition,
   type EvaluationRating,
 } from "../api";
-import { dealTier } from "../scoring";
-import { DealChip, FitChip, StatusBadge, TriageBadge } from "./DealBadges";
+import { DEAL_TIER, dealTier } from "../scoring";
+import { DealScoreBadge, ScorePill, StatusBadge } from "./DealBadges";
 import {
   DISPOSITION,
   DISPOSITION_OPTIONS,
+  DISPOSITION_TINT,
   PLATFORM_COLOR,
   STAGE_LABEL,
   ageText,
+  combineDealScore,
   eventReason,
   money,
 } from "./shared";
@@ -337,33 +339,132 @@ export function CandidateDetailPanel({
   const triage = evaluations.find((e) => e.tier === "triage");
   const triageReason = triage?.rationale ?? c.triageReason;
   const cover = listing?.images.find((i) => i.url)?.url ?? c.thumbnailUrl;
+  const fitValue = advanced?.fitScore ?? triage?.fitScore ?? c.triageScore ?? null;
+  const dealScoreValue = combineDealScore(advanced?.valueScore ?? null, fitValue);
+
+  const dispositionSection = (
+    <DispositionSection
+      key={`disp-${c.id}`}
+      candidate={c}
+      onSaved={(updated) => {
+        setDetail((d) => (d ? { ...d, candidate: updated } : d));
+        onChanged?.();
+      }}
+      onClose={onClose}
+    />
+  );
+
+  const triageSection =
+    c.triageStatus === "rejected" || triageReason
+      ? (() => {
+          const triageAlert = (
+            <Alert
+              severity={c.triageStatus === "rejected" ? "error" : "info"}
+              sx={{ mb: 2 }}
+            >
+              <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                {c.triageStatus === "rejected"
+                  ? "Rejected in triage"
+                  : "Triage first-pass"}
+                {c.triageScore != null ? ` · score ${c.triageScore}` : ""}
+              </Typography>
+              {triageReason ? (
+                <Typography variant="body2">{triageReason}</Typography>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  No reason recorded.
+                </Typography>
+              )}
+              {triage?.model ? (
+                <Typography variant="caption" color="text.secondary">
+                  {triage.model}
+                </Typography>
+              ) : null}
+            </Alert>
+          );
+          // Once there's a full value analysis, the triage first-pass is
+          // secondary — collapse it behind a toggle by default.
+          return advanced ? (
+            <Box sx={{ mb: 2 }}>
+              <Link
+                component="button"
+                type="button"
+                onClick={() => setShowTriage((v) => !v)}
+                underline="hover"
+                sx={{ display: "inline-flex", alignItems: "center", gap: 0.5 }}
+              >
+                <Typography variant="subtitle2">
+                  {showTriage ? "▾" : "▸"} Triage first-pass
+                  {c.triageScore != null ? ` · score ${c.triageScore}` : ""}
+                </Typography>
+              </Link>
+              <Collapse in={showTriage} unmountOnExit>
+                <Box sx={{ mt: 1 }}>{triageAlert}</Box>
+              </Collapse>
+            </Box>
+          ) : (
+            triageAlert
+          );
+        })()
+      : null;
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="flex-start"
-        sx={{ mb: 1 }}
-      >
-        <Typography variant="h6" sx={{ pr: 2 }}>
-          {c.title ?? "(untitled)"}
+    <Box sx={{ p: 3, bgcolor: DISPOSITION_TINT[c.disposition], minHeight: "100%" }}>
+      {c.disposition !== "none" ? (
+        <Typography
+          variant="caption"
+          sx={{
+            display: "block",
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+            color: `${DISPOSITION[c.disposition].color}.main`,
+            mb: 0.5,
+          }}
+        >
+          {DISPOSITION[c.disposition].label}
         </Typography>
-        <Link component="button" onClick={onClose} sx={{ flexShrink: 0 }}>
-          Close
-        </Link>
-      </Stack>
+      ) : null}
 
-      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
-        <Chip size="small" color={PLATFORM_COLOR[c.platform]} label={c.platform} />
-        <Chip size="small" label={money(c.priceCents)} />
-        <DealChip
-          value={advanced?.valueScore ?? null}
+      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
+        <Link
+          href={c.listingUrl}
+          target="_blank"
+          rel="noreferrer"
+          variant="h6"
+          sx={{ flex: 1, minWidth: 0 }}
+        >
+          {c.title ?? "(untitled)"}
+        </Link>
+        <Typography variant="h6" sx={{ fontWeight: 700, flexShrink: 0 }}>
+          {money(c.priceCents)}
+        </Typography>
+        <DealScoreBadge
+          score={dealScoreValue}
           confidence={advanced?.confidence ?? null}
         />
-        <FitChip fit={advanced?.fitScore ?? triage?.fitScore ?? c.triageScore} />
+      </Stack>
+
+      <Stack
+        direction="row"
+        spacing={0.75}
+        flexWrap="wrap"
+        useFlexGap
+        alignItems="center"
+        sx={{ mb: 2 }}
+      >
+        <ScorePill
+          label="Value"
+          score={advanced?.valueScore ?? null}
+          hint="how good the price is vs. estimated market value"
+        />
+        <ScorePill
+          label="Fit"
+          score={fitValue}
+          hint="how well this matches your search target and rules"
+        />
+        <Chip size="small" color={PLATFORM_COLOR[c.platform]} label={c.platform} />
         <StatusBadge status={c.status} />
-        <TriageBadge candidate={c} />
       </Stack>
 
       {cover ? (
@@ -377,14 +478,14 @@ export function CandidateDetailPanel({
       ) : null}
 
       <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
-        {ageText(c.sourceListedAt) ? (
-          <Typography variant="caption" color="text.secondary">
-            Listed {ageText(c.sourceListedAt)}
-          </Typography>
-        ) : null}
         {ageText(listing?.sourceUpdatedAt ?? c.sourceUpdatedAt) ? (
           <Typography variant="caption" color="text.secondary">
             Updated {ageText(listing?.sourceUpdatedAt ?? c.sourceUpdatedAt)}
+          </Typography>
+        ) : null}
+        {ageText(c.sourceListedAt) ? (
+          <Typography variant="caption" color="text.secondary">
+            Listed {ageText(c.sourceListedAt)}
           </Typography>
         ) : null}
         <Typography variant="caption" color="text.secondary">
@@ -395,7 +496,7 @@ export function CandidateDetailPanel({
       {advanced ? (
         <Alert
           severity={(() => {
-            const tier = dealTier(advanced.valueScore);
+            const tier = dealTier(dealScoreValue);
             if (tier === "great_deal" || tier === "good_deal") return "success";
             if (tier === "maybe") return "warning";
             if (tier === "pass") return "error";
@@ -404,11 +505,20 @@ export function CandidateDetailPanel({
           sx={{ mb: 2 }}
         >
           <Typography variant="body2" sx={{ fontWeight: 600 }}>
+            {(() => {
+              const tier = dealTier(dealScoreValue);
+              const label = tier ? DEAL_TIER[tier].label : null;
+              return dealScoreValue != null
+                ? `${label} · deal score ${Math.round(dealScoreValue)}/100`
+                : "Not evaluated";
+            })()}
+          </Typography>
+          <Typography variant="body2">
             {[
               advanced.valueScore != null
                 ? `Value ${advanced.valueScore}/100`
                 : null,
-              advanced.fitScore != null ? `fit ${advanced.fitScore}/100` : null,
+              advanced.fitScore != null ? `Fit ${advanced.fitScore}/100` : null,
               advanced.confidence != null
                 ? `${Math.round(advanced.confidence * 100)}% confident`
                 : null,
@@ -433,72 +543,13 @@ export function CandidateDetailPanel({
         </Alert>
       ) : null}
 
-      {c.triageStatus === "rejected" || triageReason
-        ? (() => {
-            const triageAlert = (
-              <Alert
-                severity={c.triageStatus === "rejected" ? "error" : "info"}
-                sx={{ mb: 2 }}
-              >
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                  {c.triageStatus === "rejected"
-                    ? "Rejected in triage"
-                    : "Triage first-pass"}
-                  {c.triageScore != null ? ` · score ${c.triageScore}` : ""}
-                </Typography>
-                {triageReason ? (
-                  <Typography variant="body2">{triageReason}</Typography>
-                ) : (
-                  <Typography variant="body2" color="text.secondary">
-                    No reason recorded.
-                  </Typography>
-                )}
-                {triage?.model ? (
-                  <Typography variant="caption" color="text.secondary">
-                    {triage.model}
-                  </Typography>
-                ) : null}
-              </Alert>
-            );
-            // Once there's a full value analysis, the triage first-pass is
-            // secondary — collapse it behind a toggle by default.
-            return advanced ? (
-              <Box sx={{ mb: 2 }}>
-                <Link
-                  component="button"
-                  type="button"
-                  onClick={() => setShowTriage((v) => !v)}
-                  underline="hover"
-                  sx={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 0.5,
-                  }}
-                >
-                  <Typography variant="subtitle2">
-                    {showTriage ? "▾" : "▸"} Triage first-pass
-                    {c.triageScore != null ? ` · score ${c.triageScore}` : ""}
-                  </Typography>
-                </Link>
-                <Collapse in={showTriage} unmountOnExit>
-                  <Box sx={{ mt: 1 }}>{triageAlert}</Box>
-                </Collapse>
-              </Box>
-            ) : (
-              triageAlert
-            );
-          })()
-        : null}
+      {dispositionSection}
 
       {listing?.description ? (
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2, mt: 2 }}>
           {listing.description.slice(0, 600)}
         </Typography>
       ) : null}
-
-      <Link href={c.listingUrl} target="_blank" rel="noreferrer">
-        Open original listing
-      </Link>
 
       {comps.length > 0 ? (
         <Box sx={{ mt: 3 }}>
@@ -518,6 +569,7 @@ export function CandidateDetailPanel({
               <TableHead>
                 <TableRow>
                   <TableCell>Source</TableCell>
+                  <TableCell>Condition</TableCell>
                   <TableCell>Match</TableCell>
                   <TableCell align="right">Price</TableCell>
                 </TableRow>
@@ -527,6 +579,18 @@ export function CandidateDetailPanel({
                   <TableRow key={cp.id}>
                     <TableCell>
                       <Chip size="small" variant="outlined" label={cp.source} />
+                    </TableCell>
+                    <TableCell>
+                      {cp.condition ? (
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          color={cp.condition === "new" ? "info" : "default"}
+                          label={cp.condition}
+                        />
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                     <TableCell>
                       {cp.url ? (
@@ -545,6 +609,8 @@ export function CandidateDetailPanel({
           </Collapse>
         </Box>
       ) : null}
+
+      {triageSection ? <Box sx={{ mt: 3 }}>{triageSection}</Box> : null}
 
       <Box sx={{ mt: 3 }}>
         <Link
@@ -604,16 +670,6 @@ export function CandidateDetailPanel({
       <Typography variant="caption" color="text.secondary">
         First seen {new Date(c.firstSeenAt).toLocaleString()}
       </Typography>
-
-      <DispositionSection
-        key={`disp-${c.id}`}
-        candidate={c}
-        onSaved={(updated) => {
-          setDetail((d) => (d ? { ...d, candidate: updated } : d));
-          onChanged?.();
-        }}
-        onClose={onClose}
-      />
 
       <RatingSection key={c.id} candidateId={c.id} initial={rating} />
     </Box>

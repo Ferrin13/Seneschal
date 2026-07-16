@@ -42,18 +42,49 @@ async function persistComps(
       raw: c.raw,
     }))
   );
-  const observations = raw
-    .filter((c) => c.priceCents != null)
-    .map((c) => ({
+  // Dedupe within this batch by normalized title so a single insert never
+  // conflicts with itself under the unique index (which would abort the
+  // upsert); the last price for a given title wins.
+  const byTitle = new Map<
+    string,
+    {
+      userId: string;
+      normalizedTitle: string | null;
+      priceCents: number | null;
+      currency: string | null;
+      source: "ebay" | "craigslist";
+      listingId: string;
+    }
+  >();
+  for (const c of raw) {
+    if (c.priceCents == null) continue;
+    const normalizedTitle = normalizeTitle(c.matchedTitle);
+    byTitle.set(normalizedTitle ?? `__null__${byTitle.size}`, {
       userId,
-      normalizedTitle: normalizeTitle(c.matchedTitle),
+      normalizedTitle,
       priceCents: c.priceCents,
       currency: c.currency,
       source,
       listingId,
-    }));
-  if (observations.length > 0) {
-    await db.insert(itemObservations).values(observations);
+    });
+  }
+  for (const obs of byTitle.values()) {
+    await db
+      .insert(itemObservations)
+      .values(obs)
+      .onConflictDoUpdate({
+        target: [
+          itemObservations.userId,
+          itemObservations.listingId,
+          itemObservations.normalizedTitle,
+          itemObservations.source,
+        ],
+        set: {
+          priceCents: obs.priceCents,
+          currency: obs.currency,
+          observedAt: new Date(),
+        },
+      });
   }
   return raw.length;
 }

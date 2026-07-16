@@ -1,0 +1,1 @@
+ALTER TABLE "mp_search_targets" ADD COLUMN "hunt_interval_min" integer;

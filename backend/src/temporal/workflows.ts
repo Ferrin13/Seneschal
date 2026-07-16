@@ -92,95 +92,143 @@ export async function huntTargetWorkflow(input: HuntTargetInput): Promise<{
     targetId: input.targetId,
   });
 
+  const { huntRunId } = await acts.startHuntRun({
+    meta,
+    targetId: input.targetId,
+  });
+
   let discovered = 0;
+  let triagedTotal = 0;
   let promisingTotal = 0;
   let evaluated = 0;
+  let errorsTotal = 0;
   let skipFacebook = false;
 
-  for (const search of searches) {
-    if (search.platform === "facebook" && skipFacebook) continue;
+  const counts = () => ({
+    searches: searches.length,
+    discovered,
+    triaged: triagedTotal,
+    promising: promisingTotal,
+    evaluated,
+    errors: errorsTotal,
+  });
 
-    let items: HarvestedItem[] = [];
-    try {
-      items = await harvest(search);
-    } catch (err) {
-      if (isLoggedOut(err)) {
-        // Facebook session is dead — flag it and skip remaining FB searches.
-        skipFacebook = true;
-        await acts.flagNeedsLogin({ meta });
-      }
-      continue;
-    }
+  try {
+    for (const search of searches) {
+      if (search.platform === "facebook" && skipFacebook) continue;
 
-    const { candidates, seenKeys } = await acts.upsertHarvest({
-      meta,
-      searchId: search.id,
-      items,
-    });
-    discovered += candidates.length;
-
-    const { promisingIds } = await acts.triageCandidates({
-      meta,
-      candidateIds: candidates.map((c) => c.id),
-    });
-    promisingTotal += promisingIds.length;
-
-    const promisingSet = new Set(promisingIds);
-    const promising = candidates.filter((c) => promisingSet.has(c.id));
-
-    for (const candidate of promising) {
-      if (candidate.platform === "facebook" && skipFacebook) continue;
+      let items: HarvestedItem[] = [];
       try {
-        const deep = await deepScrape(candidate);
-        const { listingId } = await acts.upsertListing({
-          meta,
-          candidateId: candidate.id,
-          deep,
-        });
-        await slowActs.gatherComps({
-          meta,
-          listingId,
-          candidateId: candidate.id,
-        });
-        await slowActs.finalEvaluate({
-          meta,
-          listingId,
-          candidateId: candidate.id,
-        });
-        evaluated += 1;
+        items = await harvest(search);
       } catch (err) {
         if (isLoggedOut(err)) {
+          // Facebook session is dead — flag it and skip remaining FB searches.
           skipFacebook = true;
           await acts.flagNeedsLogin({ meta });
         }
-        // One listing failing (scrape/LLM) shouldn't abort the run.
+        errorsTotal += 1;
         continue;
       }
-    }
 
-    const { toVerify } = await acts.reconcileSeen({
-      meta,
-      searchId: search.id,
-      seenKeys,
-    });
+      const { candidates, seenKeys } = await acts.upsertHarvest({
+        meta,
+        searchId: search.id,
+        items,
+      });
+      discovered += candidates.length;
 
-    // Promising listings that vanished get a PDP re-check before we call them
-    // sold; a still-live page just fell out of the snapshot and stays active.
-    for (const cand of toVerify) {
-      if (cand.platform === "facebook" && skipFacebook) continue;
-      try {
-        const result = await verifyGone(cand);
-        await acts.finalizeDisappearance({ meta, candidate: cand, result });
-      } catch (err) {
-        if (isLoggedOut(err)) {
-          skipFacebook = true;
-          await acts.flagNeedsLogin({ meta });
+      // Only (re-)triage new tiles or re-seen tiles whose price/title changed.
+      const toTriage = candidates.filter((c) => c.needsTriage);
+      triagedTotal += toTriage.length;
+      const { promisingIds, changedIds } = await acts.triageCandidates({
+        meta,
+        candidateIds: toTriage.map((c) => c.id),
+      });
+      promisingTotal += promisingIds.length;
+
+      // Deep analysis (scrape + comps + evaluate) only runs when the triage
+      // verdict/score changed this run, so unchanged promising listings aren't
+      // re-analyzed on every hunt.
+      const promisingSet = new Set(promisingIds);
+      const changedSet = new Set(changedIds);
+      const promising = candidates.filter(
+        (c) => promisingSet.has(c.id) && changedSet.has(c.id)
+      );
+
+      for (const candidate of promising) {
+        if (candidate.platform === "facebook" && skipFacebook) continue;
+        try {
+          const deep = await deepScrape(candidate);
+          const { listingId } = await acts.upsertListing({
+            meta,
+            candidateId: candidate.id,
+            deep,
+          });
+          await slowActs.gatherComps({
+            meta,
+            listingId,
+            candidateId: candidate.id,
+          });
+          await slowActs.finalEvaluate({
+            meta,
+            listingId,
+            candidateId: candidate.id,
+          });
+          evaluated += 1;
+        } catch (err) {
+          if (isLoggedOut(err)) {
+            skipFacebook = true;
+            await acts.flagNeedsLogin({ meta });
+          }
+          // One listing failing (scrape/LLM) shouldn't abort the run.
+          errorsTotal += 1;
+          continue;
         }
-        // Couldn't verify (e.g. login wall) — leave active, retry next run.
-        continue;
+      }
+
+      const { toVerify } = await acts.reconcileSeen({
+        meta,
+        searchId: search.id,
+        seenKeys,
+      });
+
+      // Promising listings that vanished get a PDP re-check before we call them
+      // sold; a still-live page just fell out of the snapshot and stays active.
+      for (const cand of toVerify) {
+        if (cand.platform === "facebook" && skipFacebook) continue;
+        try {
+          const result = await verifyGone(cand);
+          await acts.finalizeDisappearance({ meta, candidate: cand, result });
+        } catch (err) {
+          if (isLoggedOut(err)) {
+            skipFacebook = true;
+            await acts.flagNeedsLogin({ meta });
+          }
+          // Couldn't verify (e.g. login wall) — leave active, retry next run.
+          errorsTotal += 1;
+          continue;
+        }
       }
     }
+  } catch (err) {
+    // Unexpected top-level failure: record it before propagating so the run
+    // isn't left dangling in `running`.
+    await acts.finishHuntRun({
+      meta,
+      huntRunId,
+      status: "failed",
+      counts: counts(),
+      error: String(err),
+    });
+    throw err;
   }
+
+  await acts.finishHuntRun({
+    meta,
+    huntRunId,
+    status: "completed",
+    counts: counts(),
+  });
 
   return {
     searches: searches.length,

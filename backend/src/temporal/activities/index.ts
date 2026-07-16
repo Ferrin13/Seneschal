@@ -17,3 +17,4 @@ export { craigslistDeepScrape, upsertListing } from "./listing.js";
 export { gatherComps } from "./comps.js";
 export { finalEvaluate } from "./evaluate.js";
 export { flagNeedsLogin } from "./status.js";
+export { startHuntRun, finishHuntRun } from "./huntRun.js";

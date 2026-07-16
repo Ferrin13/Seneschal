@@ -460,6 +460,12 @@ export const compSource = pgEnum("mp_comp_source", [
   "internal",
   "web",
 ]);
+/**
+ * Whether a comparable reflects a brand-new/retail price or a used/secondhand
+ * resale price. Null for sources where the distinction doesn't apply (e.g.
+ * internal history predating this split).
+ */
+export const compCondition = pgEnum("mp_comp_condition", ["new", "used"]);
 export const notificationStatus = pgEnum("mp_notification_status", [
   "new",
   "seen",
@@ -477,6 +483,12 @@ export const llmPurpose = pgEnum("mp_llm_purpose", [
   "comps",
   "advanced",
   "other",
+]);
+/** Lifecycle of a single hunt-workflow run recorded in mp_hunt_runs. */
+export const huntRunStatus = pgEnum("mp_hunt_run_status", [
+  "running",
+  "completed",
+  "failed",
 ]);
 
 /**
@@ -496,6 +508,9 @@ export const searchTargets = pgTable(
     prompt: text("prompt").notNull(),
     evalInstructions: text("eval_instructions"),
     isActive: boolean("is_active").notNull().default(true),
+    // Per-target auto-hunt cadence in minutes. NULL falls back to the server's
+    // TEMPORAL_HUNT_INTERVAL_MIN default so existing targets keep working.
+    huntIntervalMin: integer("hunt_interval_min"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -740,6 +755,7 @@ export const comps = pgTable(
       .notNull()
       .references(() => listings.id, { onDelete: "cascade" }),
     source: compSource("source").notNull(),
+    condition: compCondition("condition"),
     matchedTitle: text("matched_title"),
     priceCents: integer("price_cents"),
     currency: text("currency"),
@@ -877,6 +893,14 @@ export const itemObservations = pgTable(
       t.userId,
       t.normalizedTitle
     ),
+    // One observation per (user, listing, title, source): repeated deep-scrapes
+    // update the existing row's price instead of appending duplicates.
+    uniq: uniqueIndex("mp_item_observations_uniq_idx").on(
+      t.userId,
+      t.listingId,
+      t.normalizedTitle,
+      t.source
+    ),
   })
 );
 
@@ -1011,6 +1035,9 @@ export const llmCalls = pgTable(
     targetId: uuid("target_id").references(() => searchTargets.id, {
       onDelete: "set null",
     }),
+    // Temporal run id of the hunt-workflow execution that made this call, when
+    // it originated from a hunt run. Lets us sum per-run LLM cost accurately.
+    runId: text("run_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1018,6 +1045,60 @@ export const llmCalls = pgTable(
   (t) => ({
     userIdx: index("mp_llm_calls_user_idx").on(t.userId, t.createdAt),
     modelIdx: index("mp_llm_calls_model_idx").on(t.userId, t.model),
+    runIdx: index("mp_llm_calls_run_idx").on(t.runId),
+  })
+);
+
+/**
+ * One row per execution of the `huntTargetWorkflow`, written when the run
+ * starts (status `running`) and finalized when it ends (`completed`/`failed`).
+ * Captures the run's outcome counts and total LLM cost so hunt runs are
+ * first-class and queryable (history, cost trends, failure rates) rather than
+ * living only in Temporal's own history. `runId` is the Temporal run id, which
+ * also tags `mp_llm_calls` rows so per-run cost can be summed exactly.
+ */
+export const huntRuns = pgTable(
+  "mp_hunt_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    targetId: uuid("target_id").references(() => searchTargets.id, {
+      onDelete: "set null",
+    }),
+    workflowId: text("workflow_id").notNull(),
+    runId: text("run_id").notNull(),
+    status: huntRunStatus("status").notNull().default("running"),
+    // Outcome counts for the run.
+    searches: integer("searches").notNull().default(0),
+    discovered: integer("discovered").notNull().default(0),
+    triaged: integer("triaged").notNull().default(0),
+    promising: integer("promising").notNull().default(0),
+    evaluated: integer("evaluated").notNull().default(0),
+    errors: integer("errors").notNull().default(0),
+    // Total OpenRouter cost (USD) summed from mp_llm_calls for this run.
+    costUsd: doublePrecision("cost_usd"),
+    // Set when the run failed outright (as opposed to per-listing errors).
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userStartedIdx: index("mp_hunt_runs_user_started_idx").on(
+      t.userId,
+      t.startedAt
+    ),
+    targetIdx: index("mp_hunt_runs_target_idx").on(t.targetId),
+    runIdx: uniqueIndex("mp_hunt_runs_run_idx").on(t.runId),
   })
 );
 
@@ -1047,6 +1128,9 @@ export type NewUserSettings = typeof userSettings.$inferInsert;
 
 export type LlmCall = typeof llmCalls.$inferSelect;
 export type NewLlmCall = typeof llmCalls.$inferInsert;
+
+export type HuntRun = typeof huntRuns.$inferSelect;
+export type NewHuntRun = typeof huntRuns.$inferInsert;
 
 export type SearchTarget = typeof searchTargets.$inferSelect;
 export type NewSearchTarget = typeof searchTargets.$inferInsert;

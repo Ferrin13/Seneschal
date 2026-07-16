@@ -35,6 +35,12 @@ export const PLATFORM_COLOR: Record<Platform, "primary" | "secondary"> = {
   craigslist: "secondary",
 };
 
+/** Short source tag shown inline with a listing title (FB / CL). */
+export const SOURCE_SHORT: Record<Platform, string> = {
+  facebook: "FB",
+  craigslist: "CL",
+};
+
 export const TRIAGE: Record<
   "promising" | "rejected" | "skipped",
   { label: string; color: "info" | "error" | "default" }
@@ -51,23 +57,14 @@ export const TABS: { value: CandidateStatus | "all"; label: string }[] = [
   { value: "all", label: "All" },
 ];
 
-export type SortKey =
-  | "promise"
-  | "posted"
-  | "created"
-  | "price_asc"
-  | "price_desc"
-  | "value"
-  | "fit";
+export type SortKey = "deal" | "value" | "fit" | "added" | "updated";
 
 export const SORT_OPTIONS: { value: SortKey; label: string }[] = [
-  { value: "value", label: "Best deal" },
-  { value: "promise", label: "Most promising" },
-  { value: "posted", label: "Date posted (newest)" },
-  { value: "created", label: "Date added (newest)" },
-  { value: "fit", label: "Fit score (high→low)" },
-  { value: "price_asc", label: "Price (low→high)" },
-  { value: "price_desc", label: "Price (high→low)" },
+  { value: "deal", label: "Best deal" },
+  { value: "value", label: "Value (high→low)" },
+  { value: "fit", label: "Fit (high→low)" },
+  { value: "added", label: "Recently added" },
+  { value: "updated", label: "Recently updated" },
 ];
 
 export type PostedWithin = "any" | "1" | "7" | "30";
@@ -91,6 +88,19 @@ export const DISPOSITION: Record<
   keep_watching: { label: "Keep watching", color: "info" },
   reached_out: { label: "Reached out", color: "primary" },
   sold: { label: "Sold", color: "success" },
+};
+
+/**
+ * Subtle background tint used to signal a candidate's disposition on cards and
+ * in the detail panel (paired with a small text label). `none` has no tint.
+ */
+export const DISPOSITION_TINT: Record<Disposition, string | undefined> = {
+  none: undefined,
+  not_a_fit: "rgba(211, 47, 47, 0.08)",
+  not_a_good_deal: "rgba(211, 47, 47, 0.08)",
+  keep_watching: "rgba(2, 136, 209, 0.10)",
+  reached_out: "rgba(25, 118, 210, 0.10)",
+  sold: "rgba(46, 125, 50, 0.10)",
 };
 
 export const DISPOSITION_OPTIONS: Disposition[] = [
@@ -118,17 +128,24 @@ export function candidateFit(c: Candidate): number | null {
 }
 
 /**
- * "Most promising" ranking: the average of deal quality and target fit, so a
- * candidate must be both a good price and a good match to rank highly. Falls
+ * Combine the value (price vs. market) and fit scores into a single 0-100
+ * "deal score" — the headline ranking metric. It's the average of the two, so
+ * a candidate must be both a good price and a good match to rank highly. Falls
  * back to whichever score exists when only one is available.
  */
-export function candidatePromise(c: Candidate): number | null {
-  const value = candidateValue(c);
-  const fit = candidateFit(c);
+export function combineDealScore(
+  value: number | null,
+  fit: number | null
+): number | null {
   if (value == null && fit == null) return null;
   if (value == null) return fit;
   if (fit == null) return value;
   return (value + fit) / 2;
+}
+
+/** The combined deal score for a candidate (see {@link combineDealScore}). */
+export function candidateDealScore(c: Candidate): number | null {
+  return combineDealScore(candidateValue(c), candidateFit(c));
 }
 
 /** Newest-first comparator over an ISO-date accessor; nulls sink to the end. */

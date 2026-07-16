@@ -98,20 +98,49 @@ export async function upsertListing(input: {
     }
 
     if (deep.priceCents != null) {
-      await tx.insert(itemObservations).values({
-        userId: meta.userId,
-        category: deep.categoryPath?.join(" > ") ?? null,
-        normalizedTitle: (deep.title ?? "").toLowerCase().trim() || null,
-        priceCents: deep.priceCents,
-        currency: deep.currency ?? null,
-        source: "internal",
-        listingId: lid,
-      });
+      await tx
+        .insert(itemObservations)
+        .values({
+          userId: meta.userId,
+          category: deep.categoryPath?.join(" > ") ?? null,
+          normalizedTitle: (deep.title ?? "").toLowerCase().trim() || null,
+          priceCents: deep.priceCents,
+          currency: deep.currency ?? null,
+          source: "internal",
+          listingId: lid,
+        })
+        // Re-scraping the same listing refreshes its latest observed price
+        // instead of appending a duplicate row.
+        .onConflictDoUpdate({
+          target: [
+            itemObservations.userId,
+            itemObservations.listingId,
+            itemObservations.normalizedTitle,
+            itemObservations.source,
+          ],
+          set: {
+            category: deep.categoryPath?.join(" > ") ?? null,
+            priceCents: deep.priceCents,
+            currency: deep.currency ?? null,
+            observedAt: now,
+          },
+        });
     }
 
+    // Backfill the source timestamps onto the candidate from the deep-scrape
+    // payload. Harvest tiles don't carry post/edit dates, so this is where the
+    // card's "Posted"/"Updated" times (and the posted-within filter) get their
+    // data. Use `undefined` when absent so we never clobber a known value.
     await tx
       .update(candidates)
-      .set({ lastSeenAt: now, updatedAt: now })
+      .set({
+        lastSeenAt: now,
+        updatedAt: now,
+        sourceListedAt: deep.listedAt ? new Date(deep.listedAt) : undefined,
+        sourceUpdatedAt: deep.sourceUpdatedAt
+          ? new Date(deep.sourceUpdatedAt)
+          : undefined,
+      })
       .where(
         and(eq(candidates.id, candidateId), eq(candidates.userId, meta.userId))
       );

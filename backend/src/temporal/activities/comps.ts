@@ -49,45 +49,63 @@ export async function gatherComps(input: {
     .filter(Boolean)
     .join(" — ");
 
-  let estimatedValueCents: number | null = null;
+  // Used/resale value drives the deal score; the new/retail value is a ceiling
+  // anchor. Both are surfaced to the final evaluator via the comps' condition.
+  let usedValueCents: number | null = null;
+  let newValueCents: number | null = null;
   let webCount = 0;
 
   if (query && llmConfigured()) {
-    try {
-      const overrides = await getModelOverrides(meta.userId);
-      const result = await webComps(query, {
-        model:
-          pickModel("comps", overrides, meta.model) ?? config.LLM_COMPS_MODEL,
-        usage: {
-          userId: meta.userId,
-          purpose: "comps",
-          listingId,
-          candidateId,
-        },
-      });
-      estimatedValueCents = result.estimatedValueCents;
-      if (result.comps.length > 0) {
-        await db.insert(comps).values(
-          result.comps.map((c) => ({
+    const overrides = await getModelOverrides(meta.userId);
+    const model =
+      pickModel("comps", overrides, meta.model) ?? config.LLM_COMPS_MODEL;
+
+    // Two independent searches: one for used/secondhand resale prices and one
+    // for brand-new/retail prices, each persisted tagged with its condition.
+    const conditions = ["used", "new"] as const;
+    for (const condition of conditions) {
+      try {
+        const result = await webComps(query, {
+          model,
+          region: config.COMPS_REGION,
+          condition,
+          usage: {
             userId: meta.userId,
+            purpose: "comps",
             listingId,
-            source: "web" as const,
-            matchedTitle: c.matchedTitle,
-            priceCents: c.priceCents,
-            currency: c.currency,
-            url: c.url,
-            soldAt: c.soldAt ? new Date(c.soldAt) : null,
-            raw: c.raw as Record<string, unknown>,
-          }))
-        );
-        webCount = result.comps.length;
+            candidateId,
+            runId: meta.runId,
+          },
+        });
+        if (condition === "used") usedValueCents = result.estimatedValueCents;
+        else newValueCents = result.estimatedValueCents;
+        if (result.comps.length > 0) {
+          await db.insert(comps).values(
+            result.comps.map((c) => ({
+              userId: meta.userId,
+              listingId,
+              source: "web" as const,
+              condition,
+              matchedTitle: c.matchedTitle,
+              priceCents: c.priceCents,
+              currency: c.currency,
+              url: c.url,
+              soldAt: c.soldAt ? new Date(c.soldAt) : null,
+              raw: c.raw as Record<string, unknown>,
+            }))
+          );
+          webCount += result.comps.length;
+        }
+      } catch (err) {
+        await logEvent(meta, candidateId, "error", `Web comps (${condition}) failed`, {
+          error: String(err),
+        });
       }
-    } catch (err) {
-      await logEvent(meta, candidateId, "error", "Web comps failed", {
-        error: String(err),
-      });
     }
   }
+
+  // The estimated resale value is what downstream deal-scoring cares about.
+  const estimatedValueCents = usedValueCents;
 
   // Internal comps: similar items from our own observation history.
   let internalCount = 0;
@@ -145,6 +163,8 @@ export async function gatherComps(input: {
     web: webCount,
     internal: internalCount,
     estimatedValueCents,
+    usedValueCents,
+    newValueCents,
   });
 
   return { compCount, estimatedValueCents };

@@ -38,14 +38,16 @@ function targetsBlock(
 /**
  * Cheap-LLM triage over a specific set of candidates (this run's harvest).
  * Sets triageStatus/triageScore/promiseScore, records a `triage`-tier
- * evaluation, logs a `triaged` event, and returns the promising candidate ids.
+ * evaluation, and logs a `triaged` event. Returns the promising candidate ids
+ * plus `changedIds` — those whose triage verdict/score differs from the prior
+ * run — so the workflow can skip re-running deep analysis when nothing changed.
  */
 export async function triageCandidates(input: {
   meta: RunMeta;
   candidateIds: string[];
-}): Promise<{ promisingIds: string[] }> {
+}): Promise<{ promisingIds: string[]; changedIds: string[] }> {
   const { meta, candidateIds } = input;
-  if (candidateIds.length === 0) return { promisingIds: [] };
+  if (candidateIds.length === 0) return { promisingIds: [], changedIds: [] };
 
   const targets = await db
     .select({
@@ -75,10 +77,13 @@ export async function triageCandidates(input: {
     );
 
   const promisingIds: string[] = [];
+  const changedIds: string[] = [];
 
   for (const c of rows) {
     // Skip candidates the user has dispositioned as done.
     if (isFrozenDisposition(c.disposition)) continue;
+    const prevStatus = c.triageStatus;
+    const prevScore = c.triageScore;
     try {
       const priceStr =
         c.priceCents != null
@@ -105,7 +110,12 @@ export async function triageCandidates(input: {
           { role: "user", text: userText, images },
         ],
         maxTokens: 200,
-        usage: { userId: meta.userId, purpose: "triage", candidateId: c.id },
+        usage: {
+          userId: meta.userId,
+          purpose: "triage",
+          candidateId: c.id,
+          runId: meta.runId,
+        },
       });
 
       const promising = data.promising === true;
@@ -115,11 +125,15 @@ export async function triageCandidates(input: {
           : null;
       const reason = data.reason ?? null;
 
+      const newStatus = promising ? "promising" : "rejected";
+      const changed = prevStatus !== newStatus || prevScore !== score;
+      if (changed) changedIds.push(c.id);
+
       await db.transaction(async (tx) => {
         await tx
           .update(candidates)
           .set({
-            triageStatus: promising ? "promising" : "rejected",
+            triageStatus: newStatus,
             triageScore: score,
             triageReason: reason,
             promiseScore: score,
@@ -157,5 +171,5 @@ export async function triageCandidates(input: {
     }
   }
 
-  return { promisingIds };
+  return { promisingIds, changedIds };
 }

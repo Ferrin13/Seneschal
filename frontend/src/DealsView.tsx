@@ -1,10 +1,12 @@
 import {
   Alert,
   Box,
+  Button,
   Checkbox,
   CircularProgress,
   Drawer,
   FormControl,
+  FormControlLabel,
   InputLabel,
   ListItemText,
   MenuItem,
@@ -16,6 +18,7 @@ import {
   Tabs,
   Typography,
 } from "@mui/material";
+import TuneIcon from "@mui/icons-material/Tune";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
@@ -30,6 +33,22 @@ import {
 } from "./api";
 import { CandidateCard } from "./deals/CandidateCard";
 import { CandidateDetailPanel } from "./deals/CandidateDetailPanel";
+import { useStoredState, hasStored } from "./useStoredState";
+
+// Namespaced localStorage keys so the Deals filters survive reloads.
+const K = {
+  tab: "seneschal.deals.tab",
+  sortBy: "seneschal.deals.sortBy",
+  postedWithin: "seneschal.deals.postedWithin",
+  platforms: "seneschal.deals.platforms",
+  dispositions: "seneschal.deals.dispositions",
+  targets: "seneschal.deals.targets",
+  minDeal: "seneschal.deals.minDeal",
+  minValue: "seneschal.deals.minValue",
+  minFit: "seneschal.deals.minFit",
+  showRejected: "seneschal.deals.showRejected",
+  showAdvanced: "seneschal.deals.showAdvanced",
+} as const;
 import {
   DEFAULT_DISPOSITIONS,
   DISPOSITION,
@@ -39,8 +58,8 @@ import {
   SORT_OPTIONS,
   TABS,
   byDateDesc,
+  candidateDealScore,
   candidateFit,
-  candidatePromise,
   candidateValue,
   type PostedWithin,
   type SortKey,
@@ -53,17 +72,32 @@ export function DealsView() {
   const [candidates, setCandidates] = useState<Candidate[] | null>(null);
   const [targets, setTargets] = useState<SearchTarget[]>([]);
   const [searches, setSearches] = useState<Search[]>([]);
-  const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
-  const [selectedPlatforms, setSelectedPlatforms] =
-    useState<Platform[]>([...PLATFORMS]);
-  const [selectedDispositions, setSelectedDispositions] = useState<Disposition[]>(
-    [...DEFAULT_DISPOSITIONS]
+  const [selectedTargets, setSelectedTargets] = useStoredState<string[]>(
+    K.targets,
+    []
   );
-  const [sortBy, setSortBy] = useState<SortKey>("value");
-  const [minValue, setMinValue] = useState(0);
-  const [minFit, setMinFit] = useState(0);
-  const [postedWithin, setPostedWithin] = useState<PostedWithin>("any");
-  const [tab, setTab] = useState<CandidateStatus | "all">("active");
+  const [selectedPlatforms, setSelectedPlatforms] = useStoredState<Platform[]>(
+    K.platforms,
+    [...PLATFORMS]
+  );
+  const [selectedDispositions, setSelectedDispositions] = useStoredState<
+    Disposition[]
+  >(K.dispositions, [...DEFAULT_DISPOSITIONS]);
+  const [sortBy, setSortBy] = useStoredState<SortKey>(K.sortBy, "deal");
+  const [minDeal, setMinDeal] = useStoredState(K.minDeal, 0);
+  const [minValue, setMinValue] = useStoredState(K.minValue, 0);
+  const [minFit, setMinFit] = useStoredState(K.minFit, 0);
+  const [showRejected, setShowRejected] = useStoredState(K.showRejected, false);
+  const [postedWithin, setPostedWithin] = useStoredState<PostedWithin>(
+    K.postedWithin,
+    "any"
+  );
+  const [tab, setTab] = useStoredState<CandidateStatus | "all">(K.tab, "active");
+  // Advanced (min-score sliders + triage-rejected) are hidden by default.
+  const [showAdvanced, setShowAdvanced] = useStoredState(K.showAdvanced, false);
+  // Whether the target filter was restored from storage; if not, default it to
+  // "all selected" once targets load (preserving the original behavior).
+  const [targetsHydrated] = useState(() => hasStored(K.targets));
   const [error, setError] = useState<string | null>(null);
 
   // The open deal is reflected in the URL (/deals/:id) so panels are
@@ -98,13 +132,14 @@ export function DealsView() {
       .then(([t, s]) => {
         setTargets(t);
         setSearches(s);
-        // Default the target filter to everything selected.
-        setSelectedTargets(t.map((x) => x.id));
+        // Default the target filter to everything selected, unless a prior
+        // selection was restored from localStorage.
+        if (!targetsHydrated) setSelectedTargets(t.map((x) => x.id));
       })
       .catch(() => {
         /* filter is best-effort */
       });
-  }, []);
+  }, [targetsHydrated, setSelectedTargets]);
 
   const searchToTarget = useMemo(() => {
     const m = new Map<string, string>();
@@ -133,6 +168,8 @@ export function DealsView() {
       ) {
         return false;
       }
+      if (!showRejected && c.triageStatus === "rejected") return false;
+      if (minDeal > 0 && (candidateDealScore(c) ?? -1) < minDeal) return false;
       if (minValue > 0 && (candidateValue(c) ?? -1) < minValue) return false;
       if (minFit > 0 && (candidateFit(c) ?? -1) < minFit) return false;
       if (postedCutoff != null) {
@@ -144,32 +181,22 @@ export function DealsView() {
 
     const sorted = [...filtered];
     switch (sortBy) {
-      case "posted":
-        sorted.sort(byDateDesc((c) => c.sourceListedAt));
-        break;
-      case "created":
-        sorted.sort(byDateDesc((c) => c.firstSeenAt));
-        break;
-      case "price_asc":
-        sorted.sort(
-          (a, b) => (a.priceCents ?? Infinity) - (b.priceCents ?? Infinity)
-        );
-        break;
-      case "price_desc":
-        sorted.sort(
-          (a, b) => (b.priceCents ?? -Infinity) - (a.priceCents ?? -Infinity)
-        );
-        break;
       case "value":
         sorted.sort((a, b) => (candidateValue(b) ?? -1) - (candidateValue(a) ?? -1));
         break;
       case "fit":
         sorted.sort((a, b) => (candidateFit(b) ?? -1) - (candidateFit(a) ?? -1));
         break;
-      case "promise":
+      case "added":
+        sorted.sort(byDateDesc((c) => c.firstSeenAt));
+        break;
+      case "updated":
+        sorted.sort(byDateDesc((c) => c.sourceUpdatedAt ?? c.lastSeenAt));
+        break;
+      case "deal":
       default:
         sorted.sort(
-          (a, b) => (candidatePromise(b) ?? -1) - (candidatePromise(a) ?? -1)
+          (a, b) => (candidateDealScore(b) ?? -1) - (candidateDealScore(a) ?? -1)
         );
         break;
     }
@@ -180,11 +207,18 @@ export function DealsView() {
     searchToTarget,
     selectedPlatforms,
     selectedDispositions,
+    minDeal,
     minValue,
     minFit,
+    showRejected,
     postedWithin,
     sortBy,
   ]);
+
+  // Any advanced filter set to a non-default value (so the collapsed section
+  // still affects results — surfaced in the toggle label).
+  const advancedActive =
+    minDeal > 0 || minValue > 0 || minFit > 0 || showRejected;
 
   const needsLogin = (notifications ?? []).filter(
     (n) => n.kind === "needs_login" && n.status !== "dismissed"
@@ -204,8 +238,8 @@ export function DealsView() {
       <Box>
         <Typography variant="h5">Deals</Typography>
         <Typography color="text.secondary" variant="body2">
-          Candidates the hunt pipeline surfaced, most promising first. Click one
-          to see its full history — triage, deep scrape, comps, and evaluation.
+          Candidates the hunt pipeline surfaced, best deals first. Click one to
+          see its full history — triage, deep scrape, comps, and evaluation.
         </Typography>
       </Box>
 
@@ -374,33 +408,76 @@ export function DealsView() {
               </Select>
             </FormControl>
 
-            <Box sx={{ width: 180, px: 1 }}>
-              <Typography variant="caption" color="text.secondary">
-                Min value score: {minValue}
-              </Typography>
-              <Slider
-                size="small"
-                value={minValue}
-                onChange={(_e, v) => setMinValue(v as number)}
-                min={0}
-                max={100}
-                valueLabelDisplay="auto"
-              />
-            </Box>
+            <Button
+              size="small"
+              variant="text"
+              startIcon={<TuneIcon />}
+              onClick={() => setShowAdvanced((s) => !s)}
+              sx={{ alignSelf: "center" }}
+            >
+              {showAdvanced
+                ? "Fewer filters"
+                : advancedActive
+                  ? "More filters (active)"
+                  : "More filters"}
+            </Button>
 
-            <Box sx={{ width: 180, px: 1 }}>
-              <Typography variant="caption" color="text.secondary">
-                Min fit score: {minFit}
-              </Typography>
-              <Slider
-                size="small"
-                value={minFit}
-                onChange={(_e, v) => setMinFit(v as number)}
-                min={0}
-                max={100}
-                valueLabelDisplay="auto"
-              />
-            </Box>
+            {showAdvanced ? (
+              <>
+                <Box sx={{ width: 180, px: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Min deal score: {minDeal}
+                  </Typography>
+                  <Slider
+                    size="small"
+                    value={minDeal}
+                    onChange={(_e, v) => setMinDeal(v as number)}
+                    min={0}
+                    max={100}
+                    valueLabelDisplay="auto"
+                  />
+                </Box>
+
+                <Box sx={{ width: 180, px: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Min value score: {minValue}
+                  </Typography>
+                  <Slider
+                    size="small"
+                    value={minValue}
+                    onChange={(_e, v) => setMinValue(v as number)}
+                    min={0}
+                    max={100}
+                    valueLabelDisplay="auto"
+                  />
+                </Box>
+
+                <Box sx={{ width: 180, px: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Min fit score: {minFit}
+                  </Typography>
+                  <Slider
+                    size="small"
+                    value={minFit}
+                    onChange={(_e, v) => setMinFit(v as number)}
+                    min={0}
+                    max={100}
+                    valueLabelDisplay="auto"
+                  />
+                </Box>
+
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={showRejected}
+                      onChange={(e) => setShowRejected(e.target.checked)}
+                    />
+                  }
+                  label="Show triage-rejected"
+                />
+              </>
+            ) : null}
           </Stack>
         </Box>
 

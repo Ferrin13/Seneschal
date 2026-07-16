@@ -85,9 +85,30 @@ export type SearchTarget = {
   title: string;
   prompt: string;
   evalInstructions: string | null;
+  /** Whether the recurring hunt schedule is running (false = paused). */
   isActive: boolean;
+  /** Effective auto-hunt cadence in minutes. */
+  huntIntervalMin: number;
   createdAt: string;
   updatedAt: string;
+};
+
+export type HuntRunStatus = "running" | "completed" | "failed";
+
+/** One execution of a target's hunt pipeline, from mp_hunt_runs. */
+export type HuntRun = {
+  id: string;
+  status: HuntRunStatus;
+  searches: number;
+  discovered: number;
+  triaged: number;
+  promising: number;
+  evaluated: number;
+  errors: number;
+  costUsd: number | null;
+  error: string | null;
+  startedAt: string;
+  finishedAt: string | null;
 };
 
 export type SearchFilters = {
@@ -197,6 +218,7 @@ export type Listing = {
 export type Comp = {
   id: string;
   source: "ebay" | "craigslist" | "internal" | "web";
+  condition: "new" | "used" | null;
   matchedTitle: string | null;
   priceCents: number | null;
   currency: string | null;
@@ -317,6 +339,7 @@ export const api = {
     title: string;
     prompt: string;
     evalInstructions?: string | null;
+    huntIntervalMin?: number | null;
   }) =>
     authedFetch("/marketplace/targets", {
       method: "POST",
@@ -329,6 +352,7 @@ export const api = {
       prompt: string;
       evalInstructions: string | null;
       isActive: boolean;
+      huntIntervalMin: number | null;
     }>
   ) =>
     authedFetch(`/marketplace/targets/${id}`, {
@@ -341,6 +365,10 @@ export const api = {
     }) as Promise<{ ok: true }>,
   targetSearches: (id: string) =>
     authedFetch(`/marketplace/targets/${id}/searches`) as Promise<Search[]>,
+  targetRuns: (id: string, limit?: number) =>
+    authedFetch(
+      `/marketplace/targets/${id}/runs${limit ? `?limit=${limit}` : ""}`
+    ) as Promise<HuntRun[]>,
   expandTarget: (id: string) =>
     authedFetch(`/marketplace/targets/${id}/expand`, {
       method: "POST",
@@ -356,6 +384,16 @@ export const api = {
       error?: string;
     }>,
   searches: () => authedFetch("/marketplace/searches") as Promise<Search[]>,
+  createSearch: (body: {
+    targetId: string;
+    platform: Platform;
+    query: string;
+    filters?: SearchFilters;
+  }) =>
+    authedFetch("/marketplace/searches", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }) as Promise<Search>,
   updateSearch: (
     id: string,
     body: Partial<{

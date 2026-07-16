@@ -28,7 +28,7 @@ const PROMPT_VERSION = "advanced-v3";
 const MAX_IMAGES = 6;
 
 const SYSTEM = `You are an expert reseller evaluating a marketplace listing (Facebook or Craigslist) for the user.
-You are given the user's targets/rules, the full listing (title, description, price, condition, seller, location, how long ago it was posted/updated), listing photos, and price comparables from an internet search and the user's own history.
+You are given the user's targets/rules, the full listing (title, description, price, condition, seller, location, how long ago it was posted/updated), listing photos, and price comparables from an internet search and the user's own history. Comparables are split into USED/resale prices (what pre-owned units actually sell for) and NEW/retail prices (the brand-new price, an upper anchor). Judge the deal against the used/resale prices for a used item; a low price relative to used comps but far below new/retail signals a strong flip.
 First estimate the item's fair resale/market value, then score two independent axes from 0 to 100:
 - "valueScore": how good the asking price is versus fair market value. 85-100 = great steal, 65-84 = clearly below market, 40-64 = roughly fair, 0-39 = overpriced. Base this ONLY on price vs. value, not on relevance.
 - "fitScore": how well the listing matches the user's target and rules. 85-100 = exact match, 40-64 = loosely related, 0-39 = wrong item or violates a stated rule.
@@ -125,16 +125,30 @@ export async function finalEvaluate(input: {
     .from(comps)
     .where(eq(comps.listingId, listingId))
     .limit(25);
+
+  const fmtComp = (c: (typeof compRows)[number]) =>
+    `- ${c.source}: ${money(c.priceCents)} — ${c.matchedTitle ?? ""}${
+      c.url ? ` (${c.url})` : ""
+    }`;
+  // Group comps by condition so the model sees resale (used) prices distinctly
+  // from new/retail anchors. Comps without a condition (eBay/Craigslist/
+  // internal history) are treated as used/resale.
+  const usedComps = compRows.filter((c) => c.condition !== "new");
+  const newComps = compRows.filter((c) => c.condition === "new");
   const compsText =
     compRows.length > 0
-      ? compRows
-          .map(
-            (c) =>
-              `- ${c.source}: ${money(c.priceCents)} — ${c.matchedTitle ?? ""}${
-                c.url ? ` (${c.url})` : ""
-              }`
-          )
-          .join("\n")
+      ? [
+          `Used / resale comps:\n${
+            usedComps.length > 0
+              ? usedComps.map(fmtComp).join("\n")
+              : "(none found)"
+          }`,
+          `New / retail comps:\n${
+            newComps.length > 0
+              ? newComps.map(fmtComp).join("\n")
+              : "(none found)"
+          }`,
+        ].join("\n\n")
       : "(no comparables available)";
 
   const userText = [
@@ -166,6 +180,7 @@ export async function finalEvaluate(input: {
       purpose: "advanced",
       listingId,
       candidateId,
+      runId: meta.runId,
     },
   });
 

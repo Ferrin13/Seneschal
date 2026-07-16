@@ -42,6 +42,8 @@ export type LlmUsageContext = {
   candidateId?: string | null;
   listingId?: string | null;
   targetId?: string | null;
+  /** Temporal run id when the call originates from a hunt run. */
+  runId?: string | null;
 };
 
 export type LlmResult = { text: string; model: string; usage: LlmUsage };
@@ -159,6 +161,7 @@ async function recordUsage(
     candidateId: ctx.candidateId ?? null,
     listingId: ctx.listingId ?? null,
     targetId: ctx.targetId ?? null,
+    runId: ctx.runId ?? null,
   });
 }
 

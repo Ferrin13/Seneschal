@@ -297,6 +297,7 @@ export const candidateRoutes: FastifyPluginAsync = async (app) => {
       comps: compsOut.map((c) => ({
         id: c.id,
         source: c.source,
+        condition: c.condition,
         matchedTitle: c.matchedTitle,
         priceCents: c.priceCents,
         currency: c.currency,

@@ -2,7 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
-import { searchTargets, searches } from "../db/schema.js";
+import { searchTargets, searches, huntRuns } from "../db/schema.js";
 import {
   expandTarget,
   toPlatformSearches,
@@ -10,14 +10,27 @@ import {
 } from "../marketplace/searchExpansion.js";
 import { getModelOverrides, pickModel } from "../marketplace/modelSettings.js";
 import {
+  effectiveIntervalMin,
   ensureHuntSchedule,
   removeHuntSchedule,
 } from "../temporal/schedules.js";
+
+// Bounds for a target's auto-hunt cadence (minutes): at least every 5 minutes,
+// at most once a day. Keeps schedules sane and avoids hammering marketplaces.
+const MIN_INTERVAL_MIN = 5;
+const MAX_INTERVAL_MIN = 1440;
 
 const createBody = z.object({
   title: z.string().min(1).max(200),
   prompt: z.string().min(1).max(4000),
   evalInstructions: z.string().max(4000).nullable().optional(),
+  huntIntervalMin: z
+    .number()
+    .int()
+    .min(MIN_INTERVAL_MIN)
+    .max(MAX_INTERVAL_MIN)
+    .nullable()
+    .optional(),
 });
 
 const updateBody = z.object({
@@ -25,6 +38,13 @@ const updateBody = z.object({
   prompt: z.string().min(1).max(4000).optional(),
   evalInstructions: z.string().max(4000).nullable().optional(),
   isActive: z.boolean().optional(),
+  huntIntervalMin: z
+    .number()
+    .int()
+    .min(MIN_INTERVAL_MIN)
+    .max(MAX_INTERVAL_MIN)
+    .nullable()
+    .optional(),
 });
 
 function serialize(row: typeof searchTargets.$inferSelect) {
@@ -34,8 +54,27 @@ function serialize(row: typeof searchTargets.$inferSelect) {
     prompt: row.prompt,
     evalInstructions: row.evalInstructions,
     isActive: row.isActive,
+    // Always report the effective cadence the schedule actually runs at.
+    huntIntervalMin: effectiveIntervalMin(row.huntIntervalMin),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+function serializeRun(row: typeof huntRuns.$inferSelect) {
+  return {
+    id: row.id,
+    status: row.status,
+    searches: row.searches,
+    discovered: row.discovered,
+    triaged: row.triaged,
+    promising: row.promising,
+    evaluated: row.evaluated,
+    errors: row.errors,
+    costUsd: row.costUsd,
+    error: row.error,
+    startedAt: row.startedAt.toISOString(),
+    finishedAt: row.finishedAt ? row.finishedAt.toISOString() : null,
   };
 }
 
@@ -104,12 +143,16 @@ export const searchTargetRoutes: FastifyPluginAsync = async (app) => {
         title: body.title,
         prompt: body.prompt,
         evalInstructions: body.evalInstructions ?? null,
+        huntIntervalMin: body.huntIntervalMin ?? null,
       })
       .returning();
     // Register the recurring hunt schedule (best-effort; worker also syncs).
-    await ensureHuntSchedule({ userId: req.auth.userId, targetId: row!.id }).catch(
-      () => undefined
-    );
+    await ensureHuntSchedule({
+      userId: req.auth.userId,
+      targetId: row!.id,
+      intervalMin: effectiveIntervalMin(row!.huntIntervalMin),
+      paused: !row!.isActive,
+    }).catch(() => undefined);
     return serialize(row!);
   });
 
@@ -127,19 +170,22 @@ export const searchTargetRoutes: FastifyPluginAsync = async (app) => {
           ? { evalInstructions: body.evalInstructions }
           : {}),
         ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+        ...(body.huntIntervalMin !== undefined
+          ? { huntIntervalMin: body.huntIntervalMin }
+          : {}),
         updatedAt: new Date(),
       })
       .where(eq(searchTargets.id, id))
       .returning();
-    // Keep the schedule in sync with the active flag.
-    if (body.isActive === false) {
-      await removeHuntSchedule({ userId: req.auth.userId, targetId: id }).catch(
-        () => undefined
-      );
-    } else if (body.isActive === true) {
-      await ensureHuntSchedule({ userId: req.auth.userId, targetId: id }).catch(
-        () => undefined
-      );
+    // Reconcile the schedule with the target: pause/unpause via isActive and
+    // apply any cadence change. The schedule is kept around either way.
+    if (body.isActive !== undefined || body.huntIntervalMin !== undefined) {
+      await ensureHuntSchedule({
+        userId: req.auth.userId,
+        targetId: id,
+        intervalMin: effectiveIntervalMin(row!.huntIntervalMin),
+        paused: !row!.isActive,
+      }).catch(() => undefined);
     }
     return serialize(row!);
   });
@@ -172,6 +218,24 @@ export const searchTargetRoutes: FastifyPluginAsync = async (app) => {
       )
       .orderBy(desc(searches.createdAt));
     return rows.map(serializeSearch);
+  });
+
+  /** Recent auto/manual hunt runs for a target (newest first) from mp_hunt_runs. */
+  app.get("/marketplace/targets/:id/runs", async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const { limit } = z
+      .object({ limit: z.coerce.number().int().min(1).max(100).default(20) })
+      .parse(req.query);
+    await loadOwnedTarget(req.auth.userId, id);
+    const rows = await db
+      .select()
+      .from(huntRuns)
+      .where(
+        and(eq(huntRuns.userId, req.auth.userId), eq(huntRuns.targetId, id))
+      )
+      .orderBy(desc(huntRuns.startedAt))
+      .limit(limit);
+    return rows.map(serializeRun);
   });
 
   /**
