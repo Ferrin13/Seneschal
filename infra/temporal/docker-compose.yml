@@ -1,0 +1,55 @@
+# Local-dev Temporal cluster for the deal-hunter pipeline.
+#
+#   docker compose -f infra/temporal/docker-compose.yml up -d
+#
+# Server RPC:  127.0.0.1:7233   (TEMPORAL_ADDRESS)
+# Web UI:      http://127.0.0.1:8233
+#
+# Temporal keeps its own Postgres (port 5442) so it never collides with the
+# app database on 5432. Bump the image tags as new releases land.
+services:
+  temporal-postgres:
+    image: postgres:16
+    container_name: temporal-postgres
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_DB: temporal
+    ports:
+      - "5442:5432"
+    volumes:
+      - temporal-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    container_name: temporal
+    depends_on:
+      temporal-postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-postgres
+    ports:
+      - "7233:7233"
+
+  temporal-ui:
+    image: temporalio/ui:2.31.2
+    container_name: temporal-ui
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:8233
+    ports:
+      - "8233:8080"
+
+volumes:
+  temporal-pgdata:

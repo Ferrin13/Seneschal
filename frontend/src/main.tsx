@@ -4,6 +4,7 @@ import CssBaseline from "@mui/material/CssBaseline";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFnsV3";
+import { BrowserRouter } from "react-router-dom";
 
 import App from "./App";
 import { AuthProvider } from "./auth";
@@ -11,7 +12,22 @@ import { AuthProvider } from "./auth";
 const theme = createTheme({
   palette: {
     mode: "light",
-    primary: { main: "#3F51B5" },
+    primary: {
+      main: "#2D1B4E",
+      light: "#4A3570",
+      dark: "#1B0F30",
+      contrastText: "#FFFFFF",
+    },
+    secondary: {
+      main: "#6650A4",
+      light: "#8A76C4",
+      dark: "#453276",
+      contrastText: "#FFFFFF",
+    },
+    background: {
+      default: "#F6F4FA",
+      paper: "#FFFFFF",
+    },
   },
   shape: { borderRadius: 10 },
 });
@@ -22,7 +38,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
       <CssBaseline />
       <LocalizationProvider dateAdapter={AdapterDateFns}>
         <AuthProvider>
-          <App />
+          <BrowserRouter>
+            <App />
+          </BrowserRouter>
         </AuthProvider>
       </LocalizationProvider>
     </ThemeProvider>

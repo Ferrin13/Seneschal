@@ -1,0 +1,73 @@
+{
+  "url": "https://www.facebook.com/marketplace/item/1339410971112896/#",
+  "fbItemId": "1339410971112896",
+  "scrapedAt": "2026-07-15T07:14:04.060Z",
+  "source": "embedded-json",
+  "pageTitle": "(1) Marketplace - Outdoor Patio furniture Set | Facebook",
+  "listing": {
+    "fbItemId": "1339410971112896",
+    "title": "Outdoor Patio furniture Set",
+    "description": "Black wicker with pink cushions and red pillows.",
+    "price": {
+      "amount": "225.00",
+      "cents": 22500,
+      "currency": "USD",
+      "formatted": "$225"
+    },
+    "condition": {
+      "code": null,
+      "label": "Used - like new"
+    },
+    "category": {
+      "id": "800089866739547",
+      "path": [
+        "home",
+        "furniture",
+        "patio-furniture"
+      ]
+    },
+    "location": {
+      "text": "Meridian, ID",
+      "latitude": 43.574523925781,
+      "longitude": -116.37268066406
+    },
+    "seller": {
+      "id": "100053581398889",
+      "name": "Max Mirsalov",
+      "profileUrl": "https://www.facebook.com/100053581398889",
+      "ratingAverage": 4.8,
+      "ratingCount": 26,
+      "joinTime": 1595280329
+    },
+    "availability": {
+      "status": "AVAILABLE",
+      "isSold": false,
+      "isPending": false,
+      "isLive": true
+    },
+    "createdAt": "2026-07-13T14:20:39.000Z",
+    "images": [
+      {
+        "id": "1383880163604268",
+        "url": "https://scontent.fboi1-1.fna.fbcdn.net/v/t39.84726-6/746429246_1383880176937600_5472297678197603444_n.jpg?stp=dst-jpg_p720x720_tt6&_nc_cat=105&ccb=1-7&_nc_sid=92e707&_nc_ohc=Dp2OEaSYqIoQ7kNvwHnnxo3&_nc_oc=AdrhUGrWuVTBDrKeUECqTOBN6z8mzRk9Ev4gGwEDRtSN7-V4itt8nYYq_ued6xAyArQ&_nc_zt=14&_nc_ht=scontent.fboi1-1.fna&_nc_gid=iWRuHRztKEsCBXHjCrEnbw&_nc_ss=7b2a8&oh=00_AQDspT5c0UH2N1ZcPXaFG7veFdM6-YB2uO_HvjSPDq8cmw&oe=6A5D0F60",
+        "width": 720,
+        "height": 960,
+        "caption": "No photo description available."
+      },
+      {
+        "id": "27258466687182012",
+        "url": "https://scontent.fboi1-1.fna.fbcdn.net/v/t45.5328-4/745886958_27258466700515344_8110603673711734520_n.jpg?stp=dst-jpg_p720x720_tt6&_nc_cat=104&ccb=1-7&_nc_sid=247b10&_nc_ohc=vSaHlC1l-GcQ7kNvwG82wMt&_nc_oc=Adqg08sWSEZw3hRLgJeH49pERKUGkXLxjOtHy1GAE0viaiq2JSXTT9-DAmXKx31rgWQ&_nc_zt=23&_nc_ht=scontent.fboi1-1.fna&_nc_gid=iWRuHRztKEsCBXHjCrEnbw&_nc_ss=7b2a8&oh=00_AQBu0SobQ-saJpbOUabZtnG4aWWJ9z487MndgSZIgYI97w&oe=6A5D06D0",
+        "width": 720,
+        "height": 960,
+        "caption": "No photo description available."
+      },
+      {
+        "id": "4552624801650580",
+        "url": "https://scontent.fboi1-1.fna.fbcdn.net/v/t45.5328-4/745768644_4552624804983913_8929646517148394398_n.jpg?stp=dst-jpg_p720x720_tt6&_nc_cat=103&ccb=1-7&_nc_sid=247b10&_nc_ohc=5Cmzmgn7XpQQ7kNvwF0DZ__&_nc_oc=AdqI6iQKwQXqZCBGr5U1su-Xz4wIIXV4GPFWU9wpYL0pzkstarmp6JeUuskpC20i9DY&_nc_zt=23&_nc_ht=scontent.fboi1-1.fna&_nc_gid=iWRuHRztKEsCBXHjCrEnbw&_nc_ss=7b2a8&oh=00_AQBo3sR0AHSzwvctfdK3McCvhte3Zv0f7onsLsInshzgdg&oe=6A5CECE1",
+        "width": 720,
+        "height": 960,
+        "caption": "No photo description available."
+      }
+    ]
+  }
+}

@@ -57,3 +57,50 @@ output "frontend_pipeline_name" {
   description = "Name of the CodePipeline that builds and deploys the frontend."
   value       = var.enable_pipeline ? module.pipeline[0].frontend_pipeline_name : null
 }
+
+output "agent_pipeline_name" {
+  description = "Name of the CodePipeline that builds the scraper agent and redeploys the browser box."
+  value       = var.enable_pipeline ? module.pipeline[0].agent_pipeline_name : null
+}
+
+output "agent_releases_bucket" {
+  description = "S3 bucket holding the built scraper-agent artifact."
+  value       = var.enable_browser_box ? aws_s3_bucket.agent_releases[0].bucket : null
+}
+
+output "browser_box_url" {
+  description = "noVNC URL for logging the browser box into Facebook."
+  value       = var.enable_browser_box ? module.browser_box[0].browser_url : null
+}
+
+output "browser_box_public_ip" {
+  description = "Elastic IP of the browser box."
+  value       = var.enable_browser_box ? module.browser_box[0].public_ip : null
+}
+
+output "browser_box_instance_id" {
+  description = "Browser box EC2 instance ID (for SSM Session Manager)."
+  value       = var.enable_browser_box ? module.browser_box[0].instance_id : null
+}
+
+# --- Deal hunter -------------------------------------------------------
+
+output "temporal_address" {
+  description = "host:port clients use to reach the self-hosted Temporal frontend (Cloud Map private DNS)."
+  value       = module.temporal.temporal_address
+}
+
+output "temporal_cluster_name" {
+  description = "ECS cluster hosting the Temporal server."
+  value       = module.temporal.cluster_name
+}
+
+output "temporal_db_endpoint" {
+  description = "Endpoint of the Temporal RDS instance."
+  value       = module.temporal.db_endpoint
+}
+
+output "worker_service_name" {
+  description = "ECS service name of the deal-hunter worker."
+  value       = module.worker.service_name
+}

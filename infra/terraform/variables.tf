@@ -133,6 +133,79 @@ variable "cors_origins" {
   default     = null
 }
 
+# --- Deal hunter (Temporal + worker + LLM) ------------------------------
+
+variable "openrouter_api_key" {
+  description = "OpenRouter API key. Required by the deal hunter (all LLM traffic: triage, comps, evaluation). Terraform stores it in Secrets Manager and injects it into both the API and worker tasks."
+  type        = string
+  sensitive   = true
+}
+
+variable "craigslist_site" {
+  description = "Craigslist site slug the deal hunter searches (e.g. \"boise\"). Must be non-empty: it is injected into the API task and the shared config validates it as a min-length-1 string, so an empty value would crash the API on boot."
+  type        = string
+  default     = "boise"
+
+  validation {
+    condition     = length(var.craigslist_site) > 0
+    error_message = "craigslist_site must be a non-empty Craigslist site slug (e.g. \"boise\")."
+  }
+}
+
+variable "temporal_name_prefix" {
+  description = "Resource-name prefix for the self-hosted Temporal cluster + its RDS instance. Deliberately separate from name_prefix (seneschal) so the cluster can be reused as shared infra across products."
+  type        = string
+  default     = "parthadae"
+}
+
+variable "temporal_namespace_domain" {
+  description = "Cloud Map private DNS namespace for the Temporal cluster. Clients reach it at temporal.<domain>:7233."
+  type        = string
+  default     = "parthadae.internal"
+}
+
+variable "temporal_cpu" {
+  description = "Fargate CPU units for the Temporal server task."
+  type        = number
+  default     = 512
+}
+
+variable "temporal_memory" {
+  description = "Fargate memory (MiB) for the Temporal server task."
+  type        = number
+  default     = 1024
+}
+
+variable "temporal_db_instance_class" {
+  description = "RDS instance class for the Temporal database."
+  type        = string
+  default     = "db.t4g.micro"
+}
+
+variable "temporal_db_deletion_protection" {
+  description = "Enable deletion protection on the Temporal RDS instance."
+  type        = bool
+  default     = false
+}
+
+variable "worker_cpu" {
+  description = "Fargate CPU units for the deal-hunter worker."
+  type        = number
+  default     = 512
+}
+
+variable "worker_memory" {
+  description = "Fargate memory (MiB) for the deal-hunter worker."
+  type        = number
+  default     = 1024
+}
+
+variable "worker_desired_count" {
+  description = "Number of deal-hunter worker tasks."
+  type        = number
+  default     = 1
+}
+
 # --- CI/CD --------------------------------------------------------------
 
 variable "enable_pipeline" {
@@ -164,4 +237,56 @@ variable "frontend_build_env" {
   type        = map(string)
   default     = {}
   sensitive   = true
+}
+
+# --- Browser box (marketplace deal-finder) ------------------------------
+
+variable "enable_browser_box" {
+  description = "Whether to provision the always-on EC2 browser box + scraper agent."
+  type        = bool
+  default     = false
+}
+
+variable "browser_subdomain" {
+  description = "Subdomain (under hosted_zone_name) for noVNC access to the browser box."
+  type        = string
+  default     = "browser"
+}
+
+variable "browser_subnet_id" {
+  description = "Public subnet ID to launch the browser box into. Defaults to the first existing public subnet."
+  type        = string
+  default     = null
+}
+
+variable "browser_instance_type" {
+  description = "EC2 instance type for the browser box."
+  type        = string
+  default     = "t3.small"
+}
+
+variable "browser_allowed_cidrs" {
+  description = "CIDRs allowed to reach the browser box's noVNC (443) and SSH (22). Lock to your IP(s)."
+  type        = list(string)
+  default     = []
+}
+
+variable "browser_novnc_password" {
+  description = "Plaintext password for noVNC basic auth on the browser box."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "agent_token" {
+  description = "Shared bearer token the scraper agent uses for the API's /agent/* endpoints. Terraform stores it in Secrets Manager. Also set AGENT_TOKEN on the backend to the same value."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "browser_ssh_public_key" {
+  description = "Optional SSH public key for the browser box. Empty relies on SSM Session Manager."
+  type        = string
+  default     = ""
 }

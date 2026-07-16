@@ -41,6 +41,37 @@ variable "ecs_service_name" {
   type = string
 }
 
+variable "worker_service_name" {
+  description = "ECS service name of the deal-hunter worker. The backend pipeline force-new-deployments it after each image push."
+  type        = string
+}
+
+# Agent (browser box) release pipeline ---------------------------------
+
+variable "enable_agent_pipeline" {
+  description = "Whether to create the scraper-agent build+deploy pipeline. Set to true only when the browser box is enabled (it's the only consumer of the artifact)."
+  type        = bool
+  default     = false
+}
+
+variable "agent_releases_bucket_name" {
+  description = "S3 bucket the agent pipeline uploads the built artifact to (agent/latest/agent.tar.gz + a per-commit copy)."
+  type        = string
+  default     = null
+}
+
+variable "agent_releases_bucket_arn" {
+  description = "ARN of the agent releases bucket (for the CodeBuild PutObject policy)."
+  type        = string
+  default     = null
+}
+
+variable "browser_box_instance_id" {
+  description = "EC2 instance id of the browser box. The agent Deploy stage sends it an SSM RunCommand to pull the new artifact and restart the agent."
+  type        = string
+  default     = null
+}
+
 variable "ecs_task_container_name" {
   type = string
 }
@@ -129,6 +160,22 @@ variable "db_secret_arn" {
 
 variable "firebase_ssm_arn" {
   type = string
+}
+
+variable "temporal_address" {
+  description = "host:port of the self-hosted Temporal frontend, sed'd into the API taskdef."
+  type        = string
+}
+
+variable "craigslist_site" {
+  description = "Craigslist site slug sed'd into the API taskdef (empty disables Craigslist)."
+  type        = string
+  default     = ""
+}
+
+variable "openrouter_secret_arn" {
+  description = "Secrets Manager ARN for the OpenRouter API key, sed'd into the API taskdef secrets."
+  type        = string
 }
 
 # Frontend wiring ------------------------------------------------------

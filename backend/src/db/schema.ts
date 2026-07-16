@@ -10,6 +10,8 @@ import {
   uniqueIndex,
   index,
   check,
+  jsonb,
+  doublePrecision,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -387,3 +389,768 @@ export type Group = typeof groups.$inferSelect;
 export type NewGroup = typeof groups.$inferInsert;
 export type GroupMember = typeof groupMembers.$inferSelect;
 export type NewGroupMember = typeof groupMembers.$inferInsert;
+
+/* ======================================================================
+ * Marketplace deal-finder
+ *
+ * A pipeline that turns natural-language shopping targets into Facebook
+ * Marketplace saved searches, ingests FB email alerts, triages candidates
+ * with a cheap LLM, deep-scrapes promising listings via a browser agent,
+ * evaluates them with an advanced LLM against price comps, and surfaces
+ * good deals. All tables are per-user (single tenant today) and follow the
+ * existing timestamp / soft-delete conventions.
+ * ==================================================================== */
+
+export const searchSource = pgEnum("mp_search_source", ["llm", "user"]);
+/** The marketplace a search/candidate/listing belongs to. */
+export const mpPlatform = pgEnum("mp_platform", ["facebook", "craigslist"]);
+/** Lifecycle of a tracked candidate: still live, sold, or vanished. */
+export const candidateStatus = pgEnum("mp_candidate_status", [
+  "active",
+  "sold",
+  "disappeared",
+]);
+/** A step in a candidate's pipeline history, logged to mp_candidate_events. */
+export const candidateStage = pgEnum("mp_candidate_stage", [
+  "discovered",
+  "triaged",
+  "deep_scraped",
+  "comps_gathered",
+  "evaluated",
+  "sold",
+  "disappeared",
+  "error",
+]);
+export const triageStatus = pgEnum("mp_triage_status", [
+  "pending",
+  "promising",
+  "rejected",
+  "skipped",
+]);
+/**
+ * User's manual disposition of a deal (distinct from the system-detected
+ * `candidateStatus`). `not_a_fit` and `sold` are terminal — the hunt pipeline
+ * stops updating those candidates.
+ */
+export const dispositionStatus = pgEnum("mp_disposition", [
+  "none",
+  "not_a_fit",
+  "not_a_good_deal",
+  "keep_watching",
+  "reached_out",
+  "sold",
+]);
+export const scrapeStatus = pgEnum("mp_scrape_status", [
+  "ok",
+  "partial",
+  "failed",
+]);
+export const evaluationTier = pgEnum("mp_evaluation_tier", [
+  "triage",
+  "advanced",
+]);
+export const evaluationVerdict = pgEnum("mp_evaluation_verdict", [
+  "good_deal",
+  "pass",
+  "unsure",
+]);
+export const compSource = pgEnum("mp_comp_source", [
+  "ebay",
+  "craigslist",
+  "internal",
+  "web",
+]);
+/**
+ * Whether a comparable reflects a brand-new/retail price or a used/secondhand
+ * resale price. Null for sources where the distinction doesn't apply (e.g.
+ * internal history predating this split).
+ */
+export const compCondition = pgEnum("mp_comp_condition", ["new", "used"]);
+export const notificationStatus = pgEnum("mp_notification_status", [
+  "new",
+  "seen",
+  "actioned",
+  "dismissed",
+]);
+export const agentStatus = pgEnum("mp_agent_status", [
+  "online",
+  "offline",
+  "needs_login",
+]);
+export const llmPurpose = pgEnum("mp_llm_purpose", [
+  "search_expansion",
+  "triage",
+  "comps",
+  "advanced",
+  "other",
+]);
+/** Lifecycle of a single hunt-workflow run recorded in mp_hunt_runs. */
+export const huntRunStatus = pgEnum("mp_hunt_run_status", [
+  "running",
+  "completed",
+  "failed",
+]);
+
+/**
+ * A natural-language shopping target, e.g. "high quality hardcover books" or
+ * "mid-century patio furniture". `evalInstructions` is free-form guidance the
+ * LLM applies when triaging/evaluating candidates for this target
+ * (e.g. "ignore anything in a light color").
+ */
+export const searchTargets = pgTable(
+  "mp_search_targets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    prompt: text("prompt").notNull(),
+    evalInstructions: text("eval_instructions"),
+    isActive: boolean("is_active").notNull().default(true),
+    // Per-target auto-hunt cadence in minutes. NULL falls back to the server's
+    // TEMPORAL_HUNT_INTERVAL_MIN default so existing targets keep working.
+    huntIntervalMin: integer("hunt_interval_min"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    userIdx: index("mp_search_targets_user_idx").on(t.userId),
+  })
+);
+
+/**
+ * A concrete Marketplace search derived from a target — either expanded by
+ * the LLM (`source = 'llm'`) or entered by the user. `filters` holds the
+ * structured constraints (max price, radius, category, etc.); `fbSearchUrl`
+ * is the ready-to-open URL the user turns into a saved search + email alert.
+ */
+export const searches = pgTable(
+  "mp_searches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    targetId: uuid("target_id")
+      .notNull()
+      .references(() => searchTargets.id, { onDelete: "cascade" }),
+    // Marketplace this search runs against. A single target fans out into
+    // per-platform searches.
+    platform: mpPlatform("platform").notNull().default("facebook"),
+    query: text("query").notNull(),
+    filters: jsonb("filters"),
+    // Ready-to-open search URL (property renamed from fbSearchUrl; the DB
+    // column stays `fb_search_url` for backward compatibility).
+    searchUrl: text("fb_search_url"),
+    source: searchSource("source").notNull().default("llm"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    userIdx: index("mp_searches_user_idx").on(t.userId),
+    targetIdx: index("mp_searches_target_idx").on(t.targetId),
+  })
+);
+
+/**
+ * A single listing candidate harvested from a search snapshot: just enough
+ * (title, thumbnail, price, blurb) for the cheap LLM to triage. `dedupeKey`
+ * (typically the platform item id) is unique per user so the same item
+ * appearing across overlapping searches is only tracked once. Seen/lifecycle
+ * timestamps drive sold-disappearance detection.
+ */
+export const candidates = pgTable(
+  "mp_candidates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    searchId: uuid("search_id").references(() => searches.id, {
+      onDelete: "set null",
+    }),
+    platform: mpPlatform("platform").notNull().default("facebook"),
+    // Platform item id (property renamed from fbItemId; DB column stays
+    // `fb_item_id`).
+    externalId: text("fb_item_id"),
+    listingUrl: text("listing_url").notNull(),
+    title: text("title"),
+    thumbnailUrl: text("thumbnail_url"),
+    priceCents: integer("price_cents"),
+    blurb: text("blurb"),
+    dedupeKey: text("dedupe_key").notNull(),
+    triageStatus: triageStatus("triage_status").notNull().default("pending"),
+    triageScore: integer("triage_score"),
+    triageReason: text("triage_reason"),
+    // Ranking hint for the UI (higher = more promising). Derived from triage
+    // score and, later, the advanced verdict/confidence.
+    promiseScore: integer("promise_score"),
+    // Lifecycle + when the source says the listing was posted/updated.
+    status: candidateStatus("status").notNull().default("active"),
+    // User's manual disposition; `not_a_fit`/`sold` freeze the candidate.
+    disposition: dispositionStatus("disposition").notNull().default("none"),
+    dispositionNote: text("disposition_note"),
+    dispositionAt: timestamp("disposition_at", { withTimezone: true }),
+    sourceListedAt: timestamp("source_listed_at", { withTimezone: true }),
+    sourceUpdatedAt: timestamp("source_updated_at", { withTimezone: true }),
+    // Snapshot-run bookkeeping for sold/disappearance detection.
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    missedRuns: integer("missed_runs").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    userIdx: index("mp_candidates_user_idx").on(t.userId),
+    userDedupeIdx: uniqueIndex("mp_candidates_user_dedupe_idx").on(
+      t.userId,
+      t.dedupeKey
+    ),
+    triageIdx: index("mp_candidates_triage_idx").on(t.userId, t.triageStatus),
+    promiseIdx: index("mp_candidates_promise_idx").on(
+      t.userId,
+      t.promiseScore
+    ),
+  })
+);
+
+/**
+ * The full listing record produced by the browser agent scraping the PDP.
+ * `rawExtract` holds Facebook's embedded JSON payload for phase-2 re-parsing
+ * / LLM context; `htmlKey` points at the raw HTML snapshot in S3.
+ */
+export const listings = pgTable(
+  "mp_listings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    candidateId: uuid("candidate_id").references(() => candidates.id, {
+      onDelete: "set null",
+    }),
+    platform: mpPlatform("platform").notNull().default("facebook"),
+    // Platform item id (property renamed from fbItemId; DB column stays
+    // `fb_item_id`).
+    externalId: text("fb_item_id"),
+    url: text("url").notNull(),
+    title: text("title"),
+    description: text("description"),
+    priceCents: integer("price_cents"),
+    currency: text("currency"),
+    conditionCode: text("condition_code"),
+    conditionLabel: text("condition_label"),
+    categoryId: text("category_id"),
+    categoryPath: jsonb("category_path"),
+    locationText: text("location_text"),
+    latitude: doublePrecision("latitude"),
+    longitude: doublePrecision("longitude"),
+    sellerId: text("seller_id"),
+    sellerName: text("seller_name"),
+    sellerProfileUrl: text("seller_profile_url"),
+    sellerRatingAverage: doublePrecision("seller_rating_average"),
+    sellerRatingCount: integer("seller_rating_count"),
+    availabilityStatus: text("availability_status"),
+    isSold: boolean("is_sold"),
+    isPending: boolean("is_pending"),
+    listedAt: timestamp("listed_at", { withTimezone: true }),
+    // When the source last reported the listing as updated (Craigslist).
+    sourceUpdatedAt: timestamp("source_updated_at", { withTimezone: true }),
+    // Snapshot-run bookkeeping: last time we saw it in a search, and when it
+    // dropped off (implying it sold / was removed).
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    disappearedAt: timestamp("disappeared_at", { withTimezone: true }),
+    rawExtract: jsonb("raw_extract"),
+    htmlKey: text("html_key"),
+    scrapeStatus: scrapeStatus("scrape_status").notNull().default("ok"),
+    scrapeError: text("scrape_error"),
+    scrapedAt: timestamp("scraped_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    userIdx: index("mp_listings_user_idx").on(t.userId),
+    userItemIdx: uniqueIndex("mp_listings_user_item_idx").on(
+      t.userId,
+      t.platform,
+      t.externalId
+    ),
+    candidateIdx: index("mp_listings_candidate_idx").on(t.candidateId),
+  })
+);
+
+/**
+ * One image belonging to a scraped listing. `imageKey` is the S3 object the
+ * agent uploaded (FB CDN URLs expire, so we persist the bytes); `sourceUrl`
+ * keeps the original for reference.
+ */
+export const listingImages = pgTable(
+  "mp_listing_images",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    listingId: uuid("listing_id")
+      .notNull()
+      .references(() => listings.id, { onDelete: "cascade" }),
+    sourceUrl: text("source_url"),
+    imageKey: text("image_key"),
+    width: integer("width"),
+    height: integer("height"),
+    caption: text("caption"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    listingIdx: index("mp_listing_images_listing_idx").on(t.listingId),
+  })
+);
+
+/**
+ * A price comparable pulled from an external marketplace (eBay/Craigslist) or
+ * our own history (`internal`), used to judge whether a listing is a deal.
+ */
+export const comps = pgTable(
+  "mp_comps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    listingId: uuid("listing_id")
+      .notNull()
+      .references(() => listings.id, { onDelete: "cascade" }),
+    source: compSource("source").notNull(),
+    condition: compCondition("condition"),
+    matchedTitle: text("matched_title"),
+    priceCents: integer("price_cents"),
+    currency: text("currency"),
+    url: text("url"),
+    soldAt: timestamp("sold_at", { withTimezone: true }),
+    raw: jsonb("raw"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    listingIdx: index("mp_comps_listing_idx").on(t.listingId),
+  })
+);
+
+/**
+ * An LLM decision. `tier = 'triage'` rows are cheap-model calls on a
+ * candidate (title/thumb/price/blurb); `tier = 'advanced'` rows are the
+ * capable-model calls on a fully scraped listing + comps. Inputs/outputs are
+ * persisted for auditing and prompt-version comparisons.
+ */
+export const evaluations = pgTable(
+  "mp_evaluations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    candidateId: uuid("candidate_id").references(() => candidates.id, {
+      onDelete: "cascade",
+    }),
+    listingId: uuid("listing_id").references(() => listings.id, {
+      onDelete: "cascade",
+    }),
+    tier: evaluationTier("tier").notNull(),
+    model: text("model"),
+    verdict: evaluationVerdict("verdict"),
+    // Deal quality (price vs. market) and target-fit, each 0-100. `verdict` is
+    // retained for backward compatibility, derived from `valueScore`.
+    valueScore: integer("value_score"),
+    fitScore: integer("fit_score"),
+    confidence: doublePrecision("confidence"),
+    estimatedValueCents: integer("estimated_value_cents"),
+    rationale: text("rationale"),
+    promptVersion: text("prompt_version"),
+    raw: jsonb("raw"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userIdx: index("mp_evaluations_user_idx").on(t.userId),
+    candidateIdx: index("mp_evaluations_candidate_idx").on(t.candidateId),
+    listingIdx: index("mp_evaluations_listing_idx").on(t.listingId),
+  })
+);
+
+/**
+ * A user's feedback on how accurate an evaluation was, used to improve the
+ * scoring pipeline. Each rating scores the accuracy of the fit score and the
+ * deal (value) score independently on a 1-10 scale, each with an optional
+ * free-form note. Keyed per user + candidate (one editable rating per deal);
+ * `evaluationId` records which advanced evaluation was on screen when rated.
+ */
+export const evaluationRatings = pgTable(
+  "mp_evaluation_ratings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    candidateId: uuid("candidate_id")
+      .notNull()
+      .references(() => candidates.id, { onDelete: "cascade" }),
+    evaluationId: uuid("evaluation_id").references(() => evaluations.id, {
+      onDelete: "set null",
+    }),
+    // Accuracy of the fit score (target match), 1-10. Null until the user rates.
+    fitAccuracy: integer("fit_accuracy"),
+    fitNote: text("fit_note"),
+    // Accuracy of the deal/value score (price vs. market), 1-10.
+    valueAccuracy: integer("value_accuracy"),
+    valueNote: text("value_note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userCandidateIdx: uniqueIndex("mp_evaluation_ratings_user_candidate_idx").on(
+      t.userId,
+      t.candidateId
+    ),
+    candidateIdx: index("mp_evaluation_ratings_candidate_idx").on(t.candidateId),
+    fitAccuracyCheck: check(
+      "mp_evaluation_ratings_fit_accuracy_check",
+      sql`${t.fitAccuracy} IS NULL OR (${t.fitAccuracy} BETWEEN 1 AND 10)`
+    ),
+    valueAccuracyCheck: check(
+      "mp_evaluation_ratings_value_accuracy_check",
+      sql`${t.valueAccuracy} IS NULL OR (${t.valueAccuracy} BETWEEN 1 AND 10)`
+    ),
+  })
+);
+
+/**
+ * A normalized price observation, appended for every candidate/listing/comp
+ * we see. This is the growing internal history the evaluator compares against
+ * over time.
+ */
+export const itemObservations = pgTable(
+  "mp_item_observations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    category: text("category"),
+    normalizedTitle: text("normalized_title"),
+    priceCents: integer("price_cents"),
+    currency: text("currency"),
+    source: compSource("source").notNull().default("internal"),
+    listingId: uuid("listing_id").references(() => listings.id, {
+      onDelete: "set null",
+    }),
+    observedAt: timestamp("observed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userIdx: index("mp_item_observations_user_idx").on(t.userId),
+    titleIdx: index("mp_item_observations_title_idx").on(
+      t.userId,
+      t.normalizedTitle
+    ),
+    // One observation per (user, listing, title, source): repeated deep-scrapes
+    // update the existing row's price instead of appending duplicates.
+    uniq: uniqueIndex("mp_item_observations_uniq_idx").on(
+      t.userId,
+      t.listingId,
+      t.normalizedTitle,
+      t.source
+    ),
+  })
+);
+
+/**
+ * A surfaced deal for the user to review. Created when the advanced evaluator
+ * returns a `good_deal` verdict.
+ */
+export const notifications = pgTable(
+  "mp_notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    listingId: uuid("listing_id").references(() => listings.id, {
+      onDelete: "cascade",
+    }),
+    evaluationId: uuid("evaluation_id").references(() => evaluations.id, {
+      onDelete: "set null",
+    }),
+    kind: text("kind").notNull().default("deal"),
+    title: text("title"),
+    body: text("body"),
+    status: notificationStatus("status").notNull().default("new"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userStatusIdx: index("mp_notifications_user_status_idx").on(
+      t.userId,
+      t.status
+    ),
+  })
+);
+
+/**
+ * Append-only history of pipeline steps for a candidate, powering the UI
+ * timeline. Each hunt-workflow activity logs a stage transition here with a
+ * free-form `detail` payload (verdict, score, model, cost, counts, etc.) and
+ * the Temporal workflow/run ids for traceability.
+ */
+export const candidateEvents = pgTable(
+  "mp_candidate_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    candidateId: uuid("candidate_id")
+      .notNull()
+      .references(() => candidates.id, { onDelete: "cascade" }),
+    stage: candidateStage("stage").notNull(),
+    message: text("message"),
+    detail: jsonb("detail"),
+    workflowId: text("workflow_id"),
+    runId: text("run_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    candidateIdx: index("mp_candidate_events_candidate_idx").on(
+      t.candidateId,
+      t.createdAt
+    ),
+  })
+);
+
+/**
+ * A registered browser box / scraper agent. Tracks liveness and whether the
+ * Facebook session needs a manual re-login (set by the agent when it hits a
+ * login wall), which drives a `needs_login` notification to the user.
+ */
+export const browserAgents = pgTable(
+  "mp_browser_agents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    status: agentStatus("status").notNull().default("offline"),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    needsLoginSince: timestamp("needs_login_since", { withTimezone: true }),
+    notes: text("notes"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userNameIdx: uniqueIndex("mp_browser_agents_user_name_idx").on(
+      t.userId,
+      t.name
+    ),
+  })
+);
+
+/**
+ * One LLM API call (via OpenRouter), logged for cost accounting and model
+ * comparison. Every call site (search expansion, triage, advanced eval)
+ * records token counts and the USD cost OpenRouter reports, tagged with the
+ * model used so different models can be evaluated against each other.
+ */
+export const llmCalls = pgTable(
+  "mp_llm_calls",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    purpose: llmPurpose("purpose").notNull(),
+    provider: text("provider").notNull().default("openrouter"),
+    model: text("model").notNull(),
+    requestId: text("request_id"),
+    promptTokens: integer("prompt_tokens"),
+    completionTokens: integer("completion_tokens"),
+    totalTokens: integer("total_tokens"),
+    costUsd: doublePrecision("cost_usd"),
+    candidateId: uuid("candidate_id").references(() => candidates.id, {
+      onDelete: "set null",
+    }),
+    listingId: uuid("listing_id").references(() => listings.id, {
+      onDelete: "set null",
+    }),
+    targetId: uuid("target_id").references(() => searchTargets.id, {
+      onDelete: "set null",
+    }),
+    // Temporal run id of the hunt-workflow execution that made this call, when
+    // it originated from a hunt run. Lets us sum per-run LLM cost accurately.
+    runId: text("run_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userIdx: index("mp_llm_calls_user_idx").on(t.userId, t.createdAt),
+    modelIdx: index("mp_llm_calls_model_idx").on(t.userId, t.model),
+    runIdx: index("mp_llm_calls_run_idx").on(t.runId),
+  })
+);
+
+/**
+ * One row per execution of the `huntTargetWorkflow`, written when the run
+ * starts (status `running`) and finalized when it ends (`completed`/`failed`).
+ * Captures the run's outcome counts and total LLM cost so hunt runs are
+ * first-class and queryable (history, cost trends, failure rates) rather than
+ * living only in Temporal's own history. `runId` is the Temporal run id, which
+ * also tags `mp_llm_calls` rows so per-run cost can be summed exactly.
+ */
+export const huntRuns = pgTable(
+  "mp_hunt_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    targetId: uuid("target_id").references(() => searchTargets.id, {
+      onDelete: "set null",
+    }),
+    workflowId: text("workflow_id").notNull(),
+    runId: text("run_id").notNull(),
+    status: huntRunStatus("status").notNull().default("running"),
+    // Outcome counts for the run.
+    searches: integer("searches").notNull().default(0),
+    discovered: integer("discovered").notNull().default(0),
+    triaged: integer("triaged").notNull().default(0),
+    promising: integer("promising").notNull().default(0),
+    evaluated: integer("evaluated").notNull().default(0),
+    errors: integer("errors").notNull().default(0),
+    // Total OpenRouter cost (USD) summed from mp_llm_calls for this run.
+    costUsd: doublePrecision("cost_usd"),
+    // Set when the run failed outright (as opposed to per-listing errors).
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userStartedIdx: index("mp_hunt_runs_user_started_idx").on(
+      t.userId,
+      t.startedAt
+    ),
+    targetIdx: index("mp_hunt_runs_target_idx").on(t.targetId),
+    runIdx: uniqueIndex("mp_hunt_runs_run_idx").on(t.runId),
+  })
+);
+
+/**
+ * Per-user preferences. `modelOverrides` maps a pipeline step (e.g. "triage",
+ * "advanced") to the OpenRouter model slug to use for it; missing steps fall
+ * back to the server's tier defaults.
+ */
+export const userSettings = pgTable("user_settings", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  modelOverrides: jsonb("model_overrides")
+    .$type<Record<string, string>>()
+    .notNull()
+    .default({}),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type UserSettings = typeof userSettings.$inferSelect;
+export type NewUserSettings = typeof userSettings.$inferInsert;
+
+export type LlmCall = typeof llmCalls.$inferSelect;
+export type NewLlmCall = typeof llmCalls.$inferInsert;
+
+export type HuntRun = typeof huntRuns.$inferSelect;
+export type NewHuntRun = typeof huntRuns.$inferInsert;
+
+export type SearchTarget = typeof searchTargets.$inferSelect;
+export type NewSearchTarget = typeof searchTargets.$inferInsert;
+export type Search = typeof searches.$inferSelect;
+export type NewSearch = typeof searches.$inferInsert;
+export type Candidate = typeof candidates.$inferSelect;
+export type NewCandidate = typeof candidates.$inferInsert;
+export type Listing = typeof listings.$inferSelect;
+export type NewListing = typeof listings.$inferInsert;
+export type ListingImage = typeof listingImages.$inferSelect;
+export type NewListingImage = typeof listingImages.$inferInsert;
+export type Comp = typeof comps.$inferSelect;
+export type NewComp = typeof comps.$inferInsert;
+export type Evaluation = typeof evaluations.$inferSelect;
+export type NewEvaluation = typeof evaluations.$inferInsert;
+export type ItemObservation = typeof itemObservations.$inferSelect;
+export type NewItemObservation = typeof itemObservations.$inferInsert;
+export type Notification = typeof notifications.$inferSelect;
+export type NewNotification = typeof notifications.$inferInsert;
+export type CandidateEvent = typeof candidateEvents.$inferSelect;
+export type NewCandidateEvent = typeof candidateEvents.$inferInsert;
+export type BrowserAgent = typeof browserAgents.$inferSelect;
+export type NewBrowserAgent = typeof browserAgents.$inferInsert;

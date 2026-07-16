@@ -15,8 +15,30 @@ assumed to already exist as RDS in a VPC you own):
 - **CI/CD** (`modules/pipeline`): one CodeStar Connection to GitHub, two
   CodePipelines (`seneschal-backend`, `seneschal-frontend`), CodeBuild
   projects for each, IAM roles, and a shared artifact bucket. The backend
-  pipeline does `docker build -> ECR -> ECS rolling deploy`; the frontend
-  pipeline does `npm run build -> S3 sync -> CloudFront invalidation`.
+  pipeline does `docker build -> ECR -> migrate -> ECS blue/green -> worker
+  redeploy`; the frontend pipeline does `npm run build -> S3 sync ->
+  CloudFront invalidation`.
+- **Temporal** (`modules/temporal`): a self-hosted, single-node Temporal
+  cluster on ECS Fargate (`temporalio/auto-setup`) backed by a dedicated RDS
+  Postgres instance, discoverable via AWS Cloud Map private DNS at
+  `temporal.<namespace_domain>:7233`. It is prefixed **`parthadae`** (not
+  `seneschal`) and lives in its own ECS cluster + database so it can be
+  reused as shared workflow-orchestration infra across products.
+- **Deal-hunter worker** (`modules/worker`): a second ECS service that runs
+  the *same* backend image with the command overridden to
+  `dist/temporal/worker.js`. It services the `deal-hunter` Temporal task
+  queue (Craigslist harvest, LLM triage/comps/evaluation, DB writes) and
+  registers one Temporal Schedule per active search target on boot.
+- **Browser box** (`modules/browser-box`, optional): an always-on EC2 box
+  running a headed Chrome you log into Facebook once via noVNC, plus the
+  scraper agent — itself a Temporal activity worker on the `browser-box`
+  queue — that drives Chrome over CDP for Facebook Marketplace. The agent is
+  **not** built on the box; it's shipped as a CI-built artifact (see below).
+- **Agent release pipeline** (`modules/pipeline`, when the browser box is
+  enabled): a third CodePipeline (`seneschal-agent`) that builds `agent/`,
+  uploads `agent/latest/agent.tar.gz` to an S3 releases bucket, and triggers
+  an SSM RunCommand so the box pulls the artifact and restarts the agent —
+  the same "CI builds, target pulls" shape as the frontend deploy.
 
 ```
 infra/terraform/
@@ -72,6 +94,52 @@ infra/terraform/
     --type SecureString \
     --value "$(cat firebase-service-account.json)"
   ```
+- An **OpenRouter API key** for the deal hunter's LLM calls. Pass it via the
+  `openrouter_api_key` tfvar (Terraform stores it in Secrets Manager as
+  `seneschal/prod/openrouter-api-key`). This variable is **required**.
+
+## Deal hunter architecture (Temporal + worker + browser box)
+
+The deal hunter runs as a Temporal workflow. Three things cooperate:
+
+```
+                 ┌──────────────────────────────────────────┐
+                 │ parthadae Temporal cluster (ECS + RDS)    │
+                 │ Cloud Map: temporal.parthadae.internal:7233│
+                 └───────┬───────────────┬───────────────┬────┘
+      starts workflows / │               │ deal-hunter   │ browser-box
+      schedules          │               │ task queue    │ task queue
+             ┌───────────┴───┐   ┌────────┴────────┐  ┌───┴──────────────┐
+             │ seneschal-api  │   │ seneschal-worker │  │ browser box agent │
+             │ (ECS + ALB)    │   │ (ECS service)    │  │ (EC2 + Chrome/CDP)│
+             └────────────────┘   └──────────────────┘  └───────────────────┘
+```
+
+- The **API** and **worker** are the same Docker image; the worker just runs
+  a different command. Both get `TEMPORAL_ADDRESS`, `OPENROUTER_API_KEY`
+  (from Secrets Manager), and `CRAIGSLIST_SITE`.
+- The **Temporal cluster** is created unconditionally by `module.temporal`.
+  Its RDS master password is generated and stored in Secrets Manager
+  (`parthadae/temporal/db-password`); `auto-setup` creates the `temporal` and
+  `temporal_visibility` databases on first boot.
+- The **browser box** is gated by `enable_browser_box`. Facebook scraping is
+  in scope for V1, so set it to `true` and fill in the `browser_*` /
+  `agent_token` vars. Its agent connects to Temporal directly (no `/agent/*`
+  API routes are involved), and is delivered as a CI-built artifact from S3
+  (the `seneschal-agent` pipeline) rather than cloned/built on the box.
+
+Security-group wiring (worker→DB, and API/worker/browser-box→Temporal:7233)
+is created in the root module to avoid a module dependency cycle.
+
+> **First-apply ordering.** Like the API's bootstrap task definition, the
+> worker task definition and the Temporal service reference container images
+> that don't exist until the first pipeline build pushes them (worker) / are
+> pulled from Docker Hub (Temporal). `terraform apply` does **not** block on
+> steady state, so this is expected: the worker will crash-loop until the
+> first backend pipeline run pushes `:latest`, then stabilize. Temporal comes
+> up on the first apply once its RDS instance is available. Likewise the
+> browser box's `scraper-agent` crash-loops until the first `seneschal-agent`
+> pipeline run uploads the artifact and redeploys it.
 
 ## First-time setup
 
@@ -123,7 +191,10 @@ After that, both pipelines will run on every push to the configured branch
 ## Day-to-day
 
 - **Push to `main` under `backend/**`** -> backend pipeline builds the
-  Docker image, pushes to ECR, and does a rolling ECS deploy.
+  Docker image, pushes to ECR, runs DB migrations, does the API blue/green
+  deploy, then force-new-deploys the worker service onto the new image.
+- **Push to `main` under `agent/**`** -> agent pipeline builds the scraper
+  agent, uploads the artifact to S3, and SSM-redeploys the browser box.
 - **Push to `main` under `frontend/**`** -> frontend pipeline builds the
   SPA with the configured `VITE_*` env vars, syncs `dist/` to S3, and
   invalidates CloudFront.
@@ -147,3 +218,21 @@ After `terraform apply` you'll see:
 - `ecs_cluster_name`, `ecs_service_name`
 - `frontend_bucket_name`, `cloudfront_distribution_id`
 - `codestar_connection_arn`, `backend_pipeline_name`, `frontend_pipeline_name`
+- `temporal_address` — `temporal.parthadae.internal:7233`
+- `temporal_cluster_name`, `temporal_db_endpoint`
+- `worker_service_name` — ECS service for the deal-hunter worker
+- `browser_box_url` — noVNC URL to log the box into Facebook (when
+  `enable_browser_box = true`)
+
+## Logging the browser box into Facebook (one-time)
+
+After `terraform apply` with `enable_browser_box = true`:
+
+1. Open the `browser_box_url` output (`https://browser.<domain>/vnc.html`)
+   from an allowed CIDR; authenticate with `admin` / your
+   `browser_novnc_password`.
+2. In the remote Chrome, log into Facebook and complete any 2FA. The profile
+   is persisted on the box's disk, so this survives restarts.
+3. The `scraper-agent` systemd service (a Temporal worker on the
+   `browser-box` queue) picks up Facebook activities automatically once
+   Chrome is logged in.

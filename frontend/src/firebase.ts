@@ -30,12 +30,18 @@ export const auth = getAuth(firebaseApp);
 
 const googleProvider = new GoogleAuthProvider();
 
-const ALLOWED_EMAIL = "12aplustech@gmail.com";
+const ALLOWED_EMAILS = ["info@parthadae.com", "12aplustech@gmail.com"];
+
+function isAllowedEmail(email: string | null): boolean {
+  if (!email) return false;
+  const normalized = email.toLowerCase();
+  return ALLOWED_EMAILS.some((allowed) => allowed.toLowerCase() === normalized);
+}
 
 export class UnauthorizedEmailError extends Error {
   constructor(email: string | null) {
     super(
-      `This Seneschal instance is restricted to ${ALLOWED_EMAIL}.` +
+      `This Seneschal instance is restricted to ${ALLOWED_EMAILS.join(", ")}.` +
         (email ? ` You signed in as ${email}.` : "")
     );
     this.name = "UnauthorizedEmailError";
@@ -45,7 +51,7 @@ export class UnauthorizedEmailError extends Error {
 export async function signInWithGoogle() {
   const result = await signInWithPopup(auth, googleProvider);
   const email = result.user.email;
-  if (!email || email.toLowerCase() !== ALLOWED_EMAIL) {
+  if (!isAllowedEmail(email)) {
     await fbSignOut(auth);
     throw new UnauthorizedEmailError(email);
   }

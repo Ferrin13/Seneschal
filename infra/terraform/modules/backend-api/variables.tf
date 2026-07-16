@@ -56,6 +56,12 @@ variable "firebase_sa_ssm_param_name" {
   type = string
 }
 
+variable "extra_secret_arns" {
+  description = "Additional Secrets Manager ARNs the API task must read at startup (e.g. the OpenRouter API key for the deal hunter). Added to the execution role's read policy and referenced from taskdef.json."
+  type        = list(string)
+  default     = []
+}
+
 variable "cpu" {
   type    = number
   default = 256

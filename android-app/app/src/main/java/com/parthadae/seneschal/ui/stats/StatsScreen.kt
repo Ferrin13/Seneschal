@@ -90,14 +90,17 @@ data class NoteTotal(
 )
 
 /**
- * One activity group in the stats list. All slots for the same primary
- * activity are aggregated together regardless of notes, then the time is
- * broken down per distinct note in [notes] (sorted by time spent).
+ * One activity group in the stats list. Slots where this activity is either the
+ * primary or the secondary activity are aggregated together regardless of
+ * notes, then the time is broken down per distinct note in [notes] (sorted by
+ * time spent). [secondaryMs] is the portion of [totalMs] that came from slots
+ * where this was the secondary activity.
  */
 data class ActivityTotal(
     val activity: Activity,
     val category: Category,
     val totalMs: Long,
+    val secondaryMs: Long,
     val notes: List<NoteTotal>,
 )
 
@@ -183,14 +186,24 @@ class StatsViewModel @Inject constructor(
     ): StatsUiState {
         // First tally time per (activityId, normalizedNotes). Blank notes are
         // treated as "no notes" so accidental whitespace doesn't fragment a row.
+        // Each slot contributes to its primary activity and, when present, to
+        // its secondary activity (e.g. "Driving + Audiobook" credits both).
         val totalsMs = HashMap<Pair<String, String?>, Long>()
+        val secondaryMsByActivity = HashMap<String, Long>()
         var loggedMs = 0L
         slots.forEach { s ->
-            val activityId = s.primaryActivityId ?: return@forEach
             val notes = s.notes?.trim()?.takeIf { it.isNotEmpty() }
-            val key = activityId to notes
-            totalsMs[key] = (totalsMs[key] ?: 0L) + SLOT_MS
-            loggedMs += SLOT_MS
+            s.primaryActivityId?.let { activityId ->
+                val key = activityId to notes
+                totalsMs[key] = (totalsMs[key] ?: 0L) + SLOT_MS
+                loggedMs += SLOT_MS
+            }
+            s.secondaryActivityId?.let { activityId ->
+                val key = activityId to notes
+                totalsMs[key] = (totalsMs[key] ?: 0L) + SLOT_MS
+                secondaryMsByActivity[activityId] =
+                    (secondaryMsByActivity[activityId] ?: 0L) + SLOT_MS
+            }
         }
 
         // Then roll the per-notes tallies up into one group per activity, with
@@ -211,6 +224,7 @@ class StatsViewModel @Inject constructor(
                     activity = act,
                     category = cat,
                     totalMs = activityTotalMs[activityId] ?: 0L,
+                    secondaryMs = secondaryMsByActivity[activityId] ?: 0L,
                     notes = noteTotals.sortedByDescending { it.totalMs },
                 )
             }
@@ -292,11 +306,16 @@ fun StatsScreen(
                 style = MaterialTheme.typography.labelMedium,
             )
             Spacer(Modifier.height(16.dp))
+            // Slots with a secondary activity credit both activities, so the
+            // per-activity totals can sum past the wall-clock logged time. Base
+            // the percentages on that combined sum so they stay consistent with
+            // the stacked bar above (which normalizes the same way).
+            val overallTotalMs = state.activities.sumOf { it.totalMs }
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(
                     state.activities,
                     key = { it.activity.id },
-                ) { group -> ActivityGroup(group, state.totalLoggedMs) }
+                ) { group -> ActivityGroup(group, overallTotalMs) }
             }
         }
     }
@@ -406,9 +425,9 @@ private fun StackedBar(activities: List<ActivityTotal>) {
 }
 
 @Composable
-private fun ActivityGroup(group: ActivityTotal, totalLoggedMs: Long) {
-    val pct = if (totalLoggedMs > 0)
-        (group.totalMs * 100f / totalLoggedMs).toInt() else 0
+private fun ActivityGroup(group: ActivityTotal, overallTotalMs: Long) {
+    val pct = if (overallTotalMs > 0)
+        (group.totalMs * 100f / overallTotalMs).toInt() else 0
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         // Activity header: color dot, name, and the activity's combined total.
         Row(
@@ -427,6 +446,16 @@ private fun ActivityGroup(group: ActivityTotal, totalLoggedMs: Long) {
                 )
                 Spacer(Modifier.size(8.dp))
                 Text(group.activity.name, fontWeight = FontWeight.Medium)
+                // Note how much of this activity's time was logged alongside a
+                // primary activity rather than as the main one.
+                if (group.secondaryMs > 0) {
+                    Spacer(Modifier.size(6.dp))
+                    Text(
+                        "(${formatHm(group.secondaryMs)} as secondary)",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             Text("${formatHm(group.totalMs)} · ${pct}%")
         }

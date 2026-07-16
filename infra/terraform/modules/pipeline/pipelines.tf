@@ -106,6 +106,25 @@ resource "aws_codepipeline" "backend" {
     }
   }
 
+  # Roll the deal-hunter worker onto the freshly-pushed image. Runs after the
+  # API is healthy so schema migrations (Migrate stage) are already applied.
+  stage {
+    name = "DeployWorker"
+
+    action {
+      name            = "RedeployWorker"
+      category        = "Build"
+      owner           = "AWS"
+      provider        = "CodeBuild"
+      version         = "1"
+      input_artifacts = ["source_output"]
+
+      configuration = {
+        ProjectName = aws_codebuild_project.backend_worker_deploy.name
+      }
+    }
+  }
+
   # Only run when files under backend/ change.
   trigger {
     provider_type = "CodeStarSourceConnection"
@@ -203,6 +222,94 @@ resource "aws_codepipeline" "frontend" {
         }
         file_paths {
           includes = ["frontend/**"]
+        }
+      }
+    }
+  }
+}
+
+# Scraper-agent pipeline: build the artifact, ship it to S3, then tell the
+# browser box (via SSM) to pull it and restart. Only created when the browser
+# box is enabled. Triggered by pushes under agent/**.
+resource "aws_codepipeline" "agent" {
+  count    = var.enable_agent_pipeline ? 1 : 0
+  name     = "${var.name_prefix}-agent"
+  role_arn = aws_iam_role.codepipeline.arn
+
+  pipeline_type = "V2"
+
+  artifact_store {
+    location = aws_s3_bucket.artifacts.bucket
+    type     = "S3"
+  }
+
+  stage {
+    name = "Source"
+
+    action {
+      name             = "Source"
+      category         = "Source"
+      owner            = "AWS"
+      provider         = "CodeStarSourceConnection"
+      version          = "1"
+      output_artifacts = ["source_output"]
+
+      configuration = {
+        ConnectionArn        = aws_codestarconnections_connection.github.arn
+        FullRepositoryId     = "${var.github_owner}/${var.github_repo}"
+        BranchName           = var.github_branch
+        OutputArtifactFormat = "CODE_ZIP"
+      }
+    }
+  }
+
+  stage {
+    name = "Build"
+
+    action {
+      name             = "BuildAndUpload"
+      category         = "Build"
+      owner            = "AWS"
+      provider         = "CodeBuild"
+      version          = "1"
+      input_artifacts  = ["source_output"]
+      output_artifacts = ["agent_build_output"]
+
+      configuration = {
+        ProjectName = aws_codebuild_project.agent_build[0].name
+      }
+    }
+  }
+
+  stage {
+    name = "Deploy"
+
+    action {
+      name            = "RedeployAgent"
+      category        = "Build"
+      owner           = "AWS"
+      provider        = "CodeBuild"
+      version         = "1"
+      input_artifacts = ["source_output"]
+
+      configuration = {
+        ProjectName = aws_codebuild_project.agent_deploy[0].name
+      }
+    }
+  }
+
+  trigger {
+    provider_type = "CodeStarSourceConnection"
+
+    git_configuration {
+      source_action_name = "Source"
+
+      push {
+        branches {
+          includes = [var.github_branch]
+        }
+        file_paths {
+          includes = ["agent/**"]
         }
       }
     }
