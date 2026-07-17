@@ -311,6 +311,18 @@ export type LlmUsage = {
     promptTokens: number;
     completionTokens: number;
   }[];
+  daily: {
+    date: string;
+    costUsd: number;
+    calls: number;
+    tokens: number;
+  }[];
+  hourly: {
+    date: string;
+    costUsd: number;
+    calls: number;
+    tokens: number;
+  }[];
   recent: {
     id: string;
     purpose: string;

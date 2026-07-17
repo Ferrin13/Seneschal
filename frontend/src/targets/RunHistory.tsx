@@ -10,11 +10,39 @@ import {
   TableRow,
   Tooltip,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { api, type HuntRun } from "../api";
 import { ageTextFine } from "../deals/shared";
 import { formatCost, RUN_STATUS } from "./shared";
+
+/** Compact label/value row used in the mobile (stacked-card) layouts. */
+function Stat({
+  label,
+  value,
+  error,
+}: {
+  label: string;
+  value: ReactNode;
+  error?: boolean;
+}) {
+  return (
+    <Stack direction="row" justifyContent="space-between" sx={{ gap: 1 }}>
+      <Typography variant="caption" color="text.secondary">
+        {label}
+      </Typography>
+      <Typography
+        variant="caption"
+        sx={{ fontWeight: 600, color: error ? "error.main" : undefined }}
+      >
+        {value}
+      </Typography>
+    </Stack>
+  );
+}
 
 function duration(startIso: string, endIso: string | null): string {
   if (!endIso) return "—";
@@ -39,6 +67,8 @@ export function RunHistory({
   onError: (msg: string) => void;
 }) {
   const [runs, setRuns] = useState<HuntRun[] | null>(null);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const load = useCallback(async () => {
     try {
@@ -66,6 +96,57 @@ export function RunHistory({
         No hunt runs yet. Runs appear here after the target hunts (on schedule or
         via “Hunt now”).
       </Typography>
+    );
+  }
+
+  if (isMobile) {
+    return (
+      <Stack spacing={1.5}>
+        {runs.map((r) => {
+          const status = RUN_STATUS[r.status];
+          return (
+            <Box
+              key={r.id}
+              sx={{ border: 1, borderColor: "divider", borderRadius: 1, p: 1.5 }}
+            >
+              <Stack
+                direction="row"
+                justifyContent="space-between"
+                alignItems="center"
+                sx={{ mb: 1, gap: 1 }}
+              >
+                <Chip size="small" color={status.color} label={status.label} />
+                <Typography variant="caption" color="text.secondary">
+                  {ageTextFine(r.startedAt)} · {duration(r.startedAt, r.finishedAt)}
+                </Typography>
+              </Stack>
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(2, 1fr)",
+                  columnGap: 2,
+                  rowGap: 0.5,
+                }}
+              >
+                <Stat label="Found" value={r.discovered} />
+                <Stat label="Promising" value={r.promising} />
+                <Stat label="Evaluated" value={r.evaluated} />
+                <Stat label="Errors" value={r.errors} error={r.errors > 0} />
+                <Stat label="Cost" value={formatCost(r.costUsd)} />
+              </Box>
+              {r.error ? (
+                <Typography
+                  variant="caption"
+                  color="error.main"
+                  sx={{ mt: 1, display: "block" }}
+                >
+                  {r.error}
+                </Typography>
+              ) : null}
+            </Box>
+          );
+        })}
+      </Stack>
     );
   }
 

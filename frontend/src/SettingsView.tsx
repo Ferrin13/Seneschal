@@ -14,8 +14,14 @@ import {
   TableHead,
   TableRow,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
+import { LineChart } from "@mui/x-charts/LineChart";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import {
   api,
@@ -307,9 +313,134 @@ function purposeLabel(purpose: string): string {
   return PURPOSE_LABELS[purpose] ?? purpose;
 }
 
+/**
+ * Per-bucket + cumulative LLM cost line charts. Togglable between a daily view
+ * (all history) and an hourly view (recent window).
+ */
+function CostCharts({
+  daily,
+  hourly,
+}: {
+  daily: LlmUsage["daily"];
+  hourly: LlmUsage["hourly"];
+}) {
+  const theme = useTheme();
+  const [bucket, setBucket] = useState<"day" | "hour">("day");
+  const series = bucket === "hour" ? hourly : daily;
+
+  if (daily.length === 0 && hourly.length === 0) return null;
+
+  // Drop the leading "YYYY-" to keep axis ticks compact (e.g. "07-17 13:00").
+  const labels = series.map((d) => d.date.slice(5));
+  const costs = series.map((d) => d.costUsd);
+  let running = 0;
+  const cumulative = series.map((d) => (running += d.costUsd));
+  const fmt = (v: number | null) => (v == null ? "" : `$${v.toFixed(4)}`);
+  const margin = { left: 64, right: 16, top: 16, bottom: 48 };
+  const empty = series.length === 0;
+
+  return (
+    <Box sx={{ mb: 3 }}>
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        sx={{ mb: 1, gap: 1 }}
+      >
+        <Typography variant="subtitle2">Cost over time</Typography>
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={bucket}
+          onChange={(_e, v) => {
+            if (v) setBucket(v);
+          }}
+        >
+          <ToggleButton value="hour">By hour</ToggleButton>
+          <ToggleButton value="day">By day</ToggleButton>
+        </ToggleButtonGroup>
+      </Stack>
+
+      {empty ? (
+        <Typography variant="body2" color="text.secondary">
+          {bucket === "hour"
+            ? "No LLM activity in the last 7 days."
+            : "No LLM activity yet."}
+        </Typography>
+      ) : (
+        <Box
+          sx={{
+            display: "grid",
+            gap: 2,
+            gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" },
+          }}
+        >
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              {bucket === "hour" ? "Hourly spend" : "Daily spend"}
+            </Typography>
+            <LineChart
+              height={240}
+              xAxis={[{ data: labels, scaleType: "point" }]}
+              yAxis={[{ valueFormatter: fmt }]}
+              series={[
+                {
+                  data: costs,
+                  label: bucket === "hour" ? "Hourly cost" : "Daily cost",
+                  color: theme.palette.primary.main,
+                  valueFormatter: fmt,
+                  showMark: series.length <= 60,
+                },
+              ]}
+              margin={margin}
+            />
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary">
+              Cumulative spend
+            </Typography>
+            <LineChart
+              height={240}
+              xAxis={[{ data: labels, scaleType: "point" }]}
+              yAxis={[{ valueFormatter: fmt }]}
+              series={[
+                {
+                  data: cumulative,
+                  label: "Cumulative cost",
+                  area: true,
+                  color: theme.palette.secondary.main,
+                  valueFormatter: fmt,
+                  showMark: series.length <= 60,
+                },
+              ]}
+              margin={margin}
+            />
+          </Box>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+/** Compact label/value row used in the mobile (stacked-card) usage layout. */
+function UsageStat({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <Stack direction="row" justifyContent="space-between" sx={{ gap: 1 }}>
+      <Typography variant="caption" color="text.secondary">
+        {label}
+      </Typography>
+      <Typography variant="caption" sx={{ fontWeight: 600 }}>
+        {value}
+      </Typography>
+    </Stack>
+  );
+}
+
 function LlmUsagePanel() {
   const [usage, setUsage] = useState<LlmUsage | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   useEffect(() => {
     let live = true;
@@ -343,40 +474,99 @@ function LlmUsagePanel() {
             {cost(usage.totalCostUsd)}
           </Typography>
         </Stack>
-        <Typography variant="caption" color="text.secondary">
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ display: "block", mb: 2 }}
+        >
           {usage.totalCalls} calls · {usage.totalTokens.toLocaleString()} tokens
         </Typography>
+
+        <CostCharts daily={usage.daily} hourly={usage.hourly} />
+
         {usage.byModel.length > 0 ? (
-          <Table size="small" sx={{ mt: 1 }}>
-            <TableHead>
-              <TableRow>
-                <TableCell>Model</TableCell>
-                <TableCell align="right">Calls</TableCell>
-                <TableCell align="right">Prompt&nbsp;tok</TableCell>
-                <TableCell align="right">Completion&nbsp;tok</TableCell>
-                <TableCell align="right">Total&nbsp;tok</TableCell>
-                <TableCell align="right">Cost</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
+          isMobile ? (
+            <Stack spacing={1.5} sx={{ mt: 1.5 }}>
               {usage.byModel.map((m) => (
-                <TableRow key={m.model}>
-                  <TableCell>{m.model}</TableCell>
-                  <TableCell align="right">{m.calls}</TableCell>
-                  <TableCell align="right">
-                    {m.promptTokens.toLocaleString()}
-                  </TableCell>
-                  <TableCell align="right">
-                    {m.completionTokens.toLocaleString()}
-                  </TableCell>
-                  <TableCell align="right">
-                    {(m.promptTokens + m.completionTokens).toLocaleString()}
-                  </TableCell>
-                  <TableCell align="right">{cost(m.costUsd)}</TableCell>
-                </TableRow>
+                <Box
+                  key={m.model}
+                  sx={{
+                    border: 1,
+                    borderColor: "divider",
+                    borderRadius: 1,
+                    p: 1.5,
+                  }}
+                >
+                  <Stack
+                    direction="row"
+                    justifyContent="space-between"
+                    alignItems="baseline"
+                    sx={{ gap: 1, mb: 0.75 }}
+                  >
+                    <Typography
+                      variant="body2"
+                      sx={{ fontWeight: 600, wordBreak: "break-word" }}
+                    >
+                      {m.model}
+                    </Typography>
+                    <Typography
+                      variant="body2"
+                      color="primary"
+                      sx={{ fontWeight: 600, flexShrink: 0 }}
+                    >
+                      {cost(m.costUsd)}
+                    </Typography>
+                  </Stack>
+                  <UsageStat label="Calls" value={m.calls} />
+                  <UsageStat
+                    label="Prompt tokens"
+                    value={m.promptTokens.toLocaleString()}
+                  />
+                  <UsageStat
+                    label="Completion tokens"
+                    value={m.completionTokens.toLocaleString()}
+                  />
+                  <UsageStat
+                    label="Total tokens"
+                    value={(
+                      m.promptTokens + m.completionTokens
+                    ).toLocaleString()}
+                  />
+                </Box>
               ))}
-            </TableBody>
-          </Table>
+            </Stack>
+          ) : (
+            <Table size="small" sx={{ mt: 1 }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Model</TableCell>
+                  <TableCell align="right">Calls</TableCell>
+                  <TableCell align="right">Prompt&nbsp;tok</TableCell>
+                  <TableCell align="right">Completion&nbsp;tok</TableCell>
+                  <TableCell align="right">Total&nbsp;tok</TableCell>
+                  <TableCell align="right">Cost</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {usage.byModel.map((m) => (
+                  <TableRow key={m.model}>
+                    <TableCell>{m.model}</TableCell>
+                    <TableCell align="right">{m.calls}</TableCell>
+                    <TableCell align="right">
+                      {m.promptTokens.toLocaleString()}
+                    </TableCell>
+                    <TableCell align="right">
+                      {m.completionTokens.toLocaleString()}
+                    </TableCell>
+                    <TableCell align="right">
+                      {(m.promptTokens + m.completionTokens).toLocaleString()}
+                    </TableCell>
+                    <TableCell align="right">{cost(m.costUsd)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )
         ) : null}
 
         {usage.byPurpose.length > 0 ? (
@@ -384,28 +574,69 @@ function LlmUsagePanel() {
             <Typography variant="subtitle2" sx={{ mt: 3, mb: 0.5 }}>
               By pipeline step
             </Typography>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Step</TableCell>
-                  <TableCell align="right">Calls</TableCell>
-                  <TableCell align="right">Total&nbsp;tok</TableCell>
-                  <TableCell align="right">Cost</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
+            {isMobile ? (
+              <Stack spacing={1.5}>
                 {usage.byPurpose.map((p) => (
-                  <TableRow key={p.purpose}>
-                    <TableCell>{purposeLabel(p.purpose)}</TableCell>
-                    <TableCell align="right">{p.calls}</TableCell>
-                    <TableCell align="right">
-                      {(p.promptTokens + p.completionTokens).toLocaleString()}
-                    </TableCell>
-                    <TableCell align="right">{cost(p.costUsd)}</TableCell>
-                  </TableRow>
+                  <Box
+                    key={p.purpose}
+                    sx={{
+                      border: 1,
+                      borderColor: "divider",
+                      borderRadius: 1,
+                      p: 1.5,
+                    }}
+                  >
+                    <Stack
+                      direction="row"
+                      justifyContent="space-between"
+                      alignItems="baseline"
+                      sx={{ gap: 1, mb: 0.75 }}
+                    >
+                      <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                        {purposeLabel(p.purpose)}
+                      </Typography>
+                      <Typography
+                        variant="body2"
+                        color="primary"
+                        sx={{ fontWeight: 600, flexShrink: 0 }}
+                      >
+                        {cost(p.costUsd)}
+                      </Typography>
+                    </Stack>
+                    <UsageStat label="Calls" value={p.calls} />
+                    <UsageStat
+                      label="Total tokens"
+                      value={(
+                        p.promptTokens + p.completionTokens
+                      ).toLocaleString()}
+                    />
+                  </Box>
                 ))}
-              </TableBody>
-            </Table>
+              </Stack>
+            ) : (
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Step</TableCell>
+                    <TableCell align="right">Calls</TableCell>
+                    <TableCell align="right">Total&nbsp;tok</TableCell>
+                    <TableCell align="right">Cost</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {usage.byPurpose.map((p) => (
+                    <TableRow key={p.purpose}>
+                      <TableCell>{purposeLabel(p.purpose)}</TableCell>
+                      <TableCell align="right">{p.calls}</TableCell>
+                      <TableCell align="right">
+                        {(p.promptTokens + p.completionTokens).toLocaleString()}
+                      </TableCell>
+                      <TableCell align="right">{cost(p.costUsd)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </>
         ) : null}
       </CardContent>
