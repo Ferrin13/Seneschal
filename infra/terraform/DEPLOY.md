@@ -229,9 +229,12 @@ Temporal server logs (schema setup + frontend up):
 aws logs tail /ecs/parthadae-temporal --since 10m --profile seneschal --region us-west-2
 ```
 
-> **Optional Temporal Web UI:** not deployed (internal cluster). To poke at
-> it ad hoc, run `temporalio/ui` locally pointed at a port-forward, or add a
-> UI service later — not required for operation.
+> **Optional Temporal Web UI:** not deployed (internal cluster). The keep-alive
+> script (`infra/local/fb-agent-tunnel.ps1 -StartTemporalUi`) forwards the
+> private frontend to `localhost:7234` and runs `temporalio/ui` at
+> **http://localhost:8088** (both ports are non-default so they don't clash
+> with a local Temporal dev server). Or add a persistent UI service later —
+> not required for operation.
 
 ---
 

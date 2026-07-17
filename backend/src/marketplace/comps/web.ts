@@ -7,6 +7,12 @@ import type { RawComp } from "./ebay.js";
 export type CompCondition = "new" | "used";
 
 /**
+ * Hard cap on comps kept per condition (used vs new). The prompt already asks
+ * for 3-5, but we enforce it here so a chatty model can't inflate cost/clutter.
+ */
+const MAX_COMPS_PER_CONDITION = 5;
+
+/**
  * Gather price comparables via an internet search, using OpenRouter's
  * `openrouter:web_search` server tool (the model decides when to search and
  * OpenRouter runs it server-side, returning grounded, cited results). Returns
@@ -33,7 +39,7 @@ Rules:
 - estimatedValueCents is your best single estimate of the ${
     condition === "used" ? "typical used resale" : "brand-new/retail"
   } price.
-- Include 3-8 of the most relevant comps; omit anything you cannot price.
+- Include the 3-5 most relevant comps; omit anything you cannot price. Do not exceed 5.
 - Use real source URLs you actually found.
 - LOCATION: This item is being resold in ${region}. For local, in-person marketplaces (Facebook Marketplace, Craigslist, OfferUp, Nextdoor, local classifieds), ONLY include listings located in or near that area — exclude out-of-area local listings, as prices and demand differ by region.
 - Nationwide online sources where location doesn't affect price (eBay sold/asking, Amazon, retailer/MSRP pages, shippable marketplaces) are fine regardless of location; label them accordingly in "note".
@@ -78,7 +84,7 @@ export async function webComps(
     tools: [
       {
         type: "openrouter:web_search",
-        parameters: { engine: "auto", max_total_results: opts.maxResults ?? 10 },
+        parameters: { engine: "auto", max_total_results: opts.maxResults ?? 5 },
       },
     ],
     // This is a structured-extraction task, not a reasoning one. Turning
@@ -103,6 +109,9 @@ export async function webComps(
   const comps: RawComp[] = await Promise.all(
     raw
       .filter((c) => c && typeof c.priceCents === "number")
+      // Enforce the per-condition cap before repairing URLs, so we don't spend
+      // network HEAD checks on comps we're about to discard.
+      .slice(0, MAX_COMPS_PER_CONDITION)
       .map(async (c) => ({
         matchedTitle: c.title ?? null,
         priceCents:

@@ -122,7 +122,9 @@ export async function gatherComps(input: {
         )
       )
       .orderBy(desc(itemObservations.observedAt))
-      .limit(10);
+      // Keep internal history comps small: web comps (3-5 used + 3-5 new) are
+      // the primary signal, these just supplement from our own price history.
+      .limit(3);
     if (rows.length > 0) {
       // Link each internal comp back to the source listing it was observed on
       // so the UI can open the comparable.
