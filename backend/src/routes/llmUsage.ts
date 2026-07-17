@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/client.js";
 import { llmCalls } from "../db/schema.js";
@@ -50,6 +50,40 @@ export const llmUsageRoutes: FastifyPluginAsync = async (app) => {
       .groupBy(llmCalls.purpose)
       .orderBy(desc(sql`coalesce(sum(${llmCalls.costUsd}), 0)`));
 
+    // Cost/usage time series (ascending) for the cost-over-time charts. Daily
+    // spans all history; hourly is bounded to the recent window to keep the
+    // payload and chart density reasonable.
+    const dayExpr = sql`date_trunc('day', ${llmCalls.createdAt})`;
+    const daily = await db
+      .select({
+        date: sql<string>`to_char(${dayExpr}, 'YYYY-MM-DD')`,
+        costUsd: sql<number>`coalesce(sum(${llmCalls.costUsd}), 0)`,
+        calls: sql<number>`count(*)::int`,
+        tokens: sql<number>`coalesce(sum(${llmCalls.totalTokens}), 0)::int`,
+      })
+      .from(llmCalls)
+      .where(eq(llmCalls.userId, userId))
+      .groupBy(dayExpr)
+      .orderBy(dayExpr);
+
+    const hourExpr = sql`date_trunc('hour', ${llmCalls.createdAt})`;
+    const hourly = await db
+      .select({
+        date: sql<string>`to_char(${hourExpr}, 'YYYY-MM-DD HH24:00')`,
+        costUsd: sql<number>`coalesce(sum(${llmCalls.costUsd}), 0)`,
+        calls: sql<number>`count(*)::int`,
+        tokens: sql<number>`coalesce(sum(${llmCalls.totalTokens}), 0)::int`,
+      })
+      .from(llmCalls)
+      .where(
+        and(
+          eq(llmCalls.userId, userId),
+          sql`${llmCalls.createdAt} >= now() - interval '7 days'`
+        )
+      )
+      .groupBy(hourExpr)
+      .orderBy(hourExpr);
+
     const recentRows = await db
       .select()
       .from(llmCalls)
@@ -74,6 +108,18 @@ export const llmUsageRoutes: FastifyPluginAsync = async (app) => {
         costUsd: Number(p.costUsd),
         promptTokens: p.promptTokens,
         completionTokens: p.completionTokens,
+      })),
+      daily: daily.map((d) => ({
+        date: d.date,
+        costUsd: Number(d.costUsd),
+        calls: d.calls,
+        tokens: d.tokens,
+      })),
+      hourly: hourly.map((d) => ({
+        date: d.date,
+        costUsd: Number(d.costUsd),
+        calls: d.calls,
+        tokens: d.tokens,
       })),
       recent: recentRows.map((r) => ({
         id: r.id,

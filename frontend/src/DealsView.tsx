@@ -124,6 +124,22 @@ export function DealsView() {
     void load();
   }, [load]);
 
+  // Quick-assign a disposition straight from a card, then refresh the list
+  // (the candidate may drop out if the disposition filter excludes it).
+  const assignDisposition = useCallback(
+    async (id: string, disposition: Disposition) => {
+      try {
+        await api.setDisposition(id, { disposition });
+        await load();
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to update disposition"
+        );
+      }
+    },
+    [load]
+  );
+
   // Targets/searches are tab-independent; load once to power the filter.
   useEffect(() => {
     void Promise.all([api.targets(), api.searches()])
@@ -516,6 +532,7 @@ export function DealsView() {
                 key={c.id}
                 candidate={c}
                 onClick={() => openDeal(c.id)}
+                onDisposition={(d) => void assignDisposition(c.id, d)}
               />
             ))}
           </Box>

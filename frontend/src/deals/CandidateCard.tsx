@@ -4,15 +4,22 @@ import {
   CardContent,
   CardMedia,
   Divider,
+  IconButton,
   Link,
   Stack,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import ScheduleOutlinedIcon from "@mui/icons-material/ScheduleOutlined";
 import UpdateOutlinedIcon from "@mui/icons-material/UpdateOutlined";
+import NotInterestedIcon from "@mui/icons-material/NotInterested";
+import MoneyOffIcon from "@mui/icons-material/MoneyOff";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
+import SellOutlinedIcon from "@mui/icons-material/SellOutlined";
 import type { ReactNode } from "react";
-import type { Candidate } from "../api";
+import type { Candidate, Disposition } from "../api";
 import {
   DealScoreBadge,
   PlatformIcon,
@@ -28,12 +35,23 @@ import {
   money,
 } from "./shared";
 
+/** The five quick-assign dispositions shown as icon buttons on each card. */
+const QUICK_DISPOSITIONS: { value: Disposition; icon: ReactNode }[] = [
+  { value: "not_a_fit", icon: <NotInterestedIcon fontSize="small" /> },
+  { value: "not_a_good_deal", icon: <MoneyOffIcon fontSize="small" /> },
+  { value: "keep_watching", icon: <VisibilityOutlinedIcon fontSize="small" /> },
+  { value: "reached_out", icon: <ChatBubbleOutlineIcon fontSize="small" /> },
+  { value: "sold", icon: <SellOutlinedIcon fontSize="small" /> },
+];
+
 export function CandidateCard({
   candidate: c,
   onClick,
+  onDisposition,
 }: {
   candidate: Candidate;
   onClick: () => void;
+  onDisposition?: (d: Disposition) => void;
 }) {
   const e = c.evaluation;
   const iconSx = { fontSize: 15, opacity: 0.7 } as const;
@@ -229,6 +247,43 @@ export function CandidateCard({
                   </Typography>
                 </Stack>
               ))}
+            </Stack>
+          </>
+        ) : null}
+
+        {onDisposition ? (
+          <>
+            <Divider sx={{ my: 1 }} />
+            <Stack
+              direction="row"
+              spacing={0.5}
+              justifyContent="space-between"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {QUICK_DISPOSITIONS.map((q) => {
+                const active = c.disposition === q.value;
+                return (
+                  <Tooltip key={q.value} title={DISPOSITION[q.value].label}>
+                    <IconButton
+                      size="small"
+                      color={active ? DISPOSITION[q.value].color : "default"}
+                      aria-label={DISPOSITION[q.value].label}
+                      aria-pressed={active}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Clicking the active disposition clears it back to none.
+                        onDisposition(active ? "none" : q.value);
+                      }}
+                      sx={{
+                        border: 1,
+                        borderColor: active ? "currentColor" : "divider",
+                      }}
+                    >
+                      {q.icon}
+                    </IconButton>
+                  </Tooltip>
+                );
+              })}
             </Stack>
           </>
         ) : null}

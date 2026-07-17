@@ -84,7 +84,7 @@ export const DISPOSITION: Record<
 > = {
   none: { label: "No disposition", color: "default" },
   not_a_fit: { label: "Not a fit", color: "error" },
-  not_a_good_deal: { label: "Not a good deal", color: "error" },
+  not_a_good_deal: { label: "Not good value", color: "error" },
   keep_watching: { label: "Keep watching", color: "info" },
   reached_out: { label: "Reached out", color: "primary" },
   sold: { label: "Sold", color: "success" },
