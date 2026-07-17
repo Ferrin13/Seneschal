@@ -1,7 +1,7 @@
 # Seneschal — production deploy runbook
 
 End-to-end steps to stand up the deal hunter (API + SPA + self-hosted
-Temporal + worker + Facebook browser box) on AWS. Commands are **Windows
+Temporal + worker + Facebook agent host) on AWS. Commands are **Windows
 PowerShell**. Run everything from `infra/terraform/` unless noted.
 
 Your environment (from `prod.tfvars`):
@@ -11,9 +11,15 @@ Your environment (from `prod.tfvars`):
 | AWS profile / region | `seneschal` / `us-west-2` |
 | API URL | `https://api.seneschal.parthadae.com` |
 | Web URL | `https://seneschal.parthadae.com` |
-| Browser box (noVNC) | `https://browser.parthadae.com` |
+| Agent host (SSH / tunnel) | `browser.parthadae.com` |
 | Temporal (internal) | `temporal.parthadae.internal:7233` |
 | Git branch pipelines track | `master` |
+
+> **Facebook scraping model:** the browser runs on **your local machine**
+> (logged into Facebook normally), and the agent host reaches it over an SSH
+> reverse tunnel (`box 127.0.0.1:9222 -> your local Chrome CDP`). The EC2 box
+> no longer runs Chrome/noVNC — it just runs the `scraper-agent` Temporal
+> worker and is the SSH jump host. See §7 and `infra/local/fb-agent-tunnel.ps1`.
 
 ---
 
@@ -21,16 +27,20 @@ Your environment (from `prod.tfvars`):
 
 - [ ] **`browser_allowed_cidrs`** is still the doc placeholder
   `203.0.113.4/32`. Set it to your real public IP(s) or you'll lock
-  *yourself* out of noVNC/SSH (and leave it open to no one else). Find your
-  IP: `(Invoke-RestMethod https://api.ipify.org)` then use `<ip>/32`.
+  *yourself* out of SSH / the reverse tunnel (and leave it open to no one
+  else). Find your IP: `(Invoke-RestMethod https://api.ipify.org)` then use
+  `<ip>/32`.
+- [ ] **`browser_ssh_public_key`** is set to your SSH public key
+  (`~/.ssh/id_ed25519.pub`). It's how you open the reverse CDP tunnel to the
+  agent host.
 - [ ] **Scraper agent ships as a CI artifact** (no repo clone on the box).
   The `seneschal-agent` pipeline builds `agent/`, uploads
   `agent/latest/agent.tar.gz` to the `seneschal-agent-releases-*` S3 bucket,
   and SSM-redeploys the box. Works for a **private** repo (CodeStar handles
   auth) — you just need the branch pushed. Nothing to configure here.
-- [ ] **`prod.tfvars` holds real secrets** (OpenRouter key, noVNC password,
-  agent token). It's gitignored — confirm `git status` never shows it, and
-  rotate the OpenRouter key if it has ever been shared.
+- [ ] **`prod.tfvars` holds real secrets** (OpenRouter key, agent token).
+  It's gitignored — confirm `git status` never shows it, and rotate the
+  OpenRouter key if it has ever been shared.
 - [ ] Repo is pushed to `github.com/Ferrin13/Seneschal` on branch `master`
   (the pipeline deploys from there — nothing ships until it's pushed).
 
@@ -225,18 +235,37 @@ aws logs tail /ecs/parthadae-temporal --since 10m --profile seneschal --region u
 
 ---
 
-## 7. Log the browser box into Facebook (one-time)
+## 7. Connect your local Chrome (Facebook scraping)
 
-1. From an **allowed CIDR** (step 0), open `browser_box_url`
-   (`https://browser.parthadae.com/vnc.html`). Basic-auth user `admin`,
-   password = your `browser_novnc_password`.
-   - First load may take a few minutes while cloud-init installs Chrome. If
-     it 502s, wait and retry. (The agent itself is installed by the
-     `seneschal-agent` pipeline in step 5, not built on the box.)
-2. In the remote Chrome, log into Facebook and finish any 2FA. The profile
-   persists on the box's disk across restarts.
-3. The `scraper-agent` systemd unit (a Temporal worker on the `browser-box`
-   queue) then serves Facebook activities automatically.
+Facebook challenges datacenter IPs and headless/instrumented browsers, so the
+agent drives a **real Chrome on your machine** over an SSH reverse tunnel. Set
+this up once; the keep-alive script keeps it running.
+
+1. **Dedicated Chrome + tunnel.** Run the keep-alive script from
+   `infra/local/` (edit the defaults at the top if your zone/paths differ):
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File ..\local\fb-agent-tunnel.ps1
+   ```
+
+   It launches an isolated Chrome (`--remote-debugging-port=9222`, profile
+   `%USERPROFILE%\fb-scrape-profile`) and opens the reverse tunnel
+   `ssh -N -R 9222:127.0.0.1:9222 ubuntu@browser.parthadae.com`, auto-reconnecting
+   if it drops. To survive reboots, register it at logon (see the script's
+   header for the `Register-ScheduledTask` snippet).
+
+2. In that Chrome window, **log into Facebook** normally and finish any 2FA.
+   The session persists in the dedicated profile.
+
+3. Verify the box sees your Chrome (should print a `Windows` user-agent):
+
+   ```powershell
+   ssh ubuntu@browser.parthadae.com "curl -s http://127.0.0.1:9222/json/version"
+   ```
+
+4. The `scraper-agent` systemd unit (a Temporal worker on the `browser-box`
+   queue) connects to `127.0.0.1:9222` → the tunnel → your Chrome, and serves
+   Facebook activities automatically.
 
 Shell onto the box via SSM if needed (no SSH key required):
 
@@ -299,9 +328,9 @@ build/sideload as usual. Not part of this Terraform/CI pipeline.
 | Worker logs: `Connection refused` to Temporal | Temporal task not healthy yet, or SG rule missing — check `parthadae-temporal` service + `aws logs tail /ecs/parthadae-temporal`. |
 | Worker: `Invalid environment configuration` | A required var (e.g. `DATABASE_URL`, `OPENROUTER_API_KEY`) not injected — check the worker task def / secrets. |
 | Temporal task boot-loops | RDS not reachable — verify the Temporal DB SG and that `parthadae-temporal` RDS is `available`. |
-| Browser box 502 on noVNC | cloud-init still running, or `caddy`/`novnc` not up yet. SSM in and check `systemctl status`. |
+| `scraper-agent` logs `ECONNREFUSED 127.0.0.1:9222` | The reverse tunnel isn't up — start `fb-agent-tunnel.ps1` on your machine (step 7). Verify with `ssh ubuntu@browser.parthadae.com "curl -s http://127.0.0.1:9222/json/version"`. |
 | `scraper-agent` crash-loops with "cannot find dist/worker.js" | Agent artifact not deployed yet — run the `seneschal-agent` pipeline (step 5). On the box: `sudo /opt/browser/deploy-agent.sh`. |
-| Facebook activities never run | Chrome not logged in (step 7), or agent can't reach Temporal — `journalctl -u scraper-agent`. |
+| Facebook activities fail with `logged_out` | Your local Chrome's Facebook session expired — re-open the dedicated Chrome (step 7) and log back in. |
 | Craigslist skipped | `craigslist_site` must be a non-empty slug (currently `boise`). |
 
 ## Teardown

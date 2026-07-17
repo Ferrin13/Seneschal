@@ -29,11 +29,16 @@ assumed to already exist as RDS in a VPC you own):
   `dist/temporal/worker.js`. It services the `deal-hunter` Temporal task
   queue (Craigslist harvest, LLM triage/comps/evaluation, DB writes) and
   registers one Temporal Schedule per active search target on boot.
-- **Browser box** (`modules/browser-box`, optional): an always-on EC2 box
-  running a headed Chrome you log into Facebook once via noVNC, plus the
-  scraper agent — itself a Temporal activity worker on the `browser-box`
-  queue — that drives Chrome over CDP for Facebook Marketplace. The agent is
-  **not** built on the box; it's shipped as a CI-built artifact (see below).
+- **Agent host** (`modules/browser-box`, optional): an always-on EC2 box that
+  runs the scraper agent — a Temporal activity worker on the `browser-box`
+  queue — for Facebook Marketplace. Facebook challenges datacenter IPs and
+  instrumented/headless browsers, so the agent drives a **real Chrome on the
+  operator's local machine**, reached over an SSH reverse tunnel
+  (`box 127.0.0.1:9222 -> local Chrome CDP`). The box therefore runs no
+  browser of its own; it's the SSH jump host and lives in the VPC so the agent
+  can reach Temporal privately. The agent is **not** built on the box; it's
+  shipped as a CI-built artifact (see below). See
+  `infra/local/fb-agent-tunnel.ps1` for the operator-side keep-alive.
 - **Agent release pipeline** (`modules/pipeline`, when the browser box is
   enabled): a third CodePipeline (`seneschal-agent`) that builds `agent/`,
   uploads `agent/latest/agent.tar.gz` to an S3 releases bucket, and triggers
@@ -109,10 +114,11 @@ The deal hunter runs as a Temporal workflow. Three things cooperate:
                  └───────┬───────────────┬───────────────┬────┘
       starts workflows / │               │ deal-hunter   │ browser-box
       schedules          │               │ task queue    │ task queue
-             ┌───────────┴───┐   ┌────────┴────────┐  ┌───┴──────────────┐
-             │ seneschal-api  │   │ seneschal-worker │  │ browser box agent │
-             │ (ECS + ALB)    │   │ (ECS service)    │  │ (EC2 + Chrome/CDP)│
-             └────────────────┘   └──────────────────┘  └───────────────────┘
+             ┌───────────┴───┐   ┌────────┴────────┐  ┌───┴──────────────────┐
+             │ seneschal-api  │   │ seneschal-worker │  │ agent host (EC2)      │
+             │ (ECS + ALB)    │   │ (ECS service)    │  │ SSH tunnel -> local   │
+             └────────────────┘   └──────────────────┘  │ Chrome/CDP :9222      │
+                                                         └───────────────────────┘
 ```
 
 - The **API** and **worker** are the same Docker image; the worker just runs
@@ -122,11 +128,13 @@ The deal hunter runs as a Temporal workflow. Three things cooperate:
   Its RDS master password is generated and stored in Secrets Manager
   (`parthadae/temporal/db-password`); `auto-setup` creates the `temporal` and
   `temporal_visibility` databases on first boot.
-- The **browser box** is gated by `enable_browser_box`. Facebook scraping is
+- The **agent host** is gated by `enable_browser_box`. Facebook scraping is
   in scope for V1, so set it to `true` and fill in the `browser_*` /
-  `agent_token` vars. Its agent connects to Temporal directly (no `/agent/*`
-  API routes are involved), and is delivered as a CI-built artifact from S3
-  (the `seneschal-agent` pipeline) rather than cloned/built on the box.
+  `agent_token` vars (including `browser_ssh_public_key`). Its agent connects
+  to Temporal directly (no `/agent/*` API routes are involved), and is
+  delivered as a CI-built artifact from S3 (the `seneschal-agent` pipeline)
+  rather than cloned/built on the box. The browser it drives runs on the
+  operator's machine via the reverse tunnel (see the module note above).
 
 Security-group wiring (worker→DB, and API/worker/browser-box→Temporal:7233)
 is created in the root module to avoid a module dependency cycle.
@@ -194,7 +202,7 @@ After that, both pipelines will run on every push to the configured branch
   Docker image, pushes to ECR, runs DB migrations, does the API blue/green
   deploy, then force-new-deploys the worker service onto the new image.
 - **Push to `main` under `agent/**`** -> agent pipeline builds the scraper
-  agent, uploads the artifact to S3, and SSM-redeploys the browser box.
+  agent, uploads the artifact to S3, and SSM-redeploys the agent host.
 - **Push to `main` under `frontend/**`** -> frontend pipeline builds the
   SPA with the configured `VITE_*` env vars, syncs `dist/` to S3, and
   invalidates CloudFront.
@@ -221,18 +229,22 @@ After `terraform apply` you'll see:
 - `temporal_address` — `temporal.parthadae.internal:7233`
 - `temporal_cluster_name`, `temporal_db_endpoint`
 - `worker_service_name` — ECS service for the deal-hunter worker
-- `browser_box_url` — noVNC URL to log the box into Facebook (when
-  `enable_browser_box = true`)
+- `browser_box_ssh_host` — SSH hostname of the agent host (used for the
+  reverse CDP tunnel) when `enable_browser_box = true`
+- `browser_box_instance_id` — for SSM Session Manager
 
-## Logging the browser box into Facebook (one-time)
+## Connecting local Chrome for Facebook scraping (one-time)
 
 After `terraform apply` with `enable_browser_box = true`:
 
-1. Open the `browser_box_url` output (`https://browser.<domain>/vnc.html`)
-   from an allowed CIDR; authenticate with `admin` / your
-   `browser_novnc_password`.
-2. In the remote Chrome, log into Facebook and complete any 2FA. The profile
-   is persisted on the box's disk, so this survives restarts.
+1. On your machine, run `infra/local/fb-agent-tunnel.ps1`. It launches an
+   isolated Chrome with remote debugging on `127.0.0.1:9222` and opens the
+   reverse tunnel `ssh -N -R 9222:127.0.0.1:9222 ubuntu@<browser_box_ssh_host>`,
+   auto-reconnecting if it drops. Register it at logon (snippet in the script
+   header) so it survives reboots.
+2. In that Chrome, log into Facebook and complete any 2FA. The session
+   persists in the dedicated profile.
 3. The `scraper-agent` systemd service (a Temporal worker on the
-   `browser-box` queue) picks up Facebook activities automatically once
-   Chrome is logged in.
+   `browser-box` queue) connects through the tunnel to your Chrome and picks
+   up Facebook activities automatically. Verify with
+   `ssh ubuntu@<browser_box_ssh_host> "curl -s http://127.0.0.1:9222/json/version"`.

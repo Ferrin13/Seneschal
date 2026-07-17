@@ -51,17 +51,19 @@ worker_cpu           = 512
 worker_memory        = 1024
 worker_desired_count = 1
 
-# --- Browser box (Facebook Marketplace scraping) ------------------------
-# Facebook scraping is in scope for V1, so enable the always-on browser box.
-# You log its Chrome into Facebook once via noVNC; the scraper agent (a
-# Temporal activity worker) then drives it.
-enable_browser_box     = true
-browser_subdomain      = "browser"
-browser_instance_type  = "t3.small"
-browser_allowed_cidrs  = ["203.0.113.4/32"] # LOCK to your IP(s) for noVNC + SSH
-browser_novnc_password = "change-me"
-agent_token            = "generate-a-long-random-string"
-# browser_ssh_public_key = "ssh-ed25519 AAAA..."   # optional; SSM works without it
+# --- Agent host (Facebook Marketplace scraping) -------------------------
+# Facebook scraping is in scope for V1. The browser runs on the operator's
+# LOCAL machine (logged into Facebook normally); this always-on EC2 box runs
+# the scraper agent (a Temporal activity worker) and acts as the SSH jump host
+# for the reverse CDP tunnel:
+#   ssh -N -R 9222:127.0.0.1:9222 ubuntu@browser.<your-zone>
+enable_browser_box    = true
+browser_subdomain     = "browser"
+browser_instance_type = "t3.small" # only runs the Node agent + SSH tunnel; t3.micro is plenty
+browser_allowed_cidrs = ["203.0.113.4/32"] # LOCK to your IP(s) for SSH + the tunnel
+agent_token           = "generate-a-long-random-string"
+# SSH key for the operator (direct SSH + the reverse CDP tunnel to local Chrome).
+browser_ssh_public_key = "ssh-ed25519 AAAA..."
 # The scraper agent is built by the seneschal-agent CodePipeline (on pushes
 # under agent/**) and pulled from S3 by the box, so there's no repo to clone.
 

@@ -4,13 +4,13 @@ output "instance_id" {
 }
 
 output "public_ip" {
-  description = "Elastic IP of the browser box."
+  description = "Elastic IP of the agent host (SSH / reverse-tunnel endpoint)."
   value       = aws_eip.box.public_ip
 }
 
-output "browser_url" {
-  description = "noVNC URL for logging into Facebook."
-  value       = "https://${var.browser_fqdn}/vnc.html"
+output "ssh_host" {
+  description = "Stable SSH hostname (Route53 A record -> EIP) for the reverse CDP tunnel."
+  value       = var.browser_fqdn
 }
 
 output "security_group_id" {
