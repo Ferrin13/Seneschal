@@ -1,100 +1,36 @@
 #cloud-config
-# Browser box: a persistent headed Chrome (on Xvfb) you log into Facebook via
-# noVNC, plus the scraper agent that drives it over CDP. CDP (9222) and VNC
-# (5900) bind to localhost only; noVNC is exposed via Caddy TLS + basic auth.
+# Agent host for the Seneschal scraper agent (a Temporal activity worker).
+#
+# The browser it drives runs on the OPERATOR'S LOCAL MACHINE and is reached
+# over an SSH reverse tunnel: the operator runs
+#   ssh -N -R 9222:127.0.0.1:9222 ubuntu@<this-box>
+# which maps this box's 127.0.0.1:9222 to their local Chrome's CDP port. This
+# box therefore no longer runs Chrome/noVNC/Xvfb itself -- it just runs the
+# agent and acts as the SSH jump host. Living inside the VPC lets the agent
+# reach the private Temporal frontend directly.
 package_update: true
 package_upgrade: false
 
+# Operator SSH key (used for the reverse tunnel + admin access).
+ssh_authorized_keys:
+  - ${ssh_public_key}
+
 write_files:
-  # ---- Xvfb virtual display ----
-  - path: /etc/systemd/system/xvfb.service
-    content: |
-      [Unit]
-      Description=X virtual framebuffer
-      After=network.target
-
-      [Service]
-      ExecStart=/usr/bin/Xvfb :99 -screen 0 1920x1080x24 -ac
-      Restart=always
-
-      [Install]
-      WantedBy=multi-user.target
-
-  # ---- Headed Chrome with CDP on localhost, persistent profile ----
-  - path: /etc/systemd/system/chrome.service
-    content: |
-      [Unit]
-      Description=Headed Chrome (CDP)
-      After=xvfb.service
-      Requires=xvfb.service
-
-      [Service]
-      User=browser
-      Environment=DISPLAY=:99
-      ExecStart=/usr/bin/google-chrome-stable \
-        --remote-debugging-port=9222 \
-        --remote-debugging-address=127.0.0.1 \
-        --user-data-dir=/opt/browser/profile \
-        --no-first-run \
-        --no-default-browser-check \
-        --disable-features=Translate \
-        --start-maximized \
-        --window-position=0,0 \
-        --window-size=1920,1080 \
-        https://www.facebook.com/
-      Restart=always
-      RestartSec=5
-
-      [Install]
-      WantedBy=multi-user.target
-
-  # ---- x11vnc: expose the display on localhost only ----
-  - path: /etc/systemd/system/x11vnc.service
-    content: |
-      [Unit]
-      Description=x11vnc for :99
-      After=chrome.service
-      Requires=xvfb.service
-
-      [Service]
-      User=browser
-      Environment=DISPLAY=:99
-      ExecStart=/usr/bin/x11vnc -display :99 -localhost -forever -shared -rfbport 5900 -nopw
-      Restart=always
-      RestartSec=5
-
-      [Install]
-      WantedBy=multi-user.target
-
-  # ---- noVNC websockify bridge (localhost VNC -> localhost 6080) ----
-  - path: /etc/systemd/system/novnc.service
-    content: |
-      [Unit]
-      Description=noVNC websockify
-      After=x11vnc.service
-      Requires=x11vnc.service
-
-      [Service]
-      ExecStart=/usr/bin/websockify --web=/usr/share/novnc 6080 localhost:5900
-      Restart=always
-      RestartSec=5
-
-      [Install]
-      WantedBy=multi-user.target
-
   # ---- Scraper agent ----
   - path: /etc/systemd/system/scraper-agent.service
     content: |
       [Unit]
       Description=Seneschal scraper agent
-      After=chrome.service network-online.target
-      Requires=chrome.service
+      After=network-online.target
+      Wants=network-online.target
 
       [Service]
       User=browser
       WorkingDirectory=/opt/browser/app/agent
       ExecStartPre=/opt/browser/write-env.sh
-      EnvironmentFile=/opt/browser/agent.env
+      # Optional (leading '-'): the file is created by the ExecStartPre above,
+      # so it won't exist on the very first activation.
+      EnvironmentFile=-/opt/browser/agent.env
       ExecStart=/usr/bin/node dist/worker.js
       Restart=always
       RestartSec=10
@@ -126,8 +62,7 @@ write_files:
 
   # ---- Agent deploy: pull the CI-built artifact from S3 and restart ----
   # Invoked at boot and by the agent pipeline's Deploy stage (via SSM
-  # RunCommand). Keeps parity with the rest of the app: CI builds the
-  # artifact, the target just pulls it — no source checkout or npm on the box.
+  # RunCommand). CI builds the artifact; the box just pulls it.
   - path: /opt/browser/deploy-agent.sh
     permissions: "0755"
     content: |
@@ -153,11 +88,9 @@ write_files:
 
       export DEBIAN_FRONTEND=noninteractive
 
-      # Base packages
+      # Base packages (no browser stack -- Chrome runs on the operator's machine)
       apt-get update
-      apt-get install -y curl git jq unzip ca-certificates gnupg \
-        xvfb x11vnc novnc websockify \
-        fonts-liberation fonts-noto-color-emoji
+      apt-get install -y curl jq unzip ca-certificates gnupg
 
       # Node.js 20
       curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
@@ -168,50 +101,18 @@ write_files:
       unzip -q /tmp/awscliv2.zip -d /tmp
       /tmp/aws/install || /tmp/aws/install --update
 
-      # Google Chrome (stable)
-      curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
-        | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
-      echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
-        > /etc/apt/sources.list.d/google-chrome.list
-      apt-get update
-      apt-get install -y google-chrome-stable
-
-      # Caddy (auto-TLS reverse proxy + basic auth)
-      curl -fsSL https://dl.cloudsmith.io/public/caddy/stable/gpg.key \
-        | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-      echo "deb [signed-by=/usr/share/keyrings/caddy-stable-archive-keyring.gpg] https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main" \
-        > /etc/apt/sources.list.d/caddy-stable.list
-      apt-get update
-      apt-get install -y caddy
-
-      # Dedicated unprivileged user + profile dir
+      # Dedicated unprivileged user that runs the agent
       id browser >/dev/null 2>&1 || useradd -m -s /bin/bash browser
-      mkdir -p /opt/browser/profile /opt/browser/app/agent
+      mkdir -p /opt/browser/app/agent
       chown -R browser:browser /opt/browser
 
       # Pull the CI-built scraper agent artifact from S3. Best-effort: on the
       # very first boot the artifact may not exist yet (the agent pipeline
-      # hasn't run). The scraper-agent service simply retries until the first
-      # deploy uploads it and triggers a redeploy via SSM.
+      # hasn't run). scraper-agent simply retries until the first deploy.
       /opt/browser/deploy-agent.sh || \
         echo "Agent artifact not available yet; will start after the first agent pipeline deploy."
 
-      # Caddy config: TLS for the FQDN, basic auth, proxy to noVNC.
-      HASH="$(caddy hash-password --plaintext '${novnc_password}')"
-      cat > /etc/caddy/Caddyfile <<EOF
-      ${browser_fqdn} {
-        basicauth {
-          admin $HASH
-        }
-        reverse_proxy localhost:6080
-      }
-      EOF
-
       systemctl daemon-reload
-      systemctl enable --now xvfb.service
-      sleep 2
-      systemctl enable --now chrome.service x11vnc.service novnc.service
-      systemctl restart caddy
       systemctl enable --now scraper-agent.service
 
 runcmd:

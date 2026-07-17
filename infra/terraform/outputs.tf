@@ -68,13 +68,13 @@ output "agent_releases_bucket" {
   value       = var.enable_browser_box ? aws_s3_bucket.agent_releases[0].bucket : null
 }
 
-output "browser_box_url" {
-  description = "noVNC URL for logging the browser box into Facebook."
-  value       = var.enable_browser_box ? module.browser_box[0].browser_url : null
+output "browser_box_ssh_host" {
+  description = "SSH hostname for the agent host (used for the reverse CDP tunnel to local Chrome)."
+  value       = var.enable_browser_box ? module.browser_box[0].ssh_host : null
 }
 
 output "browser_box_public_ip" {
-  description = "Elastic IP of the browser box."
+  description = "Elastic IP of the agent host (SSH / reverse-tunnel endpoint)."
   value       = var.enable_browser_box ? module.browser_box[0].public_ip : null
 }
 

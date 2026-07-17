@@ -242,13 +242,13 @@ variable "frontend_build_env" {
 # --- Browser box (marketplace deal-finder) ------------------------------
 
 variable "enable_browser_box" {
-  description = "Whether to provision the always-on EC2 browser box + scraper agent."
+  description = "Whether to provision the always-on EC2 agent host (runs the scraper agent + SSH jump host for the operator's local Chrome)."
   type        = bool
   default     = false
 }
 
 variable "browser_subdomain" {
-  description = "Subdomain (under hosted_zone_name) for noVNC access to the browser box."
+  description = "Subdomain (under hosted_zone_name) pointed at the agent host's EIP, used as a stable SSH hostname."
   type        = string
   default     = "browser"
 }
@@ -260,22 +260,15 @@ variable "browser_subnet_id" {
 }
 
 variable "browser_instance_type" {
-  description = "EC2 instance type for the browser box."
+  description = "EC2 instance type for the agent host. It only runs the Node agent + SSH tunnel, so t3.micro is plenty."
   type        = string
   default     = "t3.small"
 }
 
 variable "browser_allowed_cidrs" {
-  description = "CIDRs allowed to reach the browser box's noVNC (443) and SSH (22). Lock to your IP(s)."
+  description = "CIDRs allowed to reach the agent host's SSH (22), which also carries the reverse CDP tunnel. Lock to your IP(s)."
   type        = list(string)
   default     = []
-}
-
-variable "browser_novnc_password" {
-  description = "Plaintext password for noVNC basic auth on the browser box."
-  type        = string
-  default     = null
-  sensitive   = true
 }
 
 variable "agent_token" {
@@ -286,7 +279,7 @@ variable "agent_token" {
 }
 
 variable "browser_ssh_public_key" {
-  description = "Optional SSH public key for the browser box. Empty relies on SSM Session Manager."
+  description = "SSH public key for the operator (direct SSH + the reverse CDP tunnel to local Chrome). Injected via cloud-init, so rotating it never replaces the instance."
   type        = string
   default     = ""
 }

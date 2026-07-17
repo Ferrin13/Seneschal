@@ -249,7 +249,6 @@ module "browser_box" {
 
   api_base_url           = "https://${local.api_fqdn}"
   agent_token_secret_arn = aws_secretsmanager_secret.agent_token[0].arn
-  novnc_password         = var.browser_novnc_password
   agent_releases_bucket  = aws_s3_bucket.agent_releases[0].bucket
   agent_name             = "browser-box"
   ssh_public_key         = var.browser_ssh_public_key

@@ -1,6 +1,6 @@
 data "aws_region" "current" {}
 
-# Latest Ubuntu 24.04 LTS (x86_64) so google-chrome-stable installs cleanly.
+# Latest Ubuntu 24.04 LTS (x86_64).
 data "aws_ami" "ubuntu" {
   most_recent = true
   owners      = ["099720109477"] # Canonical
@@ -17,20 +17,20 @@ data "aws_ami" "ubuntu" {
 }
 
 # ----- Security group ---------------------------------------------------
-# Only noVNC (443) and SSH (22) are exposed, restricted to allowed_cidrs.
-# CDP (9222) and VNC (5900) bind to localhost on the box and are never opened.
+# Only SSH (22) is exposed, restricted to allowed_cidrs. SSH also carries the
+# reverse tunnel (box 127.0.0.1:9222 -> operator's local Chrome CDP), so no
+# other inbound ports are needed. The agent's outbound traffic (Temporal, API,
+# S3) uses egress.
+#
+# NOTE: `description` is kept verbatim from when this box also ran noVNC. An SG
+# description is immutable, so editing it forces a full SG replacement, which
+# deadlocks (the SG is attached to the instance ENI and referenced by the
+# Temporal ingress rule). Removing the 443/80 ingress below is an in-place
+# change, so we leave the description alone to avoid the churn.
 resource "aws_security_group" "box" {
   name        = "${var.name_prefix}-browser-box-sg"
   description = "Browser box: noVNC 443 + SSH 22 from allowed CIDRs only"
   vpc_id      = var.vpc_id
-
-  ingress {
-    description = "noVNC (Caddy TLS)"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = var.allowed_cidrs
-  }
 
   ingress {
     description = "SSH"
@@ -120,14 +120,10 @@ resource "aws_iam_instance_profile" "box" {
   role = aws_iam_role.box.name
 }
 
-# ----- Optional SSH key -------------------------------------------------
-resource "aws_key_pair" "box" {
-  count      = var.ssh_public_key == "" ? 0 : 1
-  key_name   = "${var.name_prefix}-browser-box"
-  public_key = var.ssh_public_key
-}
-
 # ----- The instance -----------------------------------------------------
+# SSH access is provisioned via cloud-init `ssh_authorized_keys` (below) rather
+# than an EC2 key pair, so setting/rotating the key never forces an instance
+# replacement (user_data is ignored post-launch).
 resource "aws_instance" "box" {
   ami                         = data.aws_ami.ubuntu.id
   instance_type               = var.instance_type
@@ -135,14 +131,12 @@ resource "aws_instance" "box" {
   vpc_security_group_ids      = [aws_security_group.box.id]
   iam_instance_profile        = aws_iam_instance_profile.box.name
   associate_public_ip_address = true
-  key_name                    = var.ssh_public_key == "" ? null : aws_key_pair.box[0].key_name
 
   user_data = base64encode(templatefile("${path.module}/cloud-init.yaml.tftpl", {
     region                 = data.aws_region.current.name
     api_base_url           = var.api_base_url
     agent_token_secret_arn = var.agent_token_secret_arn
-    browser_fqdn           = var.browser_fqdn
-    novnc_password         = var.novnc_password
+    ssh_public_key         = var.ssh_public_key
     agent_releases_bucket  = var.agent_releases_bucket
     agent_name             = var.agent_name
     temporal_address       = var.temporal_address
@@ -150,8 +144,8 @@ resource "aws_instance" "box" {
     browser_task_queue     = var.browser_task_queue
   }))
 
-  # Replacing user_data alone shouldn't recycle the box (and wipe the FB
-  # profile); pull updates via SSM instead.
+  # Replacing user_data / AMI alone shouldn't recycle the box; the agent is
+  # updated in place via the pipeline's SSM RunCommand (deploy-agent.sh).
   lifecycle {
     ignore_changes = [user_data, ami]
   }
