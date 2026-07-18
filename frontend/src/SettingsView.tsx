@@ -4,15 +4,28 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
+  Chip,
   CircularProgress,
+  FormControl,
+  FormControlLabel,
+  InputAdornment,
+  InputLabel,
+  ListItemText,
   ListSubheader,
   MenuItem,
+  OutlinedInput,
+  Select,
+  Slider,
   Stack,
+  Switch,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
+  Tabs,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
@@ -28,21 +41,454 @@ import {
   type LlmUsage,
   type ModelSettings,
   type ModelStepConfig,
+  type NotificationPrefs,
+  type SearchTarget,
 } from "./api";
+import {
+  notificationPermission,
+  notificationsSupported,
+  requestNotificationPermission,
+} from "./useDealNotifications";
+
+const SETTINGS_TABS = [
+  { label: "Notifications", render: () => <NotificationSettingsPanel /> },
+  {
+    label: "LLM",
+    render: () => (
+      <Stack spacing={3}>
+        <ModelSettingsPanel />
+        <LlmUsagePanel />
+      </Stack>
+    ),
+  },
+] as const;
 
 export function SettingsView() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const [tab, setTab] = useState(0);
+
   return (
     <Stack spacing={3}>
       <Box>
         <Typography variant="h5">Settings</Typography>
         <Typography color="text.secondary" variant="body2">
-          Configure which model each step of the deal pipeline uses, and review
-          LLM spend.
+          Choose which deals notify your browser, configure the models each
+          pipeline step uses, and review LLM spend. Changes save automatically.
         </Typography>
       </Box>
-      <ModelSettingsPanel />
-      <LlmUsagePanel />
+
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: { xs: "column", md: "row" },
+          gap: { xs: 2, md: 3 },
+          alignItems: "stretch",
+        }}
+      >
+        <Tabs
+          orientation={isMobile ? "horizontal" : "vertical"}
+          variant={isMobile ? "scrollable" : "standard"}
+          scrollButtons={isMobile ? "auto" : false}
+          allowScrollButtonsMobile
+          value={tab}
+          onChange={(_e, v: number) => setTab(v)}
+          sx={{
+            flexShrink: 0,
+            minWidth: { md: 180 },
+            borderRight: { md: 1 },
+            borderBottom: { xs: 1, md: 0 },
+            borderColor: "divider",
+            "& .MuiTab-root": { alignItems: { md: "flex-start" } },
+          }}
+        >
+          {SETTINGS_TABS.map((t) => (
+            <Tab key={t.label} label={t.label} />
+          ))}
+        </Tabs>
+
+        <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+          {SETTINGS_TABS[tab]?.render()}
+        </Box>
+      </Box>
     </Stack>
+  );
+}
+
+type SaveState = "idle" | "saving" | "saved" | "error";
+
+/** Small inline indicator reflecting the auto-save status of a panel. */
+function SaveStatus({ state }: { state: SaveState }) {
+  if (state === "saving") {
+    return (
+      <Typography variant="caption" color="text.secondary">
+        Saving…
+      </Typography>
+    );
+  }
+  if (state === "saved") {
+    return (
+      <Typography variant="caption" color="success.main">
+        Saved ✓
+      </Typography>
+    );
+  }
+  if (state === "error") {
+    return (
+      <Typography variant="caption" color="error.main">
+        Couldn't save
+      </Typography>
+    );
+  }
+  return null;
+}
+
+function sameIds(a: string[] | null, b: string[] | null): boolean {
+  const x = [...(a ?? [])].sort();
+  const y = [...(b ?? [])].sort();
+  return x.length === y.length && x.every((v, i) => v === y[i]);
+}
+
+function prefsEqual(a: NotificationPrefs, b: NotificationPrefs): boolean {
+  return (
+    a.enabled === b.enabled &&
+    a.minDealScore === b.minDealScore &&
+    a.minValueScore === b.minValueScore &&
+    a.maxPriceCents === b.maxPriceCents &&
+    sameIds(a.targetIds, b.targetIds)
+  );
+}
+
+function centsToDollarInput(cents: number | null): string {
+  return cents == null ? "" : (cents / 100).toString();
+}
+
+function dollarInputToCents(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 100);
+}
+
+/**
+ * Browser-notification settings: a master switch (which also drives the OS
+ * permission prompt), the deal/value/price thresholds a candidate must clear
+ * to notify, and which targets to be notified about.
+ */
+function NotificationSettingsPanel() {
+  const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
+  // Last value persisted to the server; drives auto-save dirty-detection.
+  const [serverPrefs, setServerPrefs] = useState<NotificationPrefs | null>(null);
+  const [targets, setTargets] = useState<SearchTarget[]>([]);
+  const [maxPrice, setMaxPrice] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [permission, setPermission] = useState<NotificationPermission>(
+    notificationPermission()
+  );
+
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const [p, t] = await Promise.all([
+        api.notificationSettings(),
+        api.targets(),
+      ]);
+      setPrefs(p);
+      setServerPrefs(p);
+      setMaxPrice(centsToDollarInput(p.maxPriceCents));
+      setTargets(t);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load notification settings"
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const patch = (p: Partial<NotificationPrefs>) => {
+    setPrefs((cur) => (cur ? { ...cur, ...p } : cur));
+  };
+
+  const enableNotifications = async (on: boolean) => {
+    if (on && permission !== "granted") {
+      const result = await requestNotificationPermission();
+      setPermission(result);
+      // Reflect the switch state even if the user denied the prompt so the UI
+      // can explain why nothing will show.
+      patch({ enabled: result === "granted" });
+      return;
+    }
+    patch({ enabled: on });
+  };
+
+  // Debounced auto-save: whenever the working prefs (incl. the max-price text)
+  // diverge from what's on the server, persist after a short pause.
+  useEffect(() => {
+    if (!prefs || !serverPrefs) return;
+    const candidate: NotificationPrefs = {
+      ...prefs,
+      maxPriceCents: dollarInputToCents(maxPrice),
+    };
+    if (prefsEqual(candidate, serverPrefs)) return;
+
+    setSaveState("saving");
+    const t = setTimeout(async () => {
+      setError(null);
+      try {
+        const saved = await api.updateNotificationSettings(candidate);
+        setServerPrefs(saved);
+        setPrefs(saved);
+        setMaxPrice(centsToDollarInput(saved.maxPriceCents));
+        setSaveState("saved");
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to save notification settings"
+        );
+        setSaveState("error");
+      }
+    }, 700);
+    return () => clearTimeout(t);
+  }, [prefs, maxPrice, serverPrefs]);
+
+  // Fire a notification straight from the browser, bypassing the backend/poll.
+  // The quickest way to tell whether the OS/browser is actually delivering
+  // notifications (permission, Focus Assist / Do Not Disturb, per-app blocks).
+  const sendTest = async () => {
+    setError(null);
+    let perm = permission;
+    if (perm !== "granted") {
+      perm = await requestNotificationPermission();
+      setPermission(perm);
+    }
+    if (perm !== "granted") {
+      setError(
+        perm === "denied"
+          ? "Notifications are blocked for this site in your browser settings."
+          : "Notification permission wasn't granted."
+      );
+      return;
+    }
+    try {
+      const n = new Notification("Seneschal test notification", {
+        body: "If you can see this, browser notifications are working.",
+        tag: "seneschal-test",
+        requireInteraction: true,
+      });
+      n.onerror = () =>
+        setError(
+          "The browser accepted the notification but the OS didn't display it. " +
+            "Check Windows notification settings and Focus Assist / Do Not Disturb, " +
+            "and confirm your browser is allowed to show notifications. If you're " +
+            "viewing this inside an embedded/preview browser, open it in Chrome/Edge/Firefox instead."
+        );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to show test notification"
+      );
+    }
+  };
+
+  const selectedTargetIds = prefs?.targetIds ?? [];
+  const allTargetsSelected =
+    selectedTargetIds.length === 0 || selectedTargetIds.length === targets.length;
+
+  return (
+    <Card variant="outlined">
+      <CardContent>
+        <Typography variant="h6" gutterBottom>
+          Browser notifications
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Get a browser notification when the hunt surfaces a deal that clears
+          your thresholds. Notifications appear while Seneschal is open in a tab.
+        </Typography>
+
+        {error ? (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {error}
+          </Alert>
+        ) : null}
+
+        {prefs === null ? (
+          <CircularProgress />
+        ) : (
+          <Stack spacing={2.5}>
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1.5}
+              alignItems={{ sm: "center" }}
+            >
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={prefs.enabled}
+                    onChange={(e) => void enableNotifications(e.target.checked)}
+                    disabled={!notificationsSupported()}
+                  />
+                }
+                label="Enable browser notifications"
+              />
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => void sendTest()}
+                disabled={!notificationsSupported()}
+              >
+                Send test notification
+              </Button>
+              <Typography variant="caption" color="text.secondary">
+                Browser permission: <strong>{permission}</strong>
+              </Typography>
+            </Stack>
+
+            {!notificationsSupported() ? (
+              <Alert severity="info">
+                This browser doesn't support notifications.
+              </Alert>
+            ) : prefs.enabled && permission === "denied" ? (
+              <Alert severity="warning">
+                Notifications are blocked in your browser settings. Allow them
+                for this site to receive deal alerts.
+              </Alert>
+            ) : prefs.enabled && permission === "default" ? (
+              <Alert
+                severity="info"
+                action={
+                  <Button
+                    color="inherit"
+                    size="small"
+                    onClick={() =>
+                      void requestNotificationPermission().then(setPermission)
+                    }
+                  >
+                    Allow
+                  </Button>
+                }
+              >
+                Grant notification permission to start receiving alerts.
+              </Alert>
+            ) : null}
+
+            <Box>
+              <Typography variant="subtitle2" gutterBottom>
+                Thresholds
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Only notify me about deals that meet all of these.
+              </Typography>
+
+              <Stack spacing={3} sx={{ maxWidth: 420 }}>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Min deal score: {prefs.minDealScore}
+                  </Typography>
+                  <Slider
+                    size="small"
+                    value={prefs.minDealScore}
+                    onChange={(_e, v) => patch({ minDealScore: v as number })}
+                    min={0}
+                    max={100}
+                    valueLabelDisplay="auto"
+                  />
+                </Box>
+
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Min value score: {prefs.minValueScore}
+                  </Typography>
+                  <Slider
+                    size="small"
+                    value={prefs.minValueScore}
+                    onChange={(_e, v) => patch({ minValueScore: v as number })}
+                    min={0}
+                    max={100}
+                    valueLabelDisplay="auto"
+                  />
+                </Box>
+
+                <TextField
+                  label="Max price"
+                  size="small"
+                  type="number"
+                  value={maxPrice}
+                  onChange={(e) => setMaxPrice(e.target.value)}
+                  placeholder="No limit"
+                  helperText="Only notify for deals at or under this price. Leave blank for no cap."
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">$</InputAdornment>
+                    ),
+                  }}
+                  sx={{ maxWidth: 220 }}
+                />
+              </Stack>
+            </Box>
+
+            <Box>
+              <Typography variant="subtitle2" gutterBottom>
+                Searches
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                Which searches to be notified about. Leave empty for all.
+              </Typography>
+
+              {targets.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  No targets yet. Create one under Targets first.
+                </Typography>
+              ) : (
+                <FormControl size="small" sx={{ minWidth: 260, maxWidth: 420 }}>
+                  <InputLabel id="notify-targets-label">Searches</InputLabel>
+                  <Select
+                    labelId="notify-targets-label"
+                    multiple
+                    value={selectedTargetIds}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      const ids = (
+                        typeof value === "string" ? value.split(",") : value
+                      ) as string[];
+                      patch({ targetIds: ids.length > 0 ? ids : null });
+                    }}
+                    input={<OutlinedInput label="Searches" />}
+                    renderValue={(selected) =>
+                      allTargetsSelected
+                        ? "All searches"
+                        : targets
+                            .filter((t) => selected.includes(t.id))
+                            .map((t) => t.title)
+                            .join(", ")
+                    }
+                    displayEmpty
+                  >
+                    {targets.map((t) => (
+                      <MenuItem key={t.id} value={t.id}>
+                        <Checkbox checked={selectedTargetIds.includes(t.id)} />
+                        <ListItemText primary={t.title} />
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              )}
+            </Box>
+
+            <Stack direction="row" spacing={2} alignItems="center">
+              <SaveStatus state={saveState} />
+              {permission === "granted" && prefs.enabled ? (
+                <Chip size="small" color="success" label="Notifications on" />
+              ) : null}
+            </Stack>
+          </Stack>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -50,8 +496,7 @@ function ModelSettingsPanel() {
   const [settings, setSettings] = useState<ModelSettings | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
 
   const apply = useCallback((s: ModelSettings) => {
     setSettings(s);
@@ -73,26 +518,31 @@ function ModelSettingsPanel() {
     void load();
   }, [load]);
 
-  const dirty =
-    settings != null &&
-    settings.steps.some((st) => (drafts[st.step] ?? "") !== (st.model ?? ""));
+  // Debounced auto-save whenever a step's model diverges from the server value.
+  useEffect(() => {
+    if (!settings) return;
+    const dirty = settings.steps.some(
+      (st) => (drafts[st.step] ?? "") !== (st.model ?? "")
+    );
+    if (!dirty) return;
 
-  const save = async () => {
-    setSaving(true);
-    setError(null);
-    try {
-      const overrides: Record<string, string | null> = {};
-      for (const [step, value] of Object.entries(drafts)) {
-        overrides[step] = value.trim() ? value.trim() : null;
+    setSaveState("saving");
+    const t = setTimeout(async () => {
+      setError(null);
+      try {
+        const overrides: Record<string, string | null> = {};
+        for (const [step, value] of Object.entries(drafts)) {
+          overrides[step] = value.trim() ? value.trim() : null;
+        }
+        apply(await api.updateModelSettings(overrides));
+        setSaveState("saved");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to save settings");
+        setSaveState("error");
       }
-      apply(await api.updateModelSettings(overrides));
-      setSavedAt(Date.now());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save settings");
-    } finally {
-      setSaving(false);
-    }
-  };
+    }, 700);
+    return () => clearTimeout(t);
+  }, [drafts, settings, apply]);
 
   return (
     <Card variant="outlined">
@@ -127,20 +577,9 @@ function ModelSettingsPanel() {
                 }
               />
             ))}
-            <Stack direction="row" spacing={2} alignItems="center">
-              <Button
-                variant="contained"
-                disabled={!dirty || saving}
-                onClick={() => void save()}
-              >
-                {saving ? "Saving..." : "Save"}
-              </Button>
-              {savedAt && !dirty ? (
-                <Typography variant="caption" color="success.main">
-                  Saved ✓
-                </Typography>
-              ) : null}
-            </Stack>
+            <Box sx={{ minHeight: 20 }}>
+              <SaveStatus state={saveState} />
+            </Box>
           </Stack>
         )}
       </CardContent>

@@ -13,12 +13,11 @@ import {
 import { llmJson, type LlmImage } from "../llm/index.js";
 import { getModelOverrides, pickModel } from "./modelSettings.js";
 import {
-  GOOD_DEAL_MIN,
-  NOTIFY_FIT_MIN,
-  clampScore,
-  dealScore,
-  legacyVerdict,
-} from "./scoring.js";
+  candidateTargetId,
+  getNotificationPrefs,
+  shouldNotify,
+} from "./notificationSettings.js";
+import { clampScore, dealScore, legacyVerdict, promiseScore } from "./scoring.js";
 import { presignGet } from "./storage.js";
 
 const PROMPT_VERSION = "advanced-v3";
@@ -108,6 +107,7 @@ export async function evaluatePending(
     await getModelOverrides(userId),
     model
   );
+  const notifyPrefs = await getNotificationPrefs(userId);
 
   // Listing ids that already have an advanced evaluation.
   const done = await db
@@ -219,10 +219,12 @@ export async function evaluatePending(
         clampScore(data.valueScore);
       const rationale = data.rationale ?? null;
       const verdict = legacyVerdict(valueScore);
-      const isGoodDeal =
-        valueScore != null &&
-        valueScore >= GOOD_DEAL_MIN &&
-        (fitScore == null || fitScore >= NOTIFY_FIT_MIN);
+      const isGoodDeal = shouldNotify(notifyPrefs, {
+        valueScore,
+        dealScore: promiseScore(valueScore, fitScore),
+        priceCents: listing.priceCents,
+        targetId: await candidateTargetId(listing.candidateId),
+      });
 
       await db.transaction(async (tx) => {
         const [evalRow] = await tx

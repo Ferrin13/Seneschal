@@ -1103,9 +1103,28 @@ export const huntRuns = pgTable(
 );
 
 /**
+ * Browser-notification preferences: which deals raise a notification and get
+ * pushed to the user's browser. Thresholds gate notification creation; a
+ * `null`/empty `targetIds` means "all targets".
+ */
+export type NotificationPrefs = {
+  /** Master switch for showing browser (OS) notifications in the client. */
+  enabled: boolean;
+  /** Minimum combined deal (promise) score, 0-100. */
+  minDealScore: number;
+  /** Minimum value score (price vs. market), 0-100. */
+  minValueScore: number;
+  /** Only notify for deals at or under this price (cents); null = no cap. */
+  maxPriceCents: number | null;
+  /** Targets to notify for; null or empty = every target. */
+  targetIds: string[] | null;
+};
+
+/**
  * Per-user preferences. `modelOverrides` maps a pipeline step (e.g. "triage",
  * "advanced") to the OpenRouter model slug to use for it; missing steps fall
- * back to the server's tier defaults.
+ * back to the server's tier defaults. `notificationPrefs` controls which deals
+ * raise a browser notification.
  */
 export const userSettings = pgTable("user_settings", {
   userId: uuid("user_id")
@@ -1115,6 +1134,16 @@ export const userSettings = pgTable("user_settings", {
     .$type<Record<string, string>>()
     .notNull()
     .default({}),
+  notificationPrefs: jsonb("notification_prefs")
+    .$type<NotificationPrefs>()
+    .notNull()
+    .default({
+      enabled: false,
+      minDealScore: 0,
+      minValueScore: 65,
+      maxPriceCents: null,
+      targetIds: null,
+    }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
