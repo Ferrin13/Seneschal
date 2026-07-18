@@ -11,6 +11,10 @@ import {
   sanitizeOverrides,
   type ModelStep,
 } from "../marketplace/modelSettings.js";
+import {
+  getNotificationPrefs,
+  sanitizeNotificationPrefs,
+} from "../marketplace/notificationSettings.js";
 
 function modelSettingsPayload(overrides: Awaited<ReturnType<typeof getModelOverrides>>) {
   const defaults = defaultModels();
@@ -54,5 +58,39 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       });
 
     return modelSettingsPayload(await getModelOverrides(req.auth.userId));
+  });
+
+  /** The user's browser-notification preferences (deal thresholds + targets). */
+  app.get("/settings/notifications", async (req) => {
+    return getNotificationPrefs(req.auth.userId);
+  });
+
+  /** Replace the user's browser-notification preferences. */
+  app.put("/settings/notifications", async (req) => {
+    const body = z
+      .object({
+        enabled: z.boolean(),
+        minDealScore: z.number().min(0).max(100),
+        minValueScore: z.number().min(0).max(100),
+        maxPriceCents: z.number().int().min(0).nullable(),
+        targetIds: z.array(z.string()).nullable(),
+      })
+      .parse(req.body);
+
+    const clean = sanitizeNotificationPrefs(body);
+    const now = new Date();
+    await db
+      .insert(userSettings)
+      .values({
+        userId: req.auth.userId,
+        notificationPrefs: clean,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: userSettings.userId,
+        set: { notificationPrefs: clean, updatedAt: now },
+      });
+
+    return getNotificationPrefs(req.auth.userId);
   });
 };

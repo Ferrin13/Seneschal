@@ -34,6 +34,7 @@ import { TimeTrackingView } from "./TimeTrackingView";
 import { MarketplaceView } from "./MarketplaceView";
 import { DealsView } from "./DealsView";
 import { SettingsView } from "./SettingsView";
+import { useDealNotifications } from "./useDealNotifications";
 
 /**
  * The app is split into two independent sections so navigation stays simple:
@@ -66,6 +67,9 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Surface qualifying deals as browser notifications while signed in.
+  useDealNotifications(!!user, () => navigate(HUNTER_DEFAULT));
 
   // Drive both nav bars off the URL.
   const section = sectionForPath(location.pathname);

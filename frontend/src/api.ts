@@ -293,6 +293,20 @@ export type ModelStepConfig = {
 
 export type ModelSettings = { steps: ModelStepConfig[] };
 
+/** Browser-notification preferences: which deals raise a notification. */
+export type NotificationPrefs = {
+  /** Master switch for showing browser (OS) notifications. */
+  enabled: boolean;
+  /** Minimum combined deal score, 0-100. */
+  minDealScore: number;
+  /** Minimum value score (price vs. market), 0-100. */
+  minValueScore: number;
+  /** Only notify for deals at or under this price (cents); null = no cap. */
+  maxPriceCents: number | null;
+  /** Targets to notify for; null or empty = every target. */
+  targetIds: string[] | null;
+};
+
 export type LlmUsage = {
   totalCalls: number;
   totalCostUsd: number;
@@ -479,6 +493,13 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ overrides }),
     }) as Promise<ModelSettings>,
+  notificationSettings: () =>
+    authedFetch("/settings/notifications") as Promise<NotificationPrefs>,
+  updateNotificationSettings: (prefs: NotificationPrefs) =>
+    authedFetch("/settings/notifications", {
+      method: "PUT",
+      body: JSON.stringify(prefs),
+    }) as Promise<NotificationPrefs>,
   notifications: () =>
     authedFetch("/marketplace/notifications") as Promise<DealNotification[]>,
   updateNotification: (id: string, status: DealNotification["status"]) =>

@@ -1,0 +1,1 @@
+ALTER TABLE "user_settings" ADD COLUMN "notification_prefs" jsonb DEFAULT '{"enabled":false,"minDealScore":0,"minValueScore":65,"maxPriceCents":null,"targetIds":null}'::jsonb NOT NULL;

@@ -20,9 +20,12 @@ export const VALUE_THRESHOLDS: { tier: DealTier; min: number }[] = [
   { tier: "pass", min: 0 },
 ];
 
-/** Minimum value score that counts as a "good deal" worth notifying about. */
+/**
+ * Legacy notification cutoffs. Notification gating is now driven by per-user
+ * preferences (see `notificationSettings.ts`); `GOOD_DEAL_MIN` is retained as
+ * the default value threshold for new users.
+ */
 export const GOOD_DEAL_MIN = 65;
-/** Minimum fit score required before we raise a deal notification. */
 export const NOTIFY_FIT_MIN = 50;
 
 export function dealTier(value: number | null): DealTier | null {

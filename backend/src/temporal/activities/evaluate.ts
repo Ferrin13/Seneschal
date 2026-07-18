@@ -13,8 +13,11 @@ import {
 import { llmJson, type LlmImage } from "../../llm/index.js";
 import { getModelOverrides, pickModel } from "../../marketplace/modelSettings.js";
 import {
-  GOOD_DEAL_MIN,
-  NOTIFY_FIT_MIN,
+  candidateTargetId,
+  getNotificationPrefs,
+  shouldNotify,
+} from "../../marketplace/notificationSettings.js";
+import {
   clampScore,
   dealScore,
   legacyVerdict,
@@ -202,10 +205,17 @@ export async function finalEvaluate(input: {
   const rationale = data.rationale ?? null;
   const verdict = legacyVerdict(valueScore);
   const promise = promiseScore(valueScore, fitScore);
-  const isGoodDeal =
-    valueScore != null &&
-    valueScore >= GOOD_DEAL_MIN &&
-    (fitScore == null || fitScore >= NOTIFY_FIT_MIN);
+
+  const [prefs, targetId] = await Promise.all([
+    getNotificationPrefs(meta.userId),
+    candidateTargetId(candidateId),
+  ]);
+  const isGoodDeal = shouldNotify(prefs, {
+    valueScore,
+    dealScore: promise,
+    priceCents: listing.priceCents,
+    targetId,
+  });
 
   await db.transaction(async (tx) => {
     const [evalRow] = await tx

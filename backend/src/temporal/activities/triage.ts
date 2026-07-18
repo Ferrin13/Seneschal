@@ -1,17 +1,17 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "../../db/client.js";
-import { candidates, evaluations, searchTargets } from "../../db/schema.js";
+import { candidates, evaluations, searchTargets, searches } from "../../db/schema.js";
 import { llmJson, type LlmImage } from "../../llm/index.js";
 import { getModelOverrides, pickModel } from "../../marketplace/modelSettings.js";
 import type { RunMeta } from "../types.js";
 import { isFrozenDisposition } from "./search.js";
 import { logEvent } from "./util.js";
 
-const PROMPT_VERSION = "triage-v2";
+const PROMPT_VERSION = "triage-v3";
 
 const SYSTEM = `You are a fast first-pass filter for a multi-marketplace deal finder.
-You are given the user's shopping targets (with optional rules) and a single listing candidate (title, price, short blurb, maybe a thumbnail).
-Decide whether this candidate is worth a closer look.
+You are given the ONE shopping target the user is hunting for (with optional rules) and a single listing candidate (title, price, short blurb, maybe a thumbnail).
+Decide whether this candidate plausibly matches that target and is worth a closer look.
 Be lenient at this stage (cheap triage): only reject clear mismatches or items that violate an explicit rule.
 Respond ONLY with JSON: {"promising": true|false, "score": 0-100, "reason": "one sentence"}`;
 
@@ -21,18 +21,16 @@ type TriageResult = {
   reason?: string;
 };
 
-function targetsBlock(
-  rows: { title: string; prompt: string; evalInstructions: string | null }[]
+/** The single target a candidate is being judged against, or a generic fallback. */
+function targetText(
+  t: { title: string; prompt: string; evalInstructions: string | null } | null
 ): string {
-  if (rows.length === 0) return "(no active targets)";
-  return rows
-    .map(
-      (t, i) =>
-        `${i + 1}. ${t.title}: ${t.prompt}${
-          t.evalInstructions ? ` [rules: ${t.evalInstructions}]` : ""
-        }`
-    )
-    .join("\n");
+  if (!t) {
+    return "(no specific target — judge whether this looks like a genuinely good resale deal)";
+  }
+  return `${t.title}: ${t.prompt}${
+    t.evalInstructions ? ` [rules: ${t.evalInstructions}]` : ""
+  }`;
 }
 
 /**
@@ -49,26 +47,22 @@ export async function triageCandidates(input: {
   const { meta, candidateIds } = input;
   if (candidateIds.length === 0) return { promisingIds: [], changedIds: [] };
 
-  const targets = await db
-    .select({
-      title: searchTargets.title,
-      prompt: searchTargets.prompt,
-      evalInstructions: searchTargets.evalInstructions,
-    })
-    .from(searchTargets)
-    .where(
-      and(
-        eq(searchTargets.userId, meta.userId),
-        eq(searchTargets.isActive, true)
-      )
-    );
-  const targetsText = targetsBlock(targets);
   const overrides = await getModelOverrides(meta.userId);
   const model = pickModel("triage", overrides, meta.model);
 
+  // Judge each candidate against the specific target its search belongs to
+  // (not the set of globally-active targets). This keeps triage correct for
+  // paused targets and stops unrelated targets from causing false rejections.
   const rows = await db
-    .select()
+    .select({
+      candidate: candidates,
+      targetTitle: searchTargets.title,
+      targetPrompt: searchTargets.prompt,
+      targetEval: searchTargets.evalInstructions,
+    })
     .from(candidates)
+    .leftJoin(searches, eq(candidates.searchId, searches.id))
+    .leftJoin(searchTargets, eq(searches.targetId, searchTargets.id))
     .where(
       and(
         eq(candidates.userId, meta.userId),
@@ -79,7 +73,8 @@ export async function triageCandidates(input: {
   const promisingIds: string[] = [];
   const changedIds: string[] = [];
 
-  for (const c of rows) {
+  for (const row of rows) {
+    const c = row.candidate;
     // Skip candidates the user has dispositioned as done.
     if (isFrozenDisposition(c.disposition)) continue;
     const prevStatus = c.triageStatus;
@@ -89,8 +84,15 @@ export async function triageCandidates(input: {
         c.priceCents != null
           ? `$${(c.priceCents / 100).toFixed(2)}`
           : "unknown";
+      const target = row.targetTitle
+        ? {
+            title: row.targetTitle,
+            prompt: row.targetPrompt ?? "",
+            evalInstructions: row.targetEval,
+          }
+        : null;
       const userText = [
-        `User targets:\n${targetsText}`,
+        `User's target:\n${targetText(target)}`,
         `\nCandidate (${c.platform}):`,
         `Title: ${c.title ?? "(none)"}`,
         `Price: ${priceStr}`,
