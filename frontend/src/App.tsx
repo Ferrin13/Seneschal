@@ -27,6 +27,7 @@ import {
   Routes,
   useLocation,
   useNavigate,
+  useParams,
 } from "react-router-dom";
 import { useAuth } from "./auth";
 import { signInWithGoogle, signOut } from "./firebase";
@@ -35,13 +36,16 @@ import { MarketplaceView } from "./MarketplaceView";
 import { DealsView } from "./DealsView";
 import { SettingsView } from "./SettingsView";
 import { useDealNotifications } from "./useDealNotifications";
+import { LazaxView } from "./lazax/LazaxView";
+import { GameBoard } from "./lazax/GameBoard";
+import { StatsView } from "./lazax/StatsView";
 
 /**
- * The app is split into two independent sections so navigation stays simple:
- * a Time Tracking area and a Deal Hunter area. Each section has its own
- * (non-scrollable) tab bar rather than one crowded, horizontally-scrolling bar.
+ * Three independent sections: Time Tracking, Deal Hunter, and Lazax.
+ * Each keeps its own secondary tabs where needed.
  */
 const TIME_PATH = "/time-tracking";
+const LAZAX_PATH = "/lazax";
 
 /** Sub-tabs within the Deal Hunter section. */
 const HUNTER_TABS = [
@@ -53,12 +57,24 @@ const HUNTER_TABS = [
 /** Default landing path for each primary section. */
 const HUNTER_DEFAULT = HUNTER_TABS[0].path;
 
-type Section = "time" | "hunter";
+type Section = "time" | "hunter" | "lazax";
 
 function sectionForPath(pathname: string): Section {
-  return HUNTER_TABS.some((t) => pathname.startsWith(t.path))
-    ? "hunter"
-    : "time";
+  if (pathname.startsWith(LAZAX_PATH)) return "lazax";
+  if (HUNTER_TABS.some((t) => pathname.startsWith(t.path))) return "hunter";
+  return "time";
+}
+
+function LazaxGameRoute() {
+  const { gameId } = useParams();
+  if (!gameId) return <Navigate to={LAZAX_PATH} replace />;
+  return <GameBoard gameId={gameId} />;
+}
+
+function LazaxStatsRoute() {
+  const { gameId } = useParams();
+  if (!gameId) return <Navigate to={LAZAX_PATH} replace />;
+  return <StatsView gameId={gameId} />;
 }
 
 export default function App() {
@@ -68,10 +84,8 @@ export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Surface qualifying deals as browser notifications while signed in.
   useDealNotifications(!!user, () => navigate(HUNTER_DEFAULT));
 
-  // Drive both nav bars off the URL.
   const section = sectionForPath(location.pathname);
   const activeHunterTab =
     HUNTER_TABS.find((t) => location.pathname.startsWith(t.path))?.path ??
@@ -86,6 +100,12 @@ export default function App() {
         err instanceof Error ? err.message : "Sign-in failed. Please try again."
       );
     }
+  };
+
+  const goSection = (v: Section) => {
+    if (v === "time") navigate(TIME_PATH);
+    else if (v === "hunter") navigate(HUNTER_DEFAULT);
+    else navigate(LAZAX_PATH);
   };
 
   return (
@@ -107,9 +127,7 @@ export default function App() {
           {user ? (
             <Tabs
               value={section}
-              onChange={(_e, v: Section) =>
-                navigate(v === "time" ? TIME_PATH : HUNTER_DEFAULT)
-              }
+              onChange={(_e, v: Section) => goSection(v)}
               textColor="inherit"
               indicatorColor="secondary"
               variant="scrollable"
@@ -118,6 +136,7 @@ export default function App() {
             >
               <Tab value="time" label="Time Tracking" sx={{ minHeight: 64 }} />
               <Tab value="hunter" label="Deal Hunter" sx={{ minHeight: 64 }} />
+              <Tab value="lazax" label="Lazax" sx={{ minHeight: 64 }} />
             </Tabs>
           ) : null}
           <Box sx={{ flexGrow: 1 }} />
@@ -176,6 +195,12 @@ export default function App() {
               >
                 <ListItemText primary="Time Tracking" />
               </ListItemButton>
+              <ListItemButton
+                selected={section === "lazax"}
+                onClick={() => navigate(LAZAX_PATH)}
+              >
+                <ListItemText primary="Lazax" />
+              </ListItemButton>
             </List>
             <Divider />
             <List
@@ -224,6 +249,12 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Navigate to={TIME_PATH} replace />} />
               <Route path={TIME_PATH} element={<TimeTrackingView />} />
+              <Route path={LAZAX_PATH} element={<LazaxView />} />
+              <Route
+                path={`${LAZAX_PATH}/:gameId/stats`}
+                element={<LazaxStatsRoute />}
+              />
+              <Route path={`${LAZAX_PATH}/:gameId`} element={<LazaxGameRoute />} />
               {HUNTER_TABS.map((t) => (
                 <Route
                   key={t.path}

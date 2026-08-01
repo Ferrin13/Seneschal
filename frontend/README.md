@@ -14,13 +14,13 @@ per-category summary. There are no write actions.
 cd frontend
 cp .env.example .env
 # fill in:
-#   VITE_API_BASE_URL          (default http://localhost:8080)
+#   VITE_API_BASE_URL          (default http://localhost:18080)
 #   VITE_FIREBASE_API_KEY
 #   VITE_FIREBASE_AUTH_DOMAIN
 #   VITE_FIREBASE_PROJECT_ID
 #   VITE_FIREBASE_APP_ID
 npm install
-npm run dev      # http://localhost:5173
+npm run dev      # http://localhost:15173
 ```
 
 The Firebase web SDK config lives in your Firebase console under
@@ -32,7 +32,7 @@ You also need the dev origin allow-listed in the backend so CORS lets the
 browser through. Add this to `backend/.env`:
 
 ```
-CORS_ORIGINS=http://localhost:5173
+CORS_ORIGINS=http://localhost:15173
 ```
 
 ## Scripts

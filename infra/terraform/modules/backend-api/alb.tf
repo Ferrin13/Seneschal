@@ -5,7 +5,9 @@ resource "aws_lb" "api" {
   security_groups    = [aws_security_group.alb.id]
   subnets            = var.public_subnet_ids
 
-  idle_timeout = 60
+  # Long enough for Lazax WebSocket heartbeats (~25s) with headroom; AWS max is 4000.
+  # Idle timeout is not max session length — heartbeats keep sockets non-idle for multi-hour games.
+  idle_timeout = 4000
 }
 
 # Two interchangeable target groups for the CodeDeploy ECS Blue/Green

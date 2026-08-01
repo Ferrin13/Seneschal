@@ -58,15 +58,15 @@ npm run dev
    `google-services.json` into `android-app/app/`.
 2. In `android-app/local.properties` (which is git-ignored) add:
    ```
-   seneschal.apiBaseUrl=http://10.0.2.2:8080/
+   seneschal.apiBaseUrl=http://10.0.2.2:18080/
    seneschal.googleWebClientId=<the Web client ID from your Firebase console>
    ```
 3. Uncomment `alias(libs.plugins.google.services)` in
    [android-app/app/build.gradle.kts](android-app/app/build.gradle.kts).
 4. Open the `android-app/` folder in Android Studio and run on an emulator (API 30+).
 
-`http://10.0.2.2:8080/` is the standard emulator → host mapping; use your
-deployed API URL on a real device.
+`http://10.0.2.2:18080/` is the standard emulator → host mapping (local API on
+port 18080); use your deployed API URL on a real device.
 
 ### Frontend (read-only web UI)
 
@@ -74,10 +74,10 @@ deployed API URL on a real device.
 cd frontend
 cp .env.example .env             # fill in Firebase web config + API base URL
 npm install
-npm run dev                      # http://localhost:5173
+npm run dev                      # http://localhost:15173
 ```
 
-Make sure `CORS_ORIGINS` in `backend/.env` includes `http://localhost:5173`
+Make sure `CORS_ORIGINS` in `backend/.env` includes `http://localhost:15173`
 (or whatever origin you serve the UI from). See `frontend/README.md` for
 details.
 

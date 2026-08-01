@@ -141,6 +141,13 @@
       "when": 1784354596517,
       "tag": "0019_overconfident_wendigo",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785563715774,
+      "tag": "0020_bent_darkstar",
+      "breakpoints": true
     }
   ]
 }

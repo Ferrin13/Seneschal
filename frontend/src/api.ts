@@ -1,8 +1,26 @@
 import { auth } from "./firebase";
+import type {
+  CreatePlayerInput,
+  Faction,
+  GameSnapshot,
+  LazaxGame,
+  LazaxStats,
+  StrategyCard,
+} from "./lazax/types";
 
-const API_BASE_URL: string = (
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080"
+export const API_BASE_URL: string = (
+  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:18080"
 ).replace(/\/$/, "");
+
+export function apiWsBaseUrl(): string {
+  if (API_BASE_URL.startsWith("https://")) {
+    return `wss://${API_BASE_URL.slice("https://".length)}`;
+  }
+  if (API_BASE_URL.startsWith("http://")) {
+    return `ws://${API_BASE_URL.slice("http://".length)}`;
+  }
+  return API_BASE_URL;
+}
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -507,4 +525,30 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ status }),
     }) as Promise<DealNotification>,
+
+  // --- Lazax ---------------------------------------------------------------
+  lazaxFactions: () =>
+    authedFetch("/lazax/factions") as Promise<{
+      factions: Faction[];
+      strategyCards: StrategyCard[];
+    }>,
+  lazaxGames: () => authedFetch("/lazax/games") as Promise<LazaxGame[]>,
+  lazaxGame: (id: string) =>
+    authedFetch(`/lazax/games/${id}`) as Promise<GameSnapshot>,
+  lazaxStats: (id: string) =>
+    authedFetch(`/lazax/games/${id}/stats`) as Promise<LazaxStats>,
+  lazaxCreateGame: (body: {
+    name?: string;
+    players: CreatePlayerInput[];
+    speakerSeatIndex: number;
+  }) =>
+    authedFetch("/lazax/games", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }) as Promise<GameSnapshot>,
+  lazaxPost: (id: string, action: string, body?: unknown) =>
+    authedFetch(`/lazax/games/${id}/${action}`, {
+      method: "POST",
+      ...(body != null ? { body: JSON.stringify(body) } : {}),
+    }) as Promise<GameSnapshot>,
 };

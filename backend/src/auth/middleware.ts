@@ -39,6 +39,8 @@ const plugin: FastifyPluginAsync = async (app) => {
     // The browser-box scraper agent authenticates with a shared service token
     // (see routes/agent.ts), not a Firebase ID token — skip Firebase auth here.
     if (req.url === "/agent" || req.url.startsWith("/agent/")) return;
+    // Lazax WebSocket authenticates on upgrade via ?token= (see routes/lazaxWs.ts).
+    if (req.url === "/lazax/ws" || req.url.startsWith("/lazax/ws?")) return;
 
     const header = req.headers.authorization;
     if (!header) {

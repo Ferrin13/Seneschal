@@ -21,7 +21,7 @@ val localProps = Properties().apply {
 // Debug builds default to the Android emulator host loopback, but can be
 // overridden via local.properties (e.g. to point at a dev box on the LAN).
 val debugApiBaseUrl: String =
-    localProps.getProperty("seneschal.apiBaseUrl") ?: "http://10.0.2.2:8080/"
+    localProps.getProperty("seneschal.apiBaseUrl") ?: "http://10.0.2.2:18080/"
 // Release builds always point at the production API. Keep this in sync with
 // infra/terraform/prod.tfvars (api_subdomain + hosted_zone_name).
 val releaseApiBaseUrl: String = "https://api.seneschal.parthadae.com/"
