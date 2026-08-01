@@ -1155,6 +1155,149 @@ export const userSettings = pgTable("user_settings", {
 export type UserSettings = typeof userSettings.$inferSelect;
 export type NewUserSettings = typeof userSettings.$inferInsert;
 
+// ---------------------------------------------------------------------------
+// Lazax — Twilight Imperium turn timer
+// ---------------------------------------------------------------------------
+
+export const lazaxGameStatus = pgEnum("lazax_game_status", [
+  "setup",
+  "active",
+  "finished",
+]);
+
+export const lazaxPhase = pgEnum("lazax_phase", [
+  "strategy",
+  "action",
+  "status",
+  "agenda",
+]);
+
+export const lazaxClockState = pgEnum("lazax_clock_state", [
+  "running",
+  "paused",
+]);
+
+export const lazaxActionState = pgEnum("lazax_action_state", [
+  "ready",
+  "exhausted",
+  "passed",
+]);
+
+export const lazaxSegmentKind = pgEnum("lazax_segment_kind", [
+  "player",
+  "general",
+]);
+
+/**
+ * A Lazax game session. Speaker / active player are plain UUIDs (not FKs) to
+ * avoid a circular reference with lazax_players.
+ */
+export const lazaxGames = pgTable(
+  "lazax_games",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull().default("Twilight Imperium"),
+    status: lazaxGameStatus("status").notNull().default("setup"),
+    phase: lazaxPhase("phase").notNull().default("strategy"),
+    roundNumber: integer("round_number").notNull().default(1),
+    speakerPlayerId: uuid("speaker_player_id"),
+    activePlayerId: uuid("active_player_id"),
+    clockState: lazaxClockState("clock_state").notNull().default("paused"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    ownerIdx: index("lazax_games_owner_idx").on(t.ownerUserId),
+    ownerUpdatedIdx: index("lazax_games_owner_updated_idx").on(
+      t.ownerUserId,
+      t.updatedAt
+    ),
+  })
+);
+
+export const lazaxPlayers = pgTable(
+  "lazax_players",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gameId: uuid("game_id")
+      .notNull()
+      .references(() => lazaxGames.id, { onDelete: "cascade" }),
+    displayName: text("display_name").notNull(),
+    factionId: text("faction_id").notNull(),
+    seatIndex: integer("seat_index").notNull(),
+    strategyCard: integer("strategy_card"),
+    actionState: lazaxActionState("action_state").notNull().default("ready"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    gameIdx: index("lazax_players_game_idx").on(t.gameId),
+    gameSeatIdx: uniqueIndex("lazax_players_game_seat_idx").on(
+      t.gameId,
+      t.seatIndex
+    ),
+    gameFactionIdx: uniqueIndex("lazax_players_game_faction_idx").on(
+      t.gameId,
+      t.factionId
+    ),
+    seatNonNeg: check("lazax_players_seat_nonneg", sql`${t.seatIndex} >= 0`),
+    strategyCardRange: check(
+      "lazax_players_strategy_card_range",
+      sql`${t.strategyCard} IS NULL OR (${t.strategyCard} >= 1 AND ${t.strategyCard} <= 8)`
+    ),
+  })
+);
+
+export const lazaxTimeSegments = pgTable(
+  "lazax_time_segments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gameId: uuid("game_id")
+      .notNull()
+      .references(() => lazaxGames.id, { onDelete: "cascade" }),
+    playerId: uuid("player_id").references(() => lazaxPlayers.id, {
+      onDelete: "set null",
+    }),
+    kind: lazaxSegmentKind("kind").notNull(),
+    phase: lazaxPhase("phase").notNull(),
+    roundNumber: integer("round_number").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    gameIdx: index("lazax_time_segments_game_idx").on(t.gameId),
+    gameStartedIdx: index("lazax_time_segments_game_started_idx").on(
+      t.gameId,
+      t.startedAt
+    ),
+    openSegmentIdx: index("lazax_time_segments_open_idx").on(
+      t.gameId,
+      t.endedAt
+    ),
+  })
+);
+
+export type LazaxGame = typeof lazaxGames.$inferSelect;
+export type NewLazaxGame = typeof lazaxGames.$inferInsert;
+export type LazaxPlayer = typeof lazaxPlayers.$inferSelect;
+export type NewLazaxPlayer = typeof lazaxPlayers.$inferInsert;
+export type LazaxTimeSegment = typeof lazaxTimeSegments.$inferSelect;
+export type NewLazaxTimeSegment = typeof lazaxTimeSegments.$inferInsert;
+
 export type LlmCall = typeof llmCalls.$inferSelect;
 export type NewLlmCall = typeof llmCalls.$inferInsert;
 
