@@ -7,6 +7,7 @@ import type {
   LazaxStats,
   StrategyCard,
 } from "./lazax/types";
+import type { LeagueValues, ThrawnLeague } from "./thrawn/types";
 
 export const API_BASE_URL: string = (
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:18080"
@@ -551,4 +552,37 @@ export const api = {
       method: "POST",
       ...(body != null ? { body: JSON.stringify(body) } : {}),
     }) as Promise<GameSnapshot>,
+
+  // --- Thrawn ----------------------------------------------------------------
+  thrawnLeagues: () =>
+    authedFetch("/thrawn/leagues") as Promise<ThrawnLeague[]>,
+  thrawnCreateLeague: (sleeperLeagueId: string) =>
+    authedFetch("/thrawn/leagues", {
+      method: "POST",
+      body: JSON.stringify({ sleeperLeagueId }),
+    }) as Promise<ThrawnLeague>,
+  thrawnSyncLeague: (id: string) =>
+    authedFetch(`/thrawn/leagues/${id}/sync`, {
+      method: "POST",
+    }) as Promise<ThrawnLeague>,
+  thrawnUpdateLeague: (id: string, body: { myRosterId: number | null }) =>
+    authedFetch(`/thrawn/leagues/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }) as Promise<ThrawnLeague>,
+  thrawnDeleteLeague: (id: string) =>
+    authedFetch(`/thrawn/leagues/${id}`, {
+      method: "DELETE",
+    }) as Promise<{ ok: true }>,
+  thrawnLeagueValues: (id: string) =>
+    authedFetch(`/thrawn/leagues/${id}/values`) as Promise<LeagueValues>,
+  thrawnSetOverride: (
+    leagueId: string,
+    playerId: string,
+    body: { points: number | null; note?: string | null }
+  ) =>
+    authedFetch(`/thrawn/leagues/${leagueId}/overrides/${playerId}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }) as Promise<unknown>,
 };

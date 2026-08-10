@@ -39,13 +39,16 @@ import { useDealNotifications } from "./useDealNotifications";
 import { LazaxView } from "./lazax/LazaxView";
 import { GameBoard } from "./lazax/GameBoard";
 import { StatsView } from "./lazax/StatsView";
+import { ThrawnView } from "./thrawn/ThrawnView";
+import { LeagueView } from "./thrawn/LeagueView";
 
 /**
- * Three independent sections: Time Tracking, Deal Hunter, and Lazax.
+ * Four independent sections: Time Tracking, Deal Hunter, Lazax, and Thrawn.
  * Each keeps its own secondary tabs where needed.
  */
 const TIME_PATH = "/time-tracking";
 const LAZAX_PATH = "/lazax";
+const THRAWN_PATH = "/thrawn";
 
 /** Sub-tabs within the Deal Hunter section. */
 const HUNTER_TABS = [
@@ -57,10 +60,11 @@ const HUNTER_TABS = [
 /** Default landing path for each primary section. */
 const HUNTER_DEFAULT = HUNTER_TABS[0].path;
 
-type Section = "time" | "hunter" | "lazax";
+type Section = "time" | "hunter" | "lazax" | "thrawn";
 
 function sectionForPath(pathname: string): Section {
   if (pathname.startsWith(LAZAX_PATH)) return "lazax";
+  if (pathname.startsWith(THRAWN_PATH)) return "thrawn";
   if (HUNTER_TABS.some((t) => pathname.startsWith(t.path))) return "hunter";
   return "time";
 }
@@ -75,6 +79,12 @@ function LazaxStatsRoute() {
   const { gameId } = useParams();
   if (!gameId) return <Navigate to={LAZAX_PATH} replace />;
   return <StatsView gameId={gameId} />;
+}
+
+function ThrawnLeagueRoute() {
+  const { leagueId } = useParams();
+  if (!leagueId) return <Navigate to={THRAWN_PATH} replace />;
+  return <LeagueView leagueId={leagueId} />;
 }
 
 export default function App() {
@@ -105,6 +115,7 @@ export default function App() {
   const goSection = (v: Section) => {
     if (v === "time") navigate(TIME_PATH);
     else if (v === "hunter") navigate(HUNTER_DEFAULT);
+    else if (v === "thrawn") navigate(THRAWN_PATH);
     else navigate(LAZAX_PATH);
   };
 
@@ -137,6 +148,7 @@ export default function App() {
               <Tab value="time" label="Time Tracking" sx={{ minHeight: 64 }} />
               <Tab value="hunter" label="Deal Hunter" sx={{ minHeight: 64 }} />
               <Tab value="lazax" label="Lazax" sx={{ minHeight: 64 }} />
+              <Tab value="thrawn" label="Thrawn" sx={{ minHeight: 64 }} />
             </Tabs>
           ) : null}
           <Box sx={{ flexGrow: 1 }} />
@@ -201,6 +213,12 @@ export default function App() {
               >
                 <ListItemText primary="Lazax" />
               </ListItemButton>
+              <ListItemButton
+                selected={section === "thrawn"}
+                onClick={() => navigate(THRAWN_PATH)}
+              >
+                <ListItemText primary="Thrawn" />
+              </ListItemButton>
             </List>
             <Divider />
             <List
@@ -255,6 +273,11 @@ export default function App() {
                 element={<LazaxStatsRoute />}
               />
               <Route path={`${LAZAX_PATH}/:gameId`} element={<LazaxGameRoute />} />
+              <Route path={THRAWN_PATH} element={<ThrawnView />} />
+              <Route
+                path={`${THRAWN_PATH}/:leagueId`}
+                element={<ThrawnLeagueRoute />}
+              />
               {HUNTER_TABS.map((t) => (
                 <Route
                   key={t.path}

@@ -1291,6 +1291,190 @@ export const lazaxTimeSegments = pgTable(
   })
 );
 
+// ---------------------------------------------------------------------------
+// Thrawn — fantasy football trade analyzer (Sleeper leagues)
+// ---------------------------------------------------------------------------
+
+/**
+ * A Sleeper league the user is tracking. `settings` is a trimmed snapshot of
+ * the Sleeper league payload (scoring_settings, roster_positions, num_teams,
+ * max_keepers) so valuation is reproducible offline. `myRosterId` marks which
+ * roster belongs to the user, driving the trade-target analysis.
+ */
+export const thrawnLeagues = pgTable(
+  "thrawn_leagues",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sleeperLeagueId: text("sleeper_league_id").notNull(),
+    name: text("name").notNull(),
+    season: text("season").notNull(),
+    settings: jsonb("settings").$type<ThrawnLeagueSettings>().notNull(),
+    myRosterId: integer("my_roster_id"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userIdx: index("thrawn_leagues_user_idx").on(t.userId),
+    userLeagueIdx: uniqueIndex("thrawn_leagues_user_league_idx").on(
+      t.userId,
+      t.sleeperLeagueId
+    ),
+  })
+);
+
+/** Trimmed Sleeper league settings snapshot stored on thrawn_leagues. */
+export type ThrawnLeagueSettings = {
+  /** Sleeper scoring_settings: stat key -> points per unit. */
+  scoring: Record<string, number>;
+  /** Sleeper roster_positions, e.g. ["QB","RB","RB","WR","WR","TE","FLEX","FLEX","K","DEF","BN",...]. */
+  rosterPositions: string[];
+  numTeams: number;
+  maxKeepers: number;
+};
+
+/**
+ * One roster in a tracked league, refreshed on every sync. Player ids are
+ * Sleeper player ids (numeric strings, or team abbreviations for DEF).
+ */
+export const thrawnTeams = pgTable(
+  "thrawn_teams",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    leagueId: uuid("league_id")
+      .notNull()
+      .references(() => thrawnLeagues.id, { onDelete: "cascade" }),
+    rosterId: integer("roster_id").notNull(),
+    ownerId: text("owner_id"),
+    displayName: text("display_name"),
+    teamName: text("team_name"),
+    avatar: text("avatar"),
+    players: jsonb("players").$type<string[]>().notNull().default([]),
+    starters: jsonb("starters").$type<string[]>().notNull().default([]),
+    keepers: jsonb("keepers").$type<string[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    leagueIdx: index("thrawn_teams_league_idx").on(t.leagueId),
+    leagueRosterIdx: uniqueIndex("thrawn_teams_league_roster_idx").on(
+      t.leagueId,
+      t.rosterId
+    ),
+  })
+);
+
+/**
+ * Trimmed NFL player dictionary from Sleeper's daily players dump. Global
+ * (not user-scoped): these are shared facts, and Sleeper asks that the 5MB
+ * dump be fetched at most once per day. `id` is the Sleeper player id —
+ * numeric string for players, team abbreviation for DEF units.
+ */
+export const thrawnPlayers = pgTable(
+  "thrawn_players",
+  {
+    id: text("id").primaryKey(),
+    firstName: text("first_name").notNull().default(""),
+    lastName: text("last_name").notNull().default(""),
+    position: text("position"),
+    team: text("team"),
+    age: integer("age"),
+    status: text("status"),
+    injuryStatus: text("injury_status"),
+    yearsExp: integer("years_exp"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    positionIdx: index("thrawn_players_position_idx").on(t.position),
+  })
+);
+
+/**
+ * A season-long stat projection for one player from one public source
+ * (v1: Sleeper/rotowire). `stats` holds the raw stat-level projection whose
+ * keys line up with Sleeper scoring_settings, so league-accurate points are
+ * computed at read time. `ptsPpr`/`adpPpr` are denormalized conveniences.
+ */
+export const thrawnProjections = pgTable(
+  "thrawn_projections",
+  {
+    source: text("source").notNull().default("sleeper"),
+    season: text("season").notNull(),
+    playerId: text("player_id")
+      .notNull()
+      .references(() => thrawnPlayers.id, { onDelete: "cascade" }),
+    stats: jsonb("stats").$type<Record<string, number>>().notNull(),
+    ptsPpr: doublePrecision("pts_ppr"),
+    adpPpr: doublePrecision("adp_ppr"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.source, t.season, t.playerId] }),
+    seasonIdx: index("thrawn_projections_season_idx").on(t.season),
+  })
+);
+
+/**
+ * A user's custom projected-points override for one player in one season.
+ * Overrides replace the league-scored public projection everywhere in the
+ * valuation engine, letting the user play with their own rankings. Keyed per
+ * (user, season, player) so an override applies across leagues.
+ */
+export const thrawnOverrides = pgTable(
+  "thrawn_overrides",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    season: text("season").notNull(),
+    playerId: text("player_id")
+      .notNull()
+      .references(() => thrawnPlayers.id, { onDelete: "cascade" }),
+    points: doublePrecision("points").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    userSeasonPlayerIdx: uniqueIndex("thrawn_overrides_user_season_player_idx").on(
+      t.userId,
+      t.season,
+      t.playerId
+    ),
+  })
+);
+
+export type ThrawnLeague = typeof thrawnLeagues.$inferSelect;
+export type NewThrawnLeague = typeof thrawnLeagues.$inferInsert;
+export type ThrawnTeam = typeof thrawnTeams.$inferSelect;
+export type NewThrawnTeam = typeof thrawnTeams.$inferInsert;
+export type ThrawnPlayer = typeof thrawnPlayers.$inferSelect;
+export type NewThrawnPlayer = typeof thrawnPlayers.$inferInsert;
+export type ThrawnProjection = typeof thrawnProjections.$inferSelect;
+export type NewThrawnProjection = typeof thrawnProjections.$inferInsert;
+export type ThrawnOverride = typeof thrawnOverrides.$inferSelect;
+export type NewThrawnOverride = typeof thrawnOverrides.$inferInsert;
+
 export type LazaxGame = typeof lazaxGames.$inferSelect;
 export type NewLazaxGame = typeof lazaxGames.$inferInsert;
 export type LazaxPlayer = typeof lazaxPlayers.$inferSelect;
