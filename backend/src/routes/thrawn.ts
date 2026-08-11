@@ -3,6 +3,10 @@ import { z } from "zod";
 import {
   createLeague,
   deleteLeague,
+  getLeagueAnalysis,
+  getLeaguePlayerDetail,
+  getLeagueRegression,
+  getLeagueSeasonBoard,
   getLeagueValues,
   listLeagues,
   setOverride,
@@ -20,6 +24,7 @@ function serializeLeague(l: ThrawnLeague) {
     season: l.season,
     settings: l.settings,
     myRosterId: l.myRosterId,
+    projectionSource: l.projectionSource,
     lastSyncedAt: l.lastSyncedAt ? l.lastSyncedAt.toISOString() : null,
     createdAt: l.createdAt.toISOString(),
   };
@@ -67,7 +72,12 @@ export const thrawnRoutes: FastifyPluginAsync = async (app) => {
   app.patch("/thrawn/leagues/:id", async (req, reply) => {
     const { id } = idParams.parse(req.params);
     const body = z
-      .object({ myRosterId: z.number().int().min(1).nullable() })
+      .object({
+        myRosterId: z.number().int().min(1).nullable().optional(),
+        projectionSource: z
+          .enum(["sleeper", "espn", "sharks", "average"])
+          .optional(),
+      })
       .parse(req.body);
     try {
       const league = await updateLeague(req.auth.userId, id, body);
@@ -93,6 +103,57 @@ export const thrawnRoutes: FastifyPluginAsync = async (app) => {
     const { id } = idParams.parse(req.params);
     try {
       return await getLeagueValues(req.auth.userId, id);
+    } catch (err) {
+      const mapped = mapError(err);
+      return reply.code(mapped.status).send(mapped.body);
+    }
+  });
+
+  app.get("/thrawn/leagues/:id/history/:season", async (req, reply) => {
+    const params = z
+      .object({ id: z.string().uuid(), season: z.string().regex(/^\d{4}$/) })
+      .parse(req.params);
+    try {
+      return await getLeagueSeasonBoard(req.auth.userId, params.id, params.season);
+    } catch (err) {
+      const mapped = mapError(err);
+      return reply.code(mapped.status).send(mapped.body);
+    }
+  });
+
+  app.get("/thrawn/leagues/:id/analysis", async (req, reply) => {
+    const { id } = idParams.parse(req.params);
+    try {
+      return await getLeagueAnalysis(req.auth.userId, id);
+    } catch (err) {
+      const mapped = mapError(err);
+      return reply.code(mapped.status).send(mapped.body);
+    }
+  });
+
+  app.get("/thrawn/leagues/:id/players/:playerId/detail", async (req, reply) => {
+    const params = z
+      .object({ id: z.string().uuid(), playerId: z.string().min(1) })
+      .parse(req.params);
+    try {
+      return await getLeaguePlayerDetail(
+        req.auth.userId,
+        params.id,
+        params.playerId
+      );
+    } catch (err) {
+      const mapped = mapError(err);
+      return reply.code(mapped.status).send(mapped.body);
+    }
+  });
+
+  app.get("/thrawn/leagues/:id/regression", async (req, reply) => {
+    const { id } = idParams.parse(req.params);
+    const query = z
+      .object({ season: z.string().regex(/^\d{4}$/).optional() })
+      .parse(req.query);
+    try {
+      return await getLeagueRegression(req.auth.userId, id, query.season);
     } catch (err) {
       const mapped = mapError(err);
       return reply.code(mapped.status).send(mapped.body);

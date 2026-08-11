@@ -1,12 +1,29 @@
 import type { PlayerValue, ThrawnTeam } from "./types";
 
-/** One decimal point display for projected points / VAR. */
+/** One decimal point display for projected points / PAR. */
 export function fmtPts(n: number): string {
   return n.toFixed(1);
 }
 
-export function fmtVar(n: number): string {
+export function fmtPar(n: number): string {
   return `${n >= 0 ? "+" : ""}${n.toFixed(1)}`;
+}
+
+/** Year-to-year PAR variance; em dash when unknown (<2 seasons of history). */
+export function fmtVariance(n: number | null): string {
+  return n != null ? n.toFixed(1) : "—";
+}
+
+/** Display names for projection sources (and the averaging mode). */
+export const SOURCE_LABELS: Record<string, string> = {
+  average: "Average (all sources)",
+  sleeper: "Sleeper",
+  espn: "ESPN",
+  sharks: "FantasySharks",
+};
+
+export function sourceLabel(source: string): string {
+  return SOURCE_LABELS[source] ?? source;
 }
 
 export const POSITION_COLORS: Record<string, string> = {
@@ -30,14 +47,14 @@ export function sleeperAvatarUrl(avatar: string | null): string | undefined {
   return avatar ? `https://sleepercdn.com/avatars/thumbs/${avatar}` : undefined;
 }
 
-/** Values for one roster, best VAR first. */
+/** Values for one roster, best PAS (points above starter) first. */
 export function rosterValues(
   values: PlayerValue[],
   rosterId: number
 ): PlayerValue[] {
   return values
     .filter((v) => v.rosterId === rosterId)
-    .sort((a, b) => b.var - a.var);
+    .sort((a, b) => b.parStarter - a.parStarter);
 }
 
 export function keeperCount(values: PlayerValue[], rosterId: number): number {

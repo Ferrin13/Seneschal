@@ -155,6 +155,41 @@
       "when": 1786317365466,
       "tag": "0021_empty_ender_wiggin",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786339371952,
+      "tag": "0022_past_infant_terrible",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786342911631,
+      "tag": "0023_silent_madripoor",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786378317125,
+      "tag": "0024_fancy_spyke",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786381692658,
+      "tag": "0025_needy_sauron",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1786382831321,
+      "tag": "0026_lonely_lilith",
+      "breakpoints": true
     }
   ]
 }

@@ -7,7 +7,15 @@ import type {
   LazaxStats,
   StrategyCard,
 } from "./lazax/types";
-import type { LeagueValues, ThrawnLeague } from "./thrawn/types";
+import type {
+  LeagueAnalysis,
+  LeagueValues,
+  PlayerDetailReport,
+  ProjectionSource,
+  RegressionReport,
+  SeasonBoard,
+  ThrawnLeague,
+} from "./thrawn/types";
 
 export const API_BASE_URL: string = (
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:18080"
@@ -565,7 +573,10 @@ export const api = {
     authedFetch(`/thrawn/leagues/${id}/sync`, {
       method: "POST",
     }) as Promise<ThrawnLeague>,
-  thrawnUpdateLeague: (id: string, body: { myRosterId: number | null }) =>
+  thrawnUpdateLeague: (
+    id: string,
+    body: { myRosterId?: number | null; projectionSource?: ProjectionSource }
+  ) =>
     authedFetch(`/thrawn/leagues/${id}`, {
       method: "PATCH",
       body: JSON.stringify(body),
@@ -576,6 +587,18 @@ export const api = {
     }) as Promise<{ ok: true }>,
   thrawnLeagueValues: (id: string) =>
     authedFetch(`/thrawn/leagues/${id}/values`) as Promise<LeagueValues>,
+  thrawnLeagueAnalysis: (id: string) =>
+    authedFetch(`/thrawn/leagues/${id}/analysis`) as Promise<LeagueAnalysis>,
+  thrawnLeagueSeasonBoard: (id: string, season: string) =>
+    authedFetch(`/thrawn/leagues/${id}/history/${season}`) as Promise<SeasonBoard>,
+  thrawnLeagueRegression: (id: string, season?: string) =>
+    authedFetch(
+      `/thrawn/leagues/${id}/regression${season ? `?season=${season}` : ""}`
+    ) as Promise<RegressionReport>,
+  thrawnPlayerDetail: (leagueId: string, playerId: string) =>
+    authedFetch(
+      `/thrawn/leagues/${leagueId}/players/${playerId}/detail`
+    ) as Promise<PlayerDetailReport>,
   thrawnSetOverride: (
     leagueId: string,
     playerId: string,

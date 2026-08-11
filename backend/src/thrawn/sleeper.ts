@@ -89,8 +89,22 @@ export type SleeperProjectionEntry = {
   } | null;
 };
 
+export type SleeperMatchup = {
+  roster_id: number;
+  matchup_id: number | null;
+  points: number | null;
+};
+
 export function fetchLeague(leagueId: string): Promise<SleeperLeague> {
   return getJson(`${V1_BASE}/league/${leagueId}`);
+}
+
+/** All teams' scores for one week (paired head-to-head by matchup_id). */
+export function fetchMatchups(
+  leagueId: string,
+  week: number
+): Promise<SleeperMatchup[]> {
+  return getJson(`${V1_BASE}/league/${leagueId}/matchups/${week}`);
 }
 
 export function fetchRosters(leagueId: string): Promise<SleeperRoster[]> {
@@ -116,5 +130,18 @@ export function fetchSeasonProjections(
   const positions = FANTASY_POSITIONS.map((p) => `position[]=${p}`).join("&");
   return getJson(
     `${PROJECTIONS_BASE}/projections/nfl/${season}?season_type=regular&${positions}&order_by=ppr`
+  );
+}
+
+/**
+ * Actual season-total stats (same record shape as the projections feed,
+ * with `stats.gp` = real games played). Used for historical PAR.
+ */
+export function fetchSeasonStats(
+  season: string
+): Promise<SleeperProjectionEntry[]> {
+  const positions = FANTASY_POSITIONS.map((p) => `position[]=${p}`).join("&");
+  return getJson(
+    `${PROJECTIONS_BASE}/stats/nfl/${season}?season_type=regular&${positions}&order_by=pts_ppr`
   );
 }

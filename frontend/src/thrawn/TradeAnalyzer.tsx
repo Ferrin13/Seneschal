@@ -16,7 +16,7 @@ import {
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import { useMemo, useState } from "react";
 import type { LeagueValues, PlayerValue, ThrawnTeam } from "./types";
-import { fmtVar, positionColor, rosterValues, teamLabel } from "./format";
+import { fmtPar, positionColor, rosterValues, teamLabel } from "./format";
 
 function PlayerPickRow({
   v,
@@ -62,17 +62,30 @@ function PlayerPickRow({
         sx={{
           fontVariantNumeric: "tabular-nums",
           fontWeight: 600,
-          color: v.var > 0 ? "success.main" : "text.disabled",
+          color: v.parStarter > 0 ? "success.main" : "text.disabled",
         }}
       >
-        {fmtVar(v.var)}
+        {fmtPar(v.parStarter)}
+      </Typography>
+      <Typography
+        variant="body2"
+        sx={{
+          fontVariantNumeric: "tabular-nums",
+          width: 40,
+          textAlign: "right",
+          color: v.par > 0 ? "success.main" : "text.disabled",
+        }}
+      >
+        {fmtPar(v.par)}
       </Typography>
     </Stack>
   );
 }
 
 function keeperTrio(values: PlayerValue[], maxKeepers: number): PlayerValue[] {
-  return [...values].sort((a, b) => b.var - a.var).slice(0, maxKeepers);
+  return [...values]
+    .sort((a, b) => b.parStarter - a.parStarter)
+    .slice(0, maxKeepers);
 }
 
 function TrioSummary({
@@ -84,9 +97,9 @@ function TrioSummary({
   before: PlayerValue[];
   after: PlayerValue[];
 }) {
-  const beforeVar = before.reduce((s, v) => s + v.var, 0);
-  const afterVar = after.reduce((s, v) => s + v.var, 0);
-  const delta = afterVar - beforeVar;
+  const beforePas = before.reduce((s, v) => s + v.parStarter, 0);
+  const afterPas = after.reduce((s, v) => s + v.parStarter, 0);
+  const delta = afterPas - beforePas;
   return (
     <Box sx={{ flex: 1 }}>
       <Typography variant="overline" color="text.secondary">
@@ -114,13 +127,13 @@ function TrioSummary({
               variant="body2"
               sx={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}
             >
-              {fmtVar(v.var)}
+              {fmtPar(v.parStarter)}
             </Typography>
           </Stack>
         ))}
       </Stack>
       <Typography variant="body2" sx={{ mt: 1 }}>
-        Keeper VAR: {fmtVar(afterVar)}{" "}
+        Keeper PAS/G: {fmtPar(afterPas)}{" "}
         <Typography
           component="span"
           variant="body2"
@@ -144,7 +157,7 @@ function TrioSummary({
 
 /**
  * Sandbox a trade: pick a partner, check players moving each way, and see
- * both the raw VAR exchanged and what each side's keeper lineup looks like
+ * both the raw PAS/PAR exchanged and what each side's keeper lineup looks like
  * after the deal.
  */
 export function TradeAnalyzer({
@@ -188,8 +201,10 @@ export function TradeAnalyzer({
 
   const sendingValues = myValues.filter((v) => sending.has(v.playerId));
   const receivingValues = partnerValues.filter((v) => receiving.has(v.playerId));
-  const sendVar = sendingValues.reduce((s, v) => s + v.var, 0);
-  const recvVar = receivingValues.reduce((s, v) => s + v.var, 0);
+  const sendPas = sendingValues.reduce((s, v) => s + v.parStarter, 0);
+  const recvPas = receivingValues.reduce((s, v) => s + v.parStarter, 0);
+  const sendPar = sendingValues.reduce((s, v) => s + v.par, 0);
+  const recvPar = receivingValues.reduce((s, v) => s + v.par, 0);
 
   const myAfter = [
     ...myValues.filter((v) => !sending.has(v.playerId)),
@@ -276,23 +291,25 @@ export function TradeAnalyzer({
                   Trade summary
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  You send {fmtVar(sendVar)} VAR · receive {fmtVar(recvVar)} VAR
-                  ·{" "}
+                  You send {fmtPar(sendPas)} PAS/G · receive {fmtPar(recvPas)}{" "}
+                  PAS/G ·{" "}
                   <Typography
                     component="span"
                     variant="body2"
                     sx={{
                       fontWeight: 700,
                       color:
-                        recvVar - sendVar > 0.05
+                        recvPas - sendPas > 0.05
                           ? "success.main"
-                          : recvVar - sendVar < -0.05
+                          : recvPas - sendPas < -0.05
                           ? "error.main"
                           : "text.secondary",
                     }}
                   >
-                    net {fmtVar(recvVar - sendVar)}
-                  </Typography>
+                    net {fmtPar(recvPas - sendPas)}
+                  </Typography>{" "}
+                  (PAR/G: {fmtPar(sendPar)} out, {fmtPar(recvPar)} in, net{" "}
+                  {fmtPar(recvPar - sendPar)})
                 </Typography>
               </Stack>
               <Stack

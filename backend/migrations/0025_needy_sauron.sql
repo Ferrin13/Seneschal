@@ -1,0 +1,1 @@
+ALTER TABLE "thrawn_leagues" ADD COLUMN "projection_source" text DEFAULT 'average' NOT NULL;

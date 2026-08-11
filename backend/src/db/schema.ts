@@ -1313,6 +1313,11 @@ export const thrawnLeagues = pgTable(
     season: text("season").notNull(),
     settings: jsonb("settings").$type<ThrawnLeagueSettings>().notNull(),
     myRosterId: integer("my_roster_id"),
+    /** Which projection feed prices players: a single source or the mean. */
+    projectionSource: text("projection_source")
+      .$type<ThrawnProjectionSource>()
+      .notNull()
+      .default("average"),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -1329,6 +1334,9 @@ export const thrawnLeagues = pgTable(
     ),
   })
 );
+
+/** Projection feeds Thrawn syncs, plus "average" (mean of all available). */
+export type ThrawnProjectionSource = "sleeper" | "espn" | "sharks" | "average";
 
 /** Trimmed Sleeper league settings snapshot stored on thrawn_leagues. */
 export type ThrawnLeagueSettings = {
@@ -1393,6 +1401,8 @@ export const thrawnPlayers = pgTable(
     status: text("status"),
     injuryStatus: text("injury_status"),
     yearsExp: integer("years_exp"),
+    /** NFL bye week for the player's team this season (from ESPN). */
+    byeWeek: integer("bye_week"),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1419,6 +1429,12 @@ export const thrawnProjections = pgTable(
     stats: jsonb("stats").$type<Record<string, number>>().notNull(),
     ptsPpr: doublePrecision("pts_ppr"),
     adpPpr: doublePrecision("adp_ppr"),
+    /**
+     * Week-by-week projected points (source scoring, index = week - 1).
+     * Only some sources provide it (ESPN); used as a season shape, with
+     * zeros marking byes.
+     */
+    weekly: jsonb("weekly").$type<number[]>(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1426,6 +1442,92 @@ export const thrawnProjections = pgTable(
   (t) => ({
     pk: primaryKey({ columns: [t.source, t.season, t.playerId] }),
     seasonIdx: index("thrawn_projections_season_idx").on(t.season),
+  })
+);
+
+/**
+ * Actual season-total stats for one player in one past season, from Sleeper's
+ * public stats feed. Immutable once a season is over, so each season is
+ * synced once. Scored with a league's scoring settings at read time to
+ * produce historical PAR and its variance.
+ */
+export const thrawnPlayerStats = pgTable(
+  "thrawn_player_stats",
+  {
+    season: text("season").notNull(),
+    playerId: text("player_id")
+      .notNull()
+      .references(() => thrawnPlayers.id, { onDelete: "cascade" }),
+    stats: jsonb("stats").$type<Record<string, number>>().notNull(),
+    /** Games played that season. */
+    gp: integer("gp").notNull().default(0),
+    ptsPpr: doublePrecision("pts_ppr"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.season, t.playerId] }),
+    playerIdx: index("thrawn_player_stats_player_idx").on(t.playerId),
+  })
+);
+
+/**
+ * One team's score in one regular-season week of a past season, pulled from
+ * the Sleeper matchup feed of the league's previous-league chain. Feeds the
+ * luck analysis (actual record vs. all-play expected wins). `ownerId` links
+ * results to the same human across seasons even when roster ids shuffle.
+ */
+export const thrawnMatchups = pgTable(
+  "thrawn_matchups",
+  {
+    leagueId: uuid("league_id")
+      .notNull()
+      .references(() => thrawnLeagues.id, { onDelete: "cascade" }),
+    season: text("season").notNull(),
+    week: integer("week").notNull(),
+    rosterId: integer("roster_id").notNull(),
+    ownerId: text("owner_id"),
+    matchupId: integer("matchup_id"),
+    points: doublePrecision("points").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.leagueId, t.season, t.week, t.rosterId] }),
+    leagueSeasonIdx: index("thrawn_matchups_league_season_idx").on(
+      t.leagueId,
+      t.season
+    ),
+  })
+);
+
+/**
+ * One team's final roster in a PAST season, captured from the Sleeper league
+ * behind the previous-league chain. Lets historical views show the roster as
+ * it actually existed that year rather than today's roster. Snapshot is the
+ * end-of-season state (mid-season trades aren't reconstructed).
+ */
+export const thrawnSeasonTeams = pgTable(
+  "thrawn_season_teams",
+  {
+    leagueId: uuid("league_id")
+      .notNull()
+      .references(() => thrawnLeagues.id, { onDelete: "cascade" }),
+    season: text("season").notNull(),
+    rosterId: integer("roster_id").notNull(),
+    ownerId: text("owner_id"),
+    displayName: text("display_name"),
+    teamName: text("team_name"),
+    avatar: text("avatar"),
+    players: jsonb("players").$type<string[]>().notNull().default([]),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.leagueId, t.season, t.rosterId] }),
   })
 );
 
@@ -1472,8 +1574,14 @@ export type ThrawnPlayer = typeof thrawnPlayers.$inferSelect;
 export type NewThrawnPlayer = typeof thrawnPlayers.$inferInsert;
 export type ThrawnProjection = typeof thrawnProjections.$inferSelect;
 export type NewThrawnProjection = typeof thrawnProjections.$inferInsert;
+export type ThrawnPlayerStats = typeof thrawnPlayerStats.$inferSelect;
+export type NewThrawnPlayerStats = typeof thrawnPlayerStats.$inferInsert;
 export type ThrawnOverride = typeof thrawnOverrides.$inferSelect;
 export type NewThrawnOverride = typeof thrawnOverrides.$inferInsert;
+export type ThrawnMatchup = typeof thrawnMatchups.$inferSelect;
+export type NewThrawnMatchup = typeof thrawnMatchups.$inferInsert;
+export type ThrawnSeasonTeam = typeof thrawnSeasonTeams.$inferSelect;
+export type NewThrawnSeasonTeam = typeof thrawnSeasonTeams.$inferInsert;
 
 export type LazaxGame = typeof lazaxGames.$inferSelect;
 export type NewLazaxGame = typeof lazaxGames.$inferInsert;
