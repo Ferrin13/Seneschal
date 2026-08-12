@@ -41,7 +41,7 @@ export function TeamResilience({
 
   return (
     <TableContainer>
-      <Table size="small">
+      <Table size="small" sx={{ minWidth: 640 }}>
         <TableHead>
           <TableRow>
             <TableCell>Starter</TableCell>

@@ -284,6 +284,8 @@ export function TradeAnalyzer({
                 direction="row"
                 spacing={1.5}
                 alignItems="center"
+                flexWrap="wrap"
+                useFlexGap
                 sx={{ mb: 1.5 }}
               >
                 <SwapHorizIcon color="secondary" />
@@ -315,7 +317,15 @@ export function TradeAnalyzer({
               <Stack
                 direction={{ xs: "column", md: "row" }}
                 spacing={3}
-                divider={<Divider orientation="vertical" flexItem />}
+                divider={
+                  <Divider
+                    flexItem
+                    orientation="vertical"
+                    sx={{
+                      display: { xs: "none", md: "block" },
+                    }}
+                  />
+                }
               >
                 <TrioSummary
                   title={`Your keepers after (top ${maxKeepers})`}

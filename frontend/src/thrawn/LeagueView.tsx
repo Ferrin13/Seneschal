@@ -156,8 +156,14 @@ export function LeagueView({ leagueId }: { leagueId: string }) {
             </Typography>
           ) : null}
         </Box>
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <FormControl size="small" sx={{ minWidth: 190 }}>
+        <Stack
+          direction="row"
+          spacing={1.5}
+          alignItems="center"
+          flexWrap="wrap"
+          useFlexGap
+        >
+          <FormControl size="small" sx={{ minWidth: 190, flexGrow: { xs: 1, sm: 0 } }}>
             <InputLabel id="projection-source-label">Projections</InputLabel>
             <Select
               labelId="projection-source-label"
@@ -174,7 +180,7 @@ export function LeagueView({ leagueId }: { leagueId: string }) {
               ))}
             </Select>
           </FormControl>
-          <FormControl size="small" sx={{ minWidth: 200 }}>
+          <FormControl size="small" sx={{ minWidth: 200, flexGrow: { xs: 1, sm: 0 } }}>
             <InputLabel id="my-team-label">My team</InputLabel>
             <Select
               labelId="my-team-label"

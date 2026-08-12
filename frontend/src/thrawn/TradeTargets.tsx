@@ -28,6 +28,9 @@ import { PlayerDetailDrawer } from "./PlayerDetailDrawer";
 
 const numSx = { fontVariantNumeric: "tabular-nums" } as const;
 
+/** Secondary columns collapse below md; tap a row for the detail drawer. */
+const hideOnMobile = { display: { xs: "none", md: "table-cell" } } as const;
+
 /** One player's market-vs-model comparison. */
 type ValueGap = {
   v: PlayerValue;
@@ -95,29 +98,33 @@ function GapTable({
   }
   return (
     <TableContainer>
-      <Table size="small">
+      <Table size="small" sx={{ minWidth: { xs: 0, md: showOwner ? 720 : 620 } }}>
         <TableHead>
           <TableRow>
             <TableCell>Player</TableCell>
-            {showOwner ? <TableCell>Owner</TableCell> : null}
+            {showOwner ? <TableCell sx={hideOnMobile}>Owner</TableCell> : null}
             <TableCell align="right">
               <Tooltip title="Sleeper average draft position">
                 <span>ADP</span>
               </Tooltip>
             </TableCell>
-            <TableCell align="right">
+            <TableCell align="right" sx={hideOnMobile}>
               <Tooltip title="Overall rank implied by ADP vs our overall rank by PAS/G">
                 <span>Mkt / ours</span>
               </Tooltip>
             </TableCell>
-            <TableCell align="right">PAS/G</TableCell>
-            <TableCell align="right">PAR/G</TableCell>
+            <TableCell align="right" sx={hideOnMobile}>
+              PAS/G
+            </TableCell>
+            <TableCell align="right" sx={hideOnMobile}>
+              PAR/G
+            </TableCell>
             <TableCell align="right">
               <Tooltip title="PAS/G minus the PAS/G of the player our model slots at his ADP-implied rank — per-game starter value the market is missing (+) or imagining (-)">
                 <span>Edge PAS</span>
               </Tooltip>
             </TableCell>
-            <TableCell align="right">
+            <TableCell align="right" sx={hideOnMobile}>
               <Tooltip title="Same gap priced in PAR/G: his PAR/G minus the PAR/G at his ADP-implied slot in our PAR ordering">
                 <span>Edge PAR</span>
               </Tooltip>
@@ -163,7 +170,7 @@ function GapTable({
                   </Stack>
                 </TableCell>
                 {showOwner ? (
-                  <TableCell>
+                  <TableCell sx={hideOnMobile}>
                     <Typography variant="caption" color="text.secondary" noWrap>
                       {owner ? teamLabel(owner) : "—"}
                     </Typography>
@@ -172,13 +179,13 @@ function GapTable({
                 <TableCell align="right" sx={numSx}>
                   {v.adp!.toFixed(1)}
                 </TableCell>
-                <TableCell align="right" sx={numSx}>
+                <TableCell align="right" sx={{ ...numSx, ...hideOnMobile }}>
                   #{marketRank} / #{ourRank}
                 </TableCell>
-                <TableCell align="right" sx={numSx}>
+                <TableCell align="right" sx={{ ...numSx, ...hideOnMobile }}>
                   {fmtPar(v.parStarter)}
                 </TableCell>
-                <TableCell align="right" sx={numSx}>
+                <TableCell align="right" sx={{ ...numSx, ...hideOnMobile }}>
                   {fmtPar(v.par)}
                 </TableCell>
                 <TableCell
@@ -196,6 +203,7 @@ function GapTable({
                   sx={{
                     ...numSx,
                     color: positive ? "#2E7D32" : "#EF6C00",
+                    ...hideOnMobile,
                   }}
                 >
                   {fmtPar(edgePar)}

@@ -81,7 +81,13 @@ export function TeamWeekly({
               <Typography
                 variant="caption"
                 color={w.starterByes.length > 0 ? "warning.main" : "text.secondary"}
-                sx={{ fontSize: "0.6rem" }}
+                sx={{
+                  fontSize: "0.6rem",
+                  display: {
+                    xs: w.week % 2 === 0 ? "none" : "block",
+                    sm: "block",
+                  },
+                }}
               >
                 {w.week}
               </Typography>

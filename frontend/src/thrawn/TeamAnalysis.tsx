@@ -454,7 +454,7 @@ export function TeamAnalysis({
                 ) : null}
               </Stack>
               <TableContainer>
-                <Table size="small">
+                <Table size="small" sx={{ minWidth: 660 }}>
                   <TableHead>
                     <TableRow>
                       <TableCell>Pos</TableCell>
@@ -647,7 +647,7 @@ export function TeamAnalysis({
             </Alert>
           ) : (
             <TableContainer>
-              <Table size="small">
+              <Table size="small" sx={{ minWidth: 520 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Team</TableCell>

@@ -46,6 +46,9 @@ function sourceBreakdown(sourcePoints: Record<string, number>): string | null {
     .join(" · ");
 }
 
+/** Secondary columns collapse below md; the detail drawer covers them. */
+const hideOnMobile = { display: { xs: "none", md: "table-cell" } } as const;
+
 type SortKey =
   | "par"
   | "parStarter"
@@ -269,16 +272,20 @@ export function PlayerTable({
       <TableContainer
         sx={{ bgcolor: "background.paper", borderRadius: 2, maxHeight: 640 }}
       >
-        <Table size="small" stickyHeader>
+        <Table size="small" stickyHeader sx={{ minWidth: { xs: 0, md: 1080 } }}>
           <TableHead>
             <TableRow>
-              <TableCell align="right" sx={{ width: 40 }}>
+              <TableCell align="right" sx={{ width: 40, ...hideOnMobile }}>
                 #
               </TableCell>
               <TableCell>Player</TableCell>
               <TableCell>Pos</TableCell>
-              <TableCell>Owner</TableCell>
-              <TableCell align="right" sortDirection={sortKey === "points" ? (sortAsc ? "asc" : "desc") : false}>
+              <TableCell sx={hideOnMobile}>Owner</TableCell>
+              <TableCell
+                align="right"
+                sx={hideOnMobile}
+                sortDirection={sortKey === "points" ? (sortAsc ? "asc" : "desc") : false}
+              >
                 <TableSortLabel
                   active={sortKey === "points"}
                   direction={sortAsc ? "asc" : "desc"}
@@ -287,7 +294,7 @@ export function PlayerTable({
                   Proj pts
                 </TableSortLabel>
               </TableCell>
-              <TableCell align="right">
+              <TableCell align="right" sx={hideOnMobile}>
                 <TableSortLabel
                   active={sortKey === "positionRank"}
                   direction={sortAsc ? "asc" : "desc"}
@@ -296,7 +303,9 @@ export function PlayerTable({
                   Pos rank
                 </TableSortLabel>
               </TableCell>
-              <TableCell align="right">PPG</TableCell>
+              <TableCell align="right" sx={hideOnMobile}>
+                PPG
+              </TableCell>
               <TableCell align="right">
                 <TableSortLabel
                   active={sortKey === "parStarter"}
@@ -319,8 +328,10 @@ export function PlayerTable({
                   </Tooltip>
                 </TableSortLabel>
               </TableCell>
-              <TableCell align="right">Past PAR/G</TableCell>
-              <TableCell align="right">
+              <TableCell align="right" sx={hideOnMobile}>
+                Past PAR/G
+              </TableCell>
+              <TableCell align="right" sx={hideOnMobile}>
                 <TableSortLabel
                   active={sortKey === "variance"}
                   direction={sortAsc ? "asc" : "desc"}
@@ -329,7 +340,7 @@ export function PlayerTable({
                   Variance
                 </TableSortLabel>
               </TableCell>
-              <TableCell align="right">
+              <TableCell align="right" sx={hideOnMobile}>
                 <TableSortLabel
                   active={sortKey === "adp"}
                   direction={sortAsc ? "asc" : "desc"}
@@ -358,6 +369,7 @@ export function PlayerTable({
                     sx={{
                       fontVariantNumeric: "tabular-nums",
                       color: "text.secondary",
+                      ...hideOnMobile,
                     }}
                   >
                     {i + 1}
@@ -396,12 +408,12 @@ export function PlayerTable({
                       }}
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell sx={hideOnMobile}>
                     <Typography variant="body2" color="text.secondary" noWrap>
                       {owner ? teamLabel(owner) : "—"}
                     </Typography>
                   </TableCell>
-                  <TableCell align="right">
+                  <TableCell align="right" sx={hideOnMobile}>
                     <Tooltip
                       title={
                         v.overridden
@@ -425,13 +437,13 @@ export function PlayerTable({
                       </Typography>
                     </Tooltip>
                   </TableCell>
-                  <TableCell align="right">
+                  <TableCell align="right" sx={hideOnMobile}>
                     <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>
                       {v.position}
                       {v.positionRank}
                     </Typography>
                   </TableCell>
-                  <TableCell align="right">
+                  <TableCell align="right" sx={hideOnMobile}>
                     <Typography
                       variant="body2"
                       sx={{ fontVariantNumeric: "tabular-nums" }}
@@ -463,7 +475,7 @@ export function PlayerTable({
                       {fmtPar(v.par)}
                     </Typography>
                   </TableCell>
-                  <TableCell align="right">
+                  <TableCell align="right" sx={hideOnMobile}>
                     {v.history.length > 0 ? (
                       <Tooltip
                         title={v.history
@@ -489,7 +501,7 @@ export function PlayerTable({
                       </Typography>
                     )}
                   </TableCell>
-                  <TableCell align="right">
+                  <TableCell align="right" sx={hideOnMobile}>
                     <Typography
                       variant="body2"
                       color="text.secondary"
@@ -498,7 +510,7 @@ export function PlayerTable({
                       {v.parVariance != null ? v.parVariance.toFixed(1) : "—"}
                     </Typography>
                   </TableCell>
-                  <TableCell align="right">
+                  <TableCell align="right" sx={hideOnMobile}>
                     <Typography
                       variant="body2"
                       color="text.secondary"

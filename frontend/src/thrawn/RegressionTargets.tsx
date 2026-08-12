@@ -36,6 +36,9 @@ import { PlayerDetailDrawer } from "./PlayerDetailDrawer";
 
 const numSx = { fontVariantNumeric: "tabular-nums" } as const;
 
+/** Secondary columns collapse below md; tap a row for the detail drawer. */
+const hideOnMobile = { display: { xs: "none", md: "table-cell" } } as const;
+
 const PHASE_LABELS: Record<string, string> = {
   pass: "Passing",
   rush: "Rushing",
@@ -79,17 +82,19 @@ function RegressionTable({
   }
   return (
     <TableContainer>
-      <Table size="small">
+      <Table size="small" sx={{ minWidth: { xs: 0, md: 640 } }}>
         <TableHead>
           <TableRow>
             <TableCell>Player</TableCell>
-            <TableCell align="right">GP</TableCell>
-            <TableCell align="right">
+            <TableCell align="right" sx={hideOnMobile}>
+              GP
+            </TableCell>
+            <TableCell align="right" sx={hideOnMobile}>
               <Tooltip title="Actual touchdowns vs expected from overall + red-zone volume">
                 <span>TD vs exp</span>
               </Tooltip>
             </TableCell>
-            <TableCell align="right">
+            <TableCell align="right" sx={hideOnMobile}>
               <Tooltip title="Actual yards minus expected from opportunities at the cohort rate">
                 <span>Yds Δ</span>
               </Tooltip>
@@ -145,13 +150,13 @@ function RegressionTable({
                     </Typography>
                   </Stack>
                 </TableCell>
-                <TableCell align="right" sx={numSx}>
+                <TableCell align="right" sx={{ ...numSx, ...hideOnMobile }}>
                   {r.gp}
                 </TableCell>
-                <TableCell align="right" sx={numSx}>
+                <TableCell align="right" sx={{ ...numSx, ...hideOnMobile }}>
                   {tdActual} vs {tdExp.toFixed(1)}
                 </TableCell>
-                <TableCell align="right" sx={numSx}>
+                <TableCell align="right" sx={{ ...numSx, ...hideOnMobile }}>
                   {ydDelta >= 0 ? "+" : ""}
                   {ydDelta.toFixed(0)}
                 </TableCell>

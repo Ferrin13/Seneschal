@@ -48,6 +48,9 @@ function durabilityColor(avgGp: number | null): string {
 
 const numSx = { fontVariantNumeric: "tabular-nums" } as const;
 
+/** Secondary columns collapse below md; tap a row for the detail drawer. */
+const hideOnMobile = { display: { xs: "none", md: "table-cell" } } as const;
+
 /**
  * Full current-season roster with every player metric: projections, both
  * PAS and PAR, variance, past-season PAR, bye, injury status, and
@@ -67,15 +70,23 @@ export function TeamRoster({
   const rows = [...players].sort((a, b) => b.parStarter - a.parStarter);
   return (
     <TableContainer>
-      <Table size="small">
+      <Table size="small" sx={{ minWidth: { xs: 0, md: 920 } }}>
         <TableHead>
           <TableRow>
             <TableCell>Pos</TableCell>
             <TableCell>Player</TableCell>
-            <TableCell align="right">Age</TableCell>
-            <TableCell align="right">Bye</TableCell>
-            <TableCell align="right">Proj</TableCell>
-            <TableCell align="right">PPG</TableCell>
+            <TableCell align="right" sx={hideOnMobile}>
+              Age
+            </TableCell>
+            <TableCell align="right" sx={hideOnMobile}>
+              Bye
+            </TableCell>
+            <TableCell align="right" sx={hideOnMobile}>
+              Proj
+            </TableCell>
+            <TableCell align="right" sx={hideOnMobile}>
+              PPG
+            </TableCell>
             <TableCell align="right">
               <Tooltip title="Points above starter: per-game points vs. the league-average starter">
                 <span>PAS/G</span>
@@ -86,13 +97,13 @@ export function TeamRoster({
                 <span>PAR/G</span>
               </Tooltip>
             </TableCell>
-            <TableCell align="right">
+            <TableCell align="right" sx={hideOnMobile}>
               <Tooltip title="Year-to-year variance of past per-game PAR">
                 <span>Var</span>
               </Tooltip>
             </TableCell>
-            <TableCell>Past PAR/G</TableCell>
-            <TableCell align="right">
+            <TableCell sx={hideOnMobile}>Past PAR/G</TableCell>
+            <TableCell align="right" sx={hideOnMobile}>
               <Tooltip title="Average games played across the past seasons on record">
                 <span>Avg GP</span>
               </Tooltip>
@@ -157,17 +168,17 @@ export function TeamRoster({
                     />
                   ) : null}
                 </TableCell>
-                <TableCell align="right" sx={numSx}>
+                <TableCell align="right" sx={{ ...numSx, ...hideOnMobile }}>
                   {v.age ?? "—"}
                 </TableCell>
-                <TableCell align="right" sx={numSx}>
+                <TableCell align="right" sx={{ ...numSx, ...hideOnMobile }}>
                   {v.byeWeek ?? "—"}
                 </TableCell>
-                <TableCell align="right" sx={numSx}>
+                <TableCell align="right" sx={{ ...numSx, ...hideOnMobile }}>
                   {fmtPts(v.points)}
                   {v.overridden ? "*" : ""}
                 </TableCell>
-                <TableCell align="right" sx={numSx}>
+                <TableCell align="right" sx={{ ...numSx, ...hideOnMobile }}>
                   {fmtPts(v.ppg)}
                 </TableCell>
                 <TableCell
@@ -183,10 +194,10 @@ export function TeamRoster({
                 <TableCell align="right" sx={numSx}>
                   {fmtPar(v.par)}
                 </TableCell>
-                <TableCell align="right" sx={numSx}>
+                <TableCell align="right" sx={{ ...numSx, ...hideOnMobile }}>
                   {fmtVariance(v.parVariance)}
                 </TableCell>
-                <TableCell>
+                <TableCell sx={hideOnMobile}>
                   <Tooltip
                     title={
                       v.history.length > 0
@@ -206,7 +217,7 @@ export function TeamRoster({
                 </TableCell>
                 <TableCell
                   align="right"
-                  sx={{ ...numSx, color: durabilityColor(d.avgGp) }}
+                  sx={{ ...numSx, color: durabilityColor(d.avgGp), ...hideOnMobile }}
                 >
                   {d.avgGp != null ? d.avgGp.toFixed(1) : "—"}
                 </TableCell>
@@ -232,16 +243,22 @@ export function SeasonTeamRoster({
   );
   return (
     <TableContainer>
-      <Table size="small">
+      <Table size="small" sx={{ minWidth: { xs: 0, md: 560 } }}>
         <TableHead>
           <TableRow>
             <TableCell>Pos</TableCell>
             <TableCell>Player</TableCell>
-            <TableCell align="right">GP</TableCell>
-            <TableCell align="right">Points</TableCell>
+            <TableCell align="right" sx={hideOnMobile}>
+              GP
+            </TableCell>
+            <TableCell align="right" sx={hideOnMobile}>
+              Points
+            </TableCell>
             <TableCell align="right">PPG</TableCell>
             <TableCell align="right">PAS/G</TableCell>
-            <TableCell align="right">PAR/G</TableCell>
+            <TableCell align="right" sx={hideOnMobile}>
+              PAR/G
+            </TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -260,10 +277,10 @@ export function SeasonTeamRoster({
                   {p.name}
                 </Typography>
               </TableCell>
-              <TableCell align="right" sx={numSx}>
+              <TableCell align="right" sx={{ ...numSx, ...hideOnMobile }}>
                 {p.gp}
               </TableCell>
-              <TableCell align="right" sx={numSx}>
+              <TableCell align="right" sx={{ ...numSx, ...hideOnMobile }}>
                 {fmtPts(p.points)}
               </TableCell>
               <TableCell align="right" sx={numSx}>
@@ -279,7 +296,7 @@ export function SeasonTeamRoster({
               >
                 {p.gp > 0 ? fmtPar(p.parStarter) : "—"}
               </TableCell>
-              <TableCell align="right" sx={numSx}>
+              <TableCell align="right" sx={{ ...numSx, ...hideOnMobile }}>
                 {p.gp > 0 ? fmtPar(p.par) : "—"}
               </TableCell>
             </TableRow>

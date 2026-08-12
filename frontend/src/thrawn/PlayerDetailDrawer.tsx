@@ -388,7 +388,8 @@ export function PlayerDetailDrawer({
 
           {player && player.history.length > 0 ? (
             <Section title="Past seasons">
-              <Table size="small">
+              <Box sx={{ overflowX: "auto" }}>
+                <Table size="small" sx={{ minWidth: 460 }}>
                 <TableHead>
                   <TableRow>
                     <TableCell>Season</TableCell>
@@ -461,7 +462,8 @@ export function PlayerDetailDrawer({
                     );
                   })}
                 </TableBody>
-              </Table>
+                </Table>
+              </Box>
               <StatRow
                 label="Year-to-year PAR variance"
                 value={fmtVariance(player.parVariance)}
