@@ -26,6 +26,7 @@ import { TeamAnalysis } from "./TeamAnalysis";
 import { TradeTargets } from "./TradeTargets";
 import { TradeAnalyzer } from "./TradeAnalyzer";
 import { RegressionTargets } from "./RegressionTargets";
+import { DraftValue } from "./DraftValue";
 
 type TabId =
   | "board"
@@ -33,7 +34,8 @@ type TabId =
   | "analysis"
   | "targets"
   | "analyzer"
-  | "regression";
+  | "regression"
+  | "draft";
 
 /** League workspace for /thrawn/:leagueId — board, players, trades. */
 export function LeagueView({ leagueId }: { leagueId: string }) {
@@ -231,6 +233,7 @@ export function LeagueView({ leagueId }: { leagueId: string }) {
         <Tab value="targets" label="Trade Targets" />
         <Tab value="analyzer" label="Trade Analyzer" />
         <Tab value="regression" label="Regression" />
+        <Tab value="draft" label="Draft Value" />
       </Tabs>
 
       {tab === "board" ? (
@@ -265,12 +268,14 @@ export function LeagueView({ leagueId }: { leagueId: string }) {
         />
       ) : tab === "analyzer" ? (
         <TradeAnalyzer teams={teams} valuation={valuation} league={league} />
-      ) : (
+      ) : tab === "regression" ? (
         <RegressionTargets
           leagueId={leagueId}
           teams={teams}
           valuation={valuation}
         />
+      ) : (
+        <DraftValue valuation={valuation} league={league} />
       )}
     </Stack>
   );
