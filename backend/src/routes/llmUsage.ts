@@ -5,8 +5,11 @@ import { db } from "../db/client.js";
 import { llmCalls } from "../db/schema.js";
 
 /**
- * LLM cost accounting. Surfaces totals, per-model and per-purpose breakdowns
- * (for comparing OpenRouter models), and the most recent calls.
+ * LLM gateway reporting. Surfaces totals, per-model and per-purpose
+ * breakdowns (cost, tokens, latency, error rate — for comparing OpenRouter
+ * models), and the most recent calls. Every LLM call in the app is logged by
+ * the gateway (src/llm/index.ts), so this covers all features, not just the
+ * marketplace.
  */
 export const llmUsageRoutes: FastifyPluginAsync = async (app) => {
   app.get("/marketplace/llm-usage", async (req) => {
@@ -15,11 +18,18 @@ export const llmUsageRoutes: FastifyPluginAsync = async (app) => {
       .parse(req.query);
     const userId = req.auth.userId;
 
+    const avgLatency = sql<number>`coalesce(round(avg(${llmCalls.latencyMs}))::int, 0)`;
+    const p95Latency = sql<number>`coalesce(percentile_cont(0.95) within group (order by ${llmCalls.latencyMs})::int, 0)`;
+    const errorCalls = sql<number>`count(*) filter (where ${llmCalls.status} <> 'ok')::int`;
+
     const [totals] = await db
       .select({
         totalCalls: sql<number>`count(*)::int`,
         totalCostUsd: sql<number>`coalesce(sum(${llmCalls.costUsd}), 0)`,
         totalTokens: sql<number>`coalesce(sum(${llmCalls.totalTokens}), 0)::int`,
+        avgLatencyMs: avgLatency,
+        p95LatencyMs: p95Latency,
+        errorCalls,
       })
       .from(llmCalls)
       .where(eq(llmCalls.userId, userId));
@@ -31,6 +41,9 @@ export const llmUsageRoutes: FastifyPluginAsync = async (app) => {
         costUsd: sql<number>`coalesce(sum(${llmCalls.costUsd}), 0)`,
         promptTokens: sql<number>`coalesce(sum(${llmCalls.promptTokens}), 0)::int`,
         completionTokens: sql<number>`coalesce(sum(${llmCalls.completionTokens}), 0)::int`,
+        avgLatencyMs: avgLatency,
+        p95LatencyMs: p95Latency,
+        errorCalls,
       })
       .from(llmCalls)
       .where(eq(llmCalls.userId, userId))
@@ -44,6 +57,9 @@ export const llmUsageRoutes: FastifyPluginAsync = async (app) => {
         costUsd: sql<number>`coalesce(sum(${llmCalls.costUsd}), 0)`,
         promptTokens: sql<number>`coalesce(sum(${llmCalls.promptTokens}), 0)::int`,
         completionTokens: sql<number>`coalesce(sum(${llmCalls.completionTokens}), 0)::int`,
+        avgLatencyMs: avgLatency,
+        p95LatencyMs: p95Latency,
+        errorCalls,
       })
       .from(llmCalls)
       .where(eq(llmCalls.userId, userId))
@@ -95,12 +111,18 @@ export const llmUsageRoutes: FastifyPluginAsync = async (app) => {
       totalCalls: totals?.totalCalls ?? 0,
       totalCostUsd: Number(totals?.totalCostUsd ?? 0),
       totalTokens: totals?.totalTokens ?? 0,
+      avgLatencyMs: totals?.avgLatencyMs ?? 0,
+      p95LatencyMs: totals?.p95LatencyMs ?? 0,
+      errorCalls: totals?.errorCalls ?? 0,
       byModel: byModel.map((m) => ({
         model: m.model,
         calls: m.calls,
         costUsd: Number(m.costUsd),
         promptTokens: m.promptTokens,
         completionTokens: m.completionTokens,
+        avgLatencyMs: m.avgLatencyMs,
+        p95LatencyMs: m.p95LatencyMs,
+        errorCalls: m.errorCalls,
       })),
       byPurpose: byPurpose.map((p) => ({
         purpose: p.purpose,
@@ -108,6 +130,9 @@ export const llmUsageRoutes: FastifyPluginAsync = async (app) => {
         costUsd: Number(p.costUsd),
         promptTokens: p.promptTokens,
         completionTokens: p.completionTokens,
+        avgLatencyMs: p.avgLatencyMs,
+        p95LatencyMs: p.p95LatencyMs,
+        errorCalls: p.errorCalls,
       })),
       daily: daily.map((d) => ({
         date: d.date,
@@ -129,6 +154,9 @@ export const llmUsageRoutes: FastifyPluginAsync = async (app) => {
         completionTokens: r.completionTokens,
         totalTokens: r.totalTokens,
         costUsd: r.costUsd,
+        latencyMs: r.latencyMs,
+        status: r.status,
+        errorMessage: r.errorMessage,
         createdAt: r.createdAt.toISOString(),
       })),
     };

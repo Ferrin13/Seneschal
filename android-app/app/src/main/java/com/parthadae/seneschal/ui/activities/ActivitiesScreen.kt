@@ -39,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -48,6 +49,7 @@ import androidx.lifecycle.viewModelScope
 import com.parthadae.seneschal.data.local.ActivityDao
 import com.parthadae.seneschal.data.local.CategoryDao
 import com.parthadae.seneschal.data.repository.ActivityRepository
+import com.parthadae.seneschal.data.repository.AppSettingsRepository
 import com.parthadae.seneschal.domain.Activity
 import com.parthadae.seneschal.domain.Category
 import com.parthadae.seneschal.domain.toDomain
@@ -70,14 +72,18 @@ class ActivitiesViewModel @Inject constructor(
     private val repo: ActivityRepository,
     categoryDao: CategoryDao,
     activityDao: ActivityDao,
+    appSettings: AppSettingsRepository,
 ) : ViewModel() {
     val uiState: StateFlow<ActivitiesUiState> = combine(
         categoryDao.observeActive().map { list -> list.map { it.toDomain() } },
         activityDao.observeAllIncludingArchived().map { list -> list.map { it.toDomain() } },
-    ) { cats, acts ->
+        appSettings.showArchivedActivities,
+    ) { cats, acts, showArchived ->
         ActivitiesUiState(
             categories = cats,
-            activitiesByCategory = acts.groupBy { it.categoryId },
+            activitiesByCategory = acts
+                .filter { showArchived || !it.isArchived }
+                .groupBy { it.categoryId },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ActivitiesUiState())
 
@@ -181,7 +187,15 @@ fun ActivitiesScreen(
                             .fillMaxWidth()
                             .padding(start = 32.dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
                     ) {
-                        Text(act.name, modifier = Modifier.weight(1f))
+                        Text(
+                            act.name,
+                            color = if (act.isArchived) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                Color.Unspecified
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
                         IconButton(onClick = { renameActivity = act }) {
                             Icon(Icons.Outlined.Edit, contentDescription = "Rename")
                         }

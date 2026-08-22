@@ -199,7 +199,11 @@ class StatsViewModel @Inject constructor(
                 loggedMs += SLOT_MS
             }
             s.secondaryActivityId?.let { activityId ->
-                val key = activityId to notes
+                // Notes describe the primary activity (e.g. the audiobook
+                // title on "Audiobook + Driving"), so secondary credit goes
+                // to the activity's "no notes" bucket rather than fragmenting
+                // it by the primary's notes.
+                val key: Pair<String, String?> = activityId to null
                 totalsMs[key] = (totalsMs[key] ?: 0L) + SLOT_MS
                 secondaryMsByActivity[activityId] =
                     (secondaryMsByActivity[activityId] ?: 0L) + SLOT_MS

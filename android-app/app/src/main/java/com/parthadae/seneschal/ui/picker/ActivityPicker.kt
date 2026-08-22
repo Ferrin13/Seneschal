@@ -52,6 +52,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.parthadae.seneschal.data.repository.ActivityRepository
+import com.parthadae.seneschal.data.repository.AppSettingsRepository
 import com.parthadae.seneschal.domain.Activity
 import com.parthadae.seneschal.domain.Category
 import com.parthadae.seneschal.domain.SLOT_MS
@@ -76,7 +77,10 @@ data class PickerResult(
 
 data class PickerState(
     val categories: List<Category> = emptyList(),
+    /** Choosable options: archived excluded unless "show archived" is on. */
     val activities: List<Activity> = emptyList(),
+    /** Every non-deleted activity, for resolving a slot's existing pick. */
+    val allActivities: List<Activity> = emptyList(),
     val recents: List<Activity> = emptyList(),
     val recentNotes: List<String> = emptyList(),
 )
@@ -84,14 +88,22 @@ data class PickerState(
 @HiltViewModel
 class ActivityPickerViewModel @Inject constructor(
     repo: ActivityRepository,
+    appSettings: AppSettingsRepository,
 ) : ViewModel() {
     val state: StateFlow<PickerState> = combine(
         repo.categories,
-        repo.activities,
+        repo.allActivities,
         repo.recentActivities(8),
         repo.recentNotes(8),
-    ) { cats, acts, recents, recentNotes ->
-        PickerState(cats, acts, recents, recentNotes)
+        appSettings.showArchivedActivities,
+    ) { cats, acts, recents, recentNotes, showArchived ->
+        PickerState(
+            categories = cats,
+            activities = if (showArchived) acts else acts.filterNot { it.isArchived },
+            allActivities = acts,
+            recents = recents,
+            recentNotes = recentNotes,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PickerState())
 }
 
@@ -134,8 +146,10 @@ fun ActivityPickerSheet(
     var notes by rememberSaveable(existingNotes) { mutableStateOf(existingNotes.orEmpty()) }
     val expanded = remember { mutableStateMapOf<String, Boolean>() }
 
-    val initialActivity = remember(existingPrimaryActivityId, state.activities) {
-        existingPrimaryActivityId?.let { id -> state.activities.firstOrNull { it.id == id } }
+    // Resolve against the archived-inclusive list so editing a slot whose
+    // activity has since been archived still shows the "Currently" row.
+    val initialActivity = remember(existingPrimaryActivityId, state.allActivities) {
+        existingPrimaryActivityId?.let { id -> state.allActivities.firstOrNull { it.id == id } }
     }
 
     var fromPickerOpen by remember { mutableStateOf(false) }
@@ -567,6 +581,13 @@ private fun ActivityRow(
                     .padding(start = 12.dp)
                     .weight(1f),
             )
+            if (activity.isArchived) {
+                Text(
+                    "Archived",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

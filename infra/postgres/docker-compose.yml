@@ -1,0 +1,32 @@
+# Seneschal-local Postgres for backend dev.
+#
+#   docker compose -f infra/postgres/docker-compose.yml up -d
+#
+# Listens on host port 15432 (matching the repo's 1xxxx local-port convention:
+# API 18080, Vite 15173) so it doesn't collide with the shared Postgres other
+# projects use on 5432. Credentials match backend/.env:
+#
+#   DATABASE_URL=postgres://moria:moria@localhost:15432/seneschal
+name: seneschal-postgres
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: seneschal-postgres
+    environment:
+      POSTGRES_USER: moria
+      POSTGRES_PASSWORD: moria
+      POSTGRES_DB: seneschal
+    ports:
+      - "15432:5432"
+    volumes:
+      - seneschal_pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moria -d seneschal"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  seneschal_pgdata:

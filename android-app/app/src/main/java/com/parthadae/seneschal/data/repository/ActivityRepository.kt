@@ -37,7 +37,17 @@ class ActivityRepository @Inject constructor(
         list.map { it.toDomain() }
     }
 
-    val activitiesById: Flow<Map<String, Activity>> = activities.map { list ->
+    /** All non-deleted activities, archived included. */
+    val allActivities: Flow<List<Activity>> = activityDao.observeAllIncludingArchived().map { list ->
+        list.map { it.toDomain() }
+    }
+
+    /**
+     * Lookup map for resolving activity ids on historical slots. Built from
+     * the archived-inclusive list so slots logged against a since-archived
+     * activity still render with their real name.
+     */
+    val activitiesById: Flow<Map<String, Activity>> = allActivities.map { list ->
         list.associateBy { it.id }
     }
 
@@ -51,7 +61,10 @@ class ActivityRepository @Inject constructor(
      */
     fun recentActivities(limit: Int = 8): Flow<List<Activity>> =
         combine(timeSlotDao.observeRecentActivities(limit), activitiesById) { recents, byId ->
-            recents.mapNotNull { byId[it.activityId] }
+            // Recents are one-tap options for logging going forward, so
+            // archived activities never qualify even though the lookup map
+            // includes them for historical rendering.
+            recents.mapNotNull { byId[it.activityId] }.filterNot { it.isArchived }
         }
 
     /**

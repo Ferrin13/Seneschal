@@ -25,6 +25,8 @@ import com.parthadae.seneschal.data.remote.dto.TimerDto
 import com.parthadae.seneschal.data.remote.dto.TimerStartRequest
 import com.parthadae.seneschal.data.remote.dto.TimerStopRequest
 import com.parthadae.seneschal.data.remote.dto.TimerStopResponse
+import com.parthadae.seneschal.data.remote.dto.VoiceCommandRequest
+import com.parthadae.seneschal.data.remote.dto.VoiceCommandResponse
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.DELETE
@@ -138,6 +140,9 @@ interface SeneschalApi {
     suspend fun upsertGroupMembers(
         @Body body: GroupMembersUpsertRequest,
     ): List<GroupMemberDto>
+
+    @POST("voice/command")
+    suspend fun voiceCommand(@Body body: VoiceCommandRequest): VoiceCommandResponse
 
     @POST("uploads/sign")
     suspend fun signUpload(@Body body: PresignedUploadRequest): PresignedUploadResponse

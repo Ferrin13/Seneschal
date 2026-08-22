@@ -27,6 +27,7 @@ import { settingsRoutes } from "./routes/settings.js";
 import { lazaxRoutes } from "./routes/lazax.js";
 import { lazaxWsRoutes } from "./routes/lazaxWs.js";
 import { thrawnRoutes } from "./routes/thrawn.js";
+import { voiceRoutes } from "./routes/voice.js";
 
 export async function buildServer() {
   const app = Fastify({
@@ -86,6 +87,7 @@ export async function buildServer() {
   await app.register(lazaxWsRoutes);
   await app.register(lazaxRoutes);
   await app.register(thrawnRoutes);
+  await app.register(voiceRoutes);
 
   return app;
 }

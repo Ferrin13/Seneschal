@@ -482,6 +482,8 @@ export const llmPurpose = pgEnum("mp_llm_purpose", [
   "triage",
   "comps",
   "advanced",
+  "voice",
+  "stt",
   "other",
 ]);
 /** Lifecycle of a single hunt-workflow run recorded in mp_hunt_runs. */
@@ -1026,6 +1028,12 @@ export const llmCalls = pgTable(
     completionTokens: integer("completion_tokens"),
     totalTokens: integer("total_tokens"),
     costUsd: doublePrecision("cost_usd"),
+    // Gateway instrumentation: wall-clock latency of the provider call and
+    // whether it succeeded. Failed calls are logged too (status "error"),
+    // with the message in errorMessage and token/cost fields null.
+    latencyMs: integer("latency_ms"),
+    status: text("status").notNull().default("ok"),
+    errorMessage: text("error_message"),
     candidateId: uuid("candidate_id").references(() => candidates.id, {
       onDelete: "set null",
     }),

@@ -15,6 +15,13 @@
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 
     <!--
+      Voice sessions: when the app is opened via the side-key remap or
+      "Hey Google, open Seneschal", MainActivity speaks "I'm listening" and
+      starts SpeechRecognizer. Requested at runtime on the first voice launch.
+    -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!--
       We don't declare android.hardware.camera as required: the in-app
       camera capture flow uses ACTION_IMAGE_CAPTURE, which on Android 7+
       no longer requires CAMERA permission for the calling app.
@@ -32,10 +39,17 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.Seneschal">
+        <!--
+          launchMode="singleTask" so that reopening the app while it's in the
+          background (side key, "Hey Google, open Seneschal") delivers
+          onNewIntent instead of silently bringing the task forward — that's
+          the signal MainActivity uses to start a voice session.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.Seneschal">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -275,3 +275,76 @@ data class ImageUploadDto(
     val ownerId: String,
     val purpose: String,
 )
+
+@JsonClass(generateAdapter = true)
+data class VoiceTimerContextDto(
+    val activityId: String,
+    val activityName: String,
+    val startedAt: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class VoiceAudioDto(
+    /** Raw base64 (no data-URI prefix). */
+    val data: String,
+    val format: String,
+)
+
+/** A client tool advertised to the server's LLM loop. */
+@JsonClass(generateAdapter = true)
+data class VoiceToolDefDto(
+    val name: String,
+    val description: String,
+    /** JSON schema for the arguments object. */
+    val parameters: Map<String, Any?>,
+    val requiresConfirmation: Boolean = false,
+)
+
+/** A client tool invocation the LLM requested; the phone executes it. */
+@JsonClass(generateAdapter = true)
+data class VoiceToolCallDto(
+    val id: String,
+    val name: String,
+    /** JSON-encoded arguments object. */
+    val arguments: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class VoiceToolResultDto(
+    val toolCallId: String,
+    val result: String,
+)
+
+/**
+ * POST /voice/command. A fresh turn sends [audio] or [transcript] plus the
+ * client tool catalog; a continuation echoes back the [messages] array from
+ * the previous response along with the [toolResults] of the client tool
+ * calls it executed.
+ */
+@JsonClass(generateAdapter = true)
+data class VoiceCommandRequest(
+    val audio: VoiceAudioDto? = null,
+    val transcript: String? = null,
+    val toolCatalog: List<VoiceToolDefDto> = emptyList(),
+    /** ISO-8601 with offset, e.g. 2026-08-17T17:03:00-06:00. */
+    val now: String,
+    /** IANA zone id, e.g. America/Denver. */
+    val timezone: String,
+    val runningTimer: VoiceTimerContextDto? = null,
+    /** Opaque conversation state from the previous response. */
+    val messages: List<Any?>? = null,
+    val toolResults: List<VoiceToolResultDto>? = null,
+)
+
+/**
+ * Either a final [speech] answer, or a batch of [toolCalls] to execute plus
+ * the [messages] to echo back when continuing.
+ */
+@JsonClass(generateAdapter = true)
+data class VoiceCommandResponse(
+    /** What the server heard; present on the first response of a turn. */
+    val transcript: String? = null,
+    val speech: String? = null,
+    val toolCalls: List<VoiceToolCallDto>? = null,
+    val messages: List<Any?>? = null,
+)

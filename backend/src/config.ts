@@ -62,6 +62,9 @@ const schema = z.object({
   // stuffs fetched results into the prompt (tens of thousands of tokens per
   // call), so a cheaper model keeps this dominant cost in check.
   LLM_COMPS_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
+  // Speech-to-text for the Android voice interface (/voice/command), via
+  // OpenRouter's /audio/transcriptions endpoint.
+  LLM_STT_MODEL: z.string().min(1).default("openai/whisper-large-v3"),
   // Geographic region used to keep local-marketplace comparables relevant.
   // Nationwide online retail/sold prices are still allowed as a fallback, but
   // local listings (Craigslist/Facebook/OfferUp) should come from this area.

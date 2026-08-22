@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -48,12 +49,14 @@ import com.parthadae.seneschal.auth.AuthState
 import com.parthadae.seneschal.data.local.PendingMutationDao
 import com.parthadae.seneschal.data.local.PendingMutationEntity
 import com.parthadae.seneschal.data.repository.ActivityRepository
+import com.parthadae.seneschal.data.repository.AppSettingsRepository
 import com.parthadae.seneschal.domain.Activity
 import com.parthadae.seneschal.sync.DescribeContext
 import com.parthadae.seneschal.sync.OutboxHandler
 import com.parthadae.seneschal.sync.SyncScheduler
 import com.parthadae.seneschal.sync.SyncStatus
 import com.parthadae.seneschal.sync.SyncStatusRepository
+import com.parthadae.seneschal.voice.VoiceSettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -78,10 +81,26 @@ class SettingsViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val syncScheduler: SyncScheduler,
     private val pendingMutationDao: PendingMutationDao,
+    private val voiceSettings: VoiceSettingsRepository,
+    private val appSettings: AppSettingsRepository,
     syncStatusRepository: SyncStatusRepository,
     activityRepository: ActivityRepository,
     handlers: Set<@JvmSuppressWildcards OutboxHandler>,
 ) : ViewModel() {
+    val listenOnLaunch: StateFlow<Boolean> = voiceSettings.listenOnLaunch
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
+
+    fun setListenOnLaunch(enabled: Boolean) {
+        viewModelScope.launch { voiceSettings.setListenOnLaunch(enabled) }
+    }
+
+    val showArchivedActivities: StateFlow<Boolean> = appSettings.showArchivedActivities
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun setShowArchivedActivities(enabled: Boolean) {
+        viewModelScope.launch { appSettings.setShowArchivedActivities(enabled) }
+    }
+
     private val handlersByKind: Map<String, OutboxHandler> = handlers.associateBy { it.kind }
 
     val state: StateFlow<SettingsUiState> = combine(
@@ -137,6 +156,8 @@ fun SettingsScreen(
     topAppBarWindowInsets: WindowInsets = TopAppBarDefaults.windowInsets,
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val listenOnLaunch by vm.listenOnLaunch.collectAsStateWithLifecycle()
+    val showArchivedActivities by vm.showArchivedActivities.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var showPending by remember { mutableStateOf(false) }
 
@@ -213,6 +234,56 @@ fun SettingsScreen(
                 }
             }
 
+            item {
+                Spacer(Modifier.height(24.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(24.dp))
+            }
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Listen on open", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "Say \"I'm listening\" and start voice capture whenever " +
+                                "Seneschal is opened (side key, \"Hey Google, open Seneschal\").",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = listenOnLaunch,
+                        onCheckedChange = vm::setListenOnLaunch,
+                    )
+                }
+            }
+            item {
+                Spacer(Modifier.height(24.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Show archived activities",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            "Include archived activities as options when logging time " +
+                                "and in the Activities list. Past logs and stats always " +
+                                "show archived activities.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = showArchivedActivities,
+                        onCheckedChange = vm::setShowArchivedActivities,
+                    )
+                }
+            }
             item {
                 Spacer(Modifier.height(24.dp))
                 HorizontalDivider()
