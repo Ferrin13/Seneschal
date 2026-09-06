@@ -20,7 +20,7 @@ import {
   Typography,
 } from "@mui/material";
 import MenuIcon from "@mui/icons-material/Menu";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Navigate,
   Route,
@@ -31,6 +31,8 @@ import {
 } from "react-router-dom";
 import { useAuth } from "./auth";
 import { signInWithGoogle, signOut } from "./firebase";
+import type { Me } from "./api";
+import type { Feature } from "./features";
 import { TimeTrackingView } from "./TimeTrackingView";
 import { MarketplaceView } from "./MarketplaceView";
 import { DealsView } from "./DealsView";
@@ -42,15 +44,20 @@ import { StatsView } from "./lazax/StatsView";
 import { ThrawnView } from "./thrawn/ThrawnView";
 import { LeagueView } from "./thrawn/LeagueView";
 import { DescartesView } from "./descartes/DescartesView";
+import { MoneyballView } from "./moneyball/MoneyballView";
+import { AdminView } from "./admin/AdminView";
 
 /**
- * Five independent sections: Time Tracking, Deal Hunter, Lazax, Thrawn, and
- * Descartes. Each keeps its own secondary tabs where needed.
+ * Independent product sections, each shown only when the signed-in account
+ * holds the matching feature (from GET /me). Admin is its own flag. Each
+ * section keeps its own secondary tabs where needed.
  */
 const TIME_PATH = "/time-tracking";
 const LAZAX_PATH = "/lazax";
 const THRAWN_PATH = "/thrawn";
 const DESCARTES_PATH = "/descartes";
+const MONEYBALL_PATH = "/moneyball";
+const ADMIN_PATH = "/admin";
 
 /** Sub-tabs within the Deal Hunter section. */
 const HUNTER_TABS = [
@@ -62,14 +69,92 @@ const HUNTER_TABS = [
 /** Default landing path for each primary section. */
 const HUNTER_DEFAULT = HUNTER_TABS[0].path;
 
-type Section = "time" | "hunter" | "lazax" | "thrawn" | "descartes";
+type Section =
+  | "time"
+  | "hunter"
+  | "lazax"
+  | "thrawn"
+  | "descartes"
+  | "moneyball"
+  | "admin";
 
-function sectionForPath(pathname: string): Section {
-  if (pathname.startsWith(LAZAX_PATH)) return "lazax";
-  if (pathname.startsWith(THRAWN_PATH)) return "thrawn";
-  if (pathname.startsWith(DESCARTES_PATH)) return "descartes";
-  if (HUNTER_TABS.some((t) => pathname.startsWith(t.path))) return "hunter";
-  return "time";
+type SectionDef = {
+  id: Section;
+  label: string;
+  /** Where the tab lands. */
+  path: string;
+  /** All path prefixes that belong to the section. */
+  prefixes: readonly string[];
+  /** Feature that unlocks it, or "admin" for the admin flag. */
+  requires: Feature | "admin";
+};
+
+const SECTIONS: readonly SectionDef[] = [
+  {
+    id: "time",
+    label: "Time Tracking",
+    path: TIME_PATH,
+    prefixes: [TIME_PATH],
+    requires: "time_tracking",
+  },
+  {
+    id: "hunter",
+    label: "Deal Hunter",
+    path: HUNTER_DEFAULT,
+    prefixes: HUNTER_TABS.map((t) => t.path),
+    requires: "deal_hunter",
+  },
+  {
+    id: "lazax",
+    label: "Lazax",
+    path: LAZAX_PATH,
+    prefixes: [LAZAX_PATH],
+    requires: "lazax",
+  },
+  {
+    id: "thrawn",
+    label: "Thrawn",
+    path: THRAWN_PATH,
+    prefixes: [THRAWN_PATH],
+    requires: "thrawn",
+  },
+  {
+    id: "descartes",
+    label: "Descartes",
+    path: DESCARTES_PATH,
+    prefixes: [DESCARTES_PATH],
+    requires: "descartes",
+  },
+  {
+    id: "moneyball",
+    label: "Moneyball",
+    path: MONEYBALL_PATH,
+    prefixes: [MONEYBALL_PATH],
+    requires: "moneyball",
+  },
+  {
+    id: "admin",
+    label: "Admin",
+    path: ADMIN_PATH,
+    prefixes: [ADMIN_PATH],
+    requires: "admin",
+  },
+];
+
+function canSee(me: Me, s: SectionDef): boolean {
+  return s.requires === "admin"
+    ? me.isAdmin
+    : me.features.includes(s.requires);
+}
+
+function sectionForPath(
+  pathname: string,
+  available: readonly SectionDef[]
+): Section | null {
+  return (
+    available.find((s) => s.prefixes.some((p) => pathname.startsWith(p)))?.id ??
+    null
+  );
 }
 
 function LazaxGameRoute() {
@@ -90,16 +175,28 @@ function ThrawnLeagueRoute() {
   return <LeagueView leagueId={leagueId} />;
 }
 
+function MoneyballRoute() {
+  const { playerId } = useParams();
+  return <MoneyballView selectedPlayerId={playerId ?? null} />;
+}
+
 export default function App() {
-  const { user, loading } = useAuth();
+  const { user, me, loading, meError, reloadMe } = useAuth();
   const [signInError, setSignInError] = useState<string | null>(null);
   const [navOpen, setNavOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
-  useDealNotifications(!!user, () => navigate(HUNTER_DEFAULT));
+  const available = useMemo(
+    () => (me ? SECTIONS.filter((s) => canSee(me, s)) : []),
+    [me]
+  );
+  const has = (id: Section) => available.some((s) => s.id === id);
+  const homePath = available[0]?.path ?? null;
 
-  const section = sectionForPath(location.pathname);
+  useDealNotifications(has("hunter"), () => navigate(HUNTER_DEFAULT));
+
+  const section = sectionForPath(location.pathname, available);
   const activeHunterTab =
     HUNTER_TABS.find((t) => location.pathname.startsWith(t.path))?.path ??
     HUNTER_DEFAULT;
@@ -115,19 +212,18 @@ export default function App() {
     }
   };
 
-  const goSection = (v: Section) => {
-    if (v === "time") navigate(TIME_PATH);
-    else if (v === "hunter") navigate(HUNTER_DEFAULT);
-    else if (v === "thrawn") navigate(THRAWN_PATH);
-    else if (v === "descartes") navigate(DESCARTES_PATH);
-    else navigate(LAZAX_PATH);
+  const goSection = (id: Section) => {
+    const s = available.find((x) => x.id === id);
+    if (s) navigate(s.path);
   };
+
+  const signedIn = !!user && !!me;
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
       <AppBar position="sticky" elevation={1}>
         <Toolbar sx={{ gap: { xs: 1, sm: 3 } }}>
-          {user ? (
+          {signedIn ? (
             <IconButton
               color="inherit"
               edge="start"
@@ -139,9 +235,9 @@ export default function App() {
             </IconButton>
           ) : null}
           <Typography variant="h6">Seneschal</Typography>
-          {user ? (
+          {signedIn && available.length > 0 ? (
             <Tabs
-              value={section}
+              value={section ?? false}
               onChange={(_e, v: Section) => goSection(v)}
               textColor="inherit"
               indicatorColor="secondary"
@@ -149,11 +245,14 @@ export default function App() {
               allowScrollButtonsMobile
               sx={{ minHeight: 64, display: { xs: "none", md: "flex" } }}
             >
-              <Tab value="time" label="Time Tracking" sx={{ minHeight: 64 }} />
-              <Tab value="hunter" label="Deal Hunter" sx={{ minHeight: 64 }} />
-              <Tab value="lazax" label="Lazax" sx={{ minHeight: 64 }} />
-              <Tab value="thrawn" label="Thrawn" sx={{ minHeight: 64 }} />
-              <Tab value="descartes" label="Descartes" sx={{ minHeight: 64 }} />
+              {available.map((s) => (
+                <Tab
+                  key={s.id}
+                  value={s.id}
+                  label={s.label}
+                  sx={{ minHeight: 64 }}
+                />
+              ))}
             </Tabs>
           ) : null}
           <Box sx={{ flexGrow: 1 }} />
@@ -193,7 +292,7 @@ export default function App() {
         </Toolbar>
       </AppBar>
 
-      {user ? (
+      {signedIn ? (
         <Drawer
           anchor="left"
           open={navOpen}
@@ -206,45 +305,38 @@ export default function App() {
             onClick={() => setNavOpen(false)}
           >
             <List>
-              <ListItemButton
-                selected={section === "time"}
-                onClick={() => navigate(TIME_PATH)}
-              >
-                <ListItemText primary="Time Tracking" />
-              </ListItemButton>
-              <ListItemButton
-                selected={section === "lazax"}
-                onClick={() => navigate(LAZAX_PATH)}
-              >
-                <ListItemText primary="Lazax" />
-              </ListItemButton>
-              <ListItemButton
-                selected={section === "thrawn"}
-                onClick={() => navigate(THRAWN_PATH)}
-              >
-                <ListItemText primary="Thrawn" />
-              </ListItemButton>
-              <ListItemButton
-                selected={section === "descartes"}
-                onClick={() => navigate(DESCARTES_PATH)}
-              >
-                <ListItemText primary="Descartes" />
-              </ListItemButton>
+              {available
+                .filter((s) => s.id !== "hunter")
+                .map((s) => (
+                  <ListItemButton
+                    key={s.id}
+                    selected={section === s.id}
+                    onClick={() => navigate(s.path)}
+                  >
+                    <ListItemText primary={s.label} />
+                  </ListItemButton>
+                ))}
             </List>
-            <Divider />
-            <List
-              subheader={<ListSubheader disableSticky>Deal Hunter</ListSubheader>}
-            >
-              {HUNTER_TABS.map((t) => (
-                <ListItemButton
-                  key={t.path}
-                  selected={location.pathname.startsWith(t.path)}
-                  onClick={() => navigate(t.path)}
+            {has("hunter") ? (
+              <>
+                <Divider />
+                <List
+                  subheader={
+                    <ListSubheader disableSticky>Deal Hunter</ListSubheader>
+                  }
                 >
-                  <ListItemText primary={t.label} />
-                </ListItemButton>
-              ))}
-            </List>
+                  {HUNTER_TABS.map((t) => (
+                    <ListItemButton
+                      key={t.path}
+                      selected={location.pathname.startsWith(t.path)}
+                      onClick={() => navigate(t.path)}
+                    >
+                      <ListItemText primary={t.label} />
+                    </ListItemButton>
+                  ))}
+                </List>
+              </>
+            ) : null}
             <Divider />
             <List>
               <ListItemButton onClick={signOut}>
@@ -260,48 +352,89 @@ export default function App() {
           <Stack alignItems="center" sx={{ mt: 8 }}>
             <CircularProgress />
           </Stack>
-        ) : user ? (
-          <Stack spacing={3}>
-            {section === "hunter" ? (
-              <Tabs
-                value={activeHunterTab}
-                onChange={(_e, v: string) => navigate(v)}
-                variant="scrollable"
-                allowScrollButtonsMobile
-                sx={{ display: { xs: "none", md: "flex" } }}
-              >
-                {HUNTER_TABS.map((t) => (
-                  <Tab key={t.path} value={t.path} label={t.label} />
-                ))}
-              </Tabs>
-            ) : null}
-            <Routes>
-              <Route path="/" element={<Navigate to={TIME_PATH} replace />} />
-              <Route path={TIME_PATH} element={<TimeTrackingView />} />
-              <Route path={LAZAX_PATH} element={<LazaxView />} />
-              <Route
-                path={`${LAZAX_PATH}/:gameId/stats`}
-                element={<LazaxStatsRoute />}
-              />
-              <Route path={`${LAZAX_PATH}/:gameId`} element={<LazaxGameRoute />} />
-              <Route path={THRAWN_PATH} element={<ThrawnView />} />
-              <Route
-                path={`${THRAWN_PATH}/:leagueId`}
-                element={<ThrawnLeagueRoute />}
-              />
-              <Route path={DESCARTES_PATH} element={<DescartesView />} />
-              {HUNTER_TABS.map((t) => (
-                <Route
-                  key={t.path}
-                  path={t.path === "/deals" ? "/deals/*" : t.path}
-                  element={t.element}
-                />
-              ))}
-              <Route path="*" element={<Navigate to={TIME_PATH} replace />} />
-            </Routes>
-          </Stack>
+        ) : user && !me ? (
+          <AccountError
+            message={meError ?? "Could not load your account."}
+            onRetry={reloadMe}
+          />
+        ) : signedIn && me ? (
+          homePath === null ? (
+            <NoAccess email={me.email} />
+          ) : (
+            <Stack spacing={3}>
+              {section === "hunter" ? (
+                <Tabs
+                  value={activeHunterTab}
+                  onChange={(_e, v: string) => navigate(v)}
+                  variant="scrollable"
+                  allowScrollButtonsMobile
+                  sx={{ display: { xs: "none", md: "flex" } }}
+                >
+                  {HUNTER_TABS.map((t) => (
+                    <Tab key={t.path} value={t.path} label={t.label} />
+                  ))}
+                </Tabs>
+              ) : null}
+              <Routes>
+                <Route path="/" element={<Navigate to={homePath} replace />} />
+                {has("time") ? (
+                  <Route path={TIME_PATH} element={<TimeTrackingView />} />
+                ) : null}
+                {has("lazax") ? (
+                  <>
+                    <Route path={LAZAX_PATH} element={<LazaxView />} />
+                    <Route
+                      path={`${LAZAX_PATH}/:gameId/stats`}
+                      element={<LazaxStatsRoute />}
+                    />
+                    <Route
+                      path={`${LAZAX_PATH}/:gameId`}
+                      element={<LazaxGameRoute />}
+                    />
+                  </>
+                ) : null}
+                {has("thrawn") ? (
+                  <>
+                    <Route path={THRAWN_PATH} element={<ThrawnView />} />
+                    <Route
+                      path={`${THRAWN_PATH}/:leagueId`}
+                      element={<ThrawnLeagueRoute />}
+                    />
+                  </>
+                ) : null}
+                {has("descartes") ? (
+                  <Route path={DESCARTES_PATH} element={<DescartesView />} />
+                ) : null}
+                {has("moneyball") ? (
+                  <>
+                    <Route path={MONEYBALL_PATH} element={<MoneyballRoute />} />
+                    <Route
+                      path={`${MONEYBALL_PATH}/:playerId`}
+                      element={<MoneyballRoute />}
+                    />
+                  </>
+                ) : null}
+                {has("hunter")
+                  ? HUNTER_TABS.map((t) => (
+                      <Route
+                        key={t.path}
+                        path={t.path === "/deals" ? "/deals/*" : t.path}
+                        element={t.element}
+                      />
+                    ))
+                  : null}
+                {has("admin") ? (
+                  <Route path={ADMIN_PATH} element={<AdminView />} />
+                ) : null}
+                <Route path="*" element={<Navigate to={homePath} replace />} />
+              </Routes>
+            </Stack>
+          )
         ) : (
-          <SignedOut onSignIn={handleSignIn} error={signInError} />
+          <SignedOut
+            onSignIn={handleSignIn}
+            error={signInError ?? meError}
+          />
         )}
       </Container>
     </Box>
@@ -319,8 +452,8 @@ function SignedOut({
     <Stack spacing={2} alignItems="center" sx={{ mt: 10, textAlign: "center" }}>
       <Typography variant="h4">Welcome to Seneschal</Typography>
       <Typography color="text.secondary" sx={{ maxWidth: 480 }}>
-        A read-only view of your time-tracking data. Sign in with the same
-        Google account you use in the Android app to continue.
+        Sign in with the Google account an administrator has granted access
+        to. If you also use the Android app, use the same account.
       </Typography>
       <Button
         variant="contained"
@@ -336,6 +469,53 @@ function SignedOut({
           {error}
         </Alert>
       ) : null}
+    </Stack>
+  );
+}
+
+/** Signed in with Firebase, but GET /me failed for a non-403 reason. */
+function AccountError({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => Promise<void>;
+}) {
+  return (
+    <Stack spacing={2} alignItems="center" sx={{ mt: 10, textAlign: "center" }}>
+      <Alert severity="error" sx={{ maxWidth: 520, width: "100%" }}>
+        {message}
+      </Alert>
+      <Stack direction="row" spacing={2}>
+        <Button
+          variant="contained"
+          onClick={() => {
+            void onRetry();
+          }}
+        >
+          Retry
+        </Button>
+        <Button variant="outlined" onClick={signOut}>
+          Sign out
+        </Button>
+      </Stack>
+    </Stack>
+  );
+}
+
+/** Account is allowed in but has no features enabled and is not an admin. */
+function NoAccess({ email }: { email: string | null }) {
+  return (
+    <Stack spacing={2} alignItems="center" sx={{ mt: 10, textAlign: "center" }}>
+      <Typography variant="h5">Nothing enabled yet</Typography>
+      <Typography color="text.secondary" sx={{ maxWidth: 480 }}>
+        {email ?? "Your account"} can sign in, but no products have been
+        enabled for it. Ask an administrator to turn some on from the Admin
+        tab, then reload this page.
+      </Typography>
+      <Button variant="outlined" onClick={signOut}>
+        Sign out
+      </Button>
     </Stack>
   );
 }

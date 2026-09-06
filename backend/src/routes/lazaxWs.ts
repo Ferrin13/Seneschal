@@ -1,48 +1,16 @@
 import type { FastifyPluginAsync } from "fastify";
 import websocket from "@fastify/websocket";
-import { eq } from "drizzle-orm";
-import { firebaseAuth } from "../auth/firebase.js";
-import { isAllowedEmail } from "../auth/middleware.js";
-import { db } from "../db/client.js";
-import { users } from "../db/schema.js";
-import { seedUserDefaults } from "../db/seed.js";
+import { canAccessPath } from "../auth/access.js";
+import { resolveIdToken } from "../auth/resolve.js";
 import { subscribe, type LazaxClient } from "../lazax/hub.js";
 import { getSnapshot } from "../lazax/service.js";
 
+/** Same authn + lazax-feature authz as the REST middleware applies. */
 async function resolveUser(idToken: string): Promise<{ userId: string } | null> {
-  let decoded;
-  try {
-    decoded = await firebaseAuth().verifyIdToken(idToken);
-  } catch {
-    return null;
-  }
-  const email = decoded.email ?? null;
-  if (!email || !decoded.email_verified || !isAllowedEmail(email)) {
-    return null;
-  }
-
-  const existing = await db
-    .select()
-    .from(users)
-    .where(eq(users.firebaseUid, decoded.uid))
-    .limit(1);
-
-  let userId: string;
-  if (existing.length === 0) {
-    const [created] = await db
-      .insert(users)
-      .values({
-        firebaseUid: decoded.uid,
-        email,
-        displayName: (decoded.name as string | undefined) ?? null,
-      })
-      .returning({ id: users.id });
-    userId = created!.id;
-  } else {
-    userId = existing[0]!.id;
-  }
-  await seedUserDefaults(db, userId);
-  return { userId };
+  const result = await resolveIdToken(idToken);
+  if (!result.ok) return null;
+  if (!canAccessPath(result.auth, "/lazax/ws")) return null;
+  return { userId: result.auth.userId };
 }
 
 /**

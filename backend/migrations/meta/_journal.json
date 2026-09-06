@@ -204,6 +204,27 @@
       "when": 1788593233891,
       "tag": "0028_brown_logan",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1788724099010,
+      "tag": "0029_common_jean_grey",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1788725122972,
+      "tag": "0030_chubby_stick",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1788725981268,
+      "tag": "0031_lying_manta",
+      "breakpoints": true
     }
   ]
 }

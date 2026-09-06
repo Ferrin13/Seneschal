@@ -13,6 +13,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:studio": "drizzle-kit studio",
+    "moneyball:import": "tsx src/moneyball/import.ts",
     "lint": "tsc --noEmit",
     "test": "vitest run"
   },

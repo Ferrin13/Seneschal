@@ -50,6 +50,31 @@ export const users = pgTable(
   })
 );
 
+/**
+ * Who may sign in, and to which products. Keyed by lower-cased email rather
+ * than `users.id` so an admin can grant access before the person has ever
+ * signed in (the `users` row is still lazy-created on first request). The
+ * feature list is a flat yes/no set — see `auth/access.ts` for the catalog
+ * and the URL-prefix → feature map that enforces it.
+ */
+export const userAccess = pgTable("user_access", {
+  email: text("email").primaryKey(),
+  isAdmin: boolean("is_admin").notNull().default(false),
+  features: jsonb("features")
+    .$type<string[]>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  createdBy: uuid("created_by").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const categories = pgTable(
   "categories",
   {
@@ -263,6 +288,8 @@ export const expenses = pgTable(
 
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+export type UserAccess = typeof userAccess.$inferSelect;
+export type NewUserAccess = typeof userAccess.$inferInsert;
 export type Category = typeof categories.$inferSelect;
 export type NewCategory = typeof categories.$inferInsert;
 export type Activity = typeof activities.$inferSelect;
@@ -1735,6 +1762,93 @@ export type DescartesCluster = typeof descartesClusters.$inferSelect;
 export type NewDescartesCluster = typeof descartesClusters.$inferInsert;
 export type DescartesClusterMember = typeof descartesClusterMembers.$inferSelect;
 export type NewDescartesClusterMember = typeof descartesClusterMembers.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Moneyball: ultimate frisbee player ratings.
+//
+// One roster shared by every account with the feature. Each rater stores one
+// row per player holding their own 1-10 scores; the UI shows the mean across
+// raters. Stat keys live in moneyball/engine.ts (STATS) — the jsonb column is
+// deliberately loose so adding a stat is a code change, not a migration.
+// ---------------------------------------------------------------------------
+
+/** Roster entry, upserted from moneyball/roster.json on server start. */
+export const moneyballPlayers = pgTable(
+  "moneyball_players",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Stable key from the import (kebab-case name). */
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    /** Site-relative path (e.g. /moneyball/players/jane-doe.jpg) or absolute URL. */
+    photoUrl: text("photo_url"),
+    /** League team the player was imported from, for grouping/filtering. */
+    team: text("team"),
+    number: integer("number"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    slugIdx: uniqueIndex("moneyball_players_slug_idx").on(t.slug),
+  })
+);
+
+/** One rater's scores for one player. Unrated stats are simply absent. */
+export const moneyballRatings = pgTable(
+  "moneyball_ratings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    playerId: uuid("player_id")
+      .notNull()
+      .references(() => moneyballPlayers.id, { onDelete: "cascade" }),
+    raterUserId: uuid("rater_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    scores: jsonb("scores")
+      .$type<Record<string, number>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    playerRaterIdx: uniqueIndex("moneyball_ratings_player_rater_idx").on(
+      t.playerId,
+      t.raterUserId
+    ),
+    raterIdx: index("moneyball_ratings_rater_idx").on(t.raterUserId),
+  })
+);
+
+/**
+ * Shared key/value settings. Today the only key is "weights": stat key ->
+ * weight used by the OVR/category formula, editable by any Moneyball user.
+ */
+export const moneyballSettings = pgTable("moneyball_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").$type<Record<string, number>>().notNull(),
+  updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export type MoneyballPlayer = typeof moneyballPlayers.$inferSelect;
+export type NewMoneyballPlayer = typeof moneyballPlayers.$inferInsert;
+export type MoneyballRating = typeof moneyballRatings.$inferSelect;
+export type NewMoneyballRating = typeof moneyballRatings.$inferInsert;
+export type MoneyballSetting = typeof moneyballSettings.$inferSelect;
 
 export type ThrawnLeague = typeof thrawnLeagues.$inferSelect;
 export type NewThrawnLeague = typeof thrawnLeagues.$inferInsert;

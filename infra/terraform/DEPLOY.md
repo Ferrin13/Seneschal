@@ -289,8 +289,10 @@ aws ssm start-session --target (terraform output -raw browser_box_instance_id) -
    Invoke-RestMethod https://api.seneschal.parthadae.com/healthz
    Invoke-RestMethod https://api.seneschal.parthadae.com/readyz
    ```
-3. **App:** open `https://seneschal.parthadae.com`, sign in with an
-   allowlisted Google account (`info@parthadae.com` / `12aplustech@gmail.com`).
+3. **App:** open `https://seneschal.parthadae.com`, sign in with a bootstrap
+   admin Google account (`BOOTSTRAP_ADMIN_EMAILS` on the backend; defaults to
+   `info@parthadae.com` / `12aplustech@gmail.com`). Grant other accounts
+   access, and pick their products, from the **Admin** tab.
 4. **End-to-end hunt:** create a search target, then trigger a manual hunt
    (`POST /marketplace/targets/:id/hunt`) or wait for the schedule. Confirm
    the workflow runs (worker logs) and candidates/comps/evaluations land and

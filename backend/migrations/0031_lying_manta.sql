@@ -1,0 +1,1 @@
+ALTER TABLE "moneyball_players" ADD COLUMN "team" text;

@@ -30,31 +30,14 @@ export const auth = getAuth(firebaseApp);
 
 const googleProvider = new GoogleAuthProvider();
 
-const ALLOWED_EMAILS = ["info@parthadae.com", "12aplustech@gmail.com"];
-
-function isAllowedEmail(email: string | null): boolean {
-  if (!email) return false;
-  const normalized = email.toLowerCase();
-  return ALLOWED_EMAILS.some((allowed) => allowed.toLowerCase() === normalized);
-}
-
-export class UnauthorizedEmailError extends Error {
-  constructor(email: string | null) {
-    super(
-      `This Seneschal instance is restricted to ${ALLOWED_EMAILS.join(", ")}.` +
-        (email ? ` You signed in as ${email}.` : "")
-    );
-    this.name = "UnauthorizedEmailError";
-  }
-}
-
+/**
+ * Any Google account may complete the popup; whether it is *allowed in* is
+ * decided by the backend (`user_access` table, managed from the Admin tab).
+ * `AuthProvider` calls GET /me right after sign-in and signs the user back
+ * out on 403 — see auth.tsx.
+ */
 export async function signInWithGoogle() {
-  const result = await signInWithPopup(auth, googleProvider);
-  const email = result.user.email;
-  if (!isAllowedEmail(email)) {
-    await fbSignOut(auth);
-    throw new UnauthorizedEmailError(email);
-  }
+  await signInWithPopup(auth, googleProvider);
 }
 
 export async function signOut() {

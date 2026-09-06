@@ -8,6 +8,7 @@ import type {
   StrategyCard,
 } from "./lazax/types";
 import type { DescartesChangeSet, DescartesGraph } from "./descartes/types";
+import type { Feature } from "./features";
 import type {
   LeagueAnalysis,
   LeagueValues,
@@ -17,6 +18,8 @@ import type {
   SeasonBoard,
   ThrawnLeague,
 } from "./thrawn/types";
+import type { Board, PlayerDetail } from "./moneyball/types";
+import type { Scores as MoneyballScores, Weights as MoneyballWeights } from "./moneyball/stats";
 
 export const API_BASE_URL: string = (
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:18080"
@@ -70,6 +73,23 @@ export type Me = {
   email: string | null;
   displayName: string | null;
   createdAt: string;
+  /** Unlocks the Admin tab and /admin/* endpoints. Independent of features. */
+  isAdmin: boolean;
+  /** Products this account may use; drives which tabs render. */
+  features: Feature[];
+};
+
+/** One row on the admin page: an email that may sign in and what it unlocks. */
+export type AdminUser = {
+  email: string;
+  isAdmin: boolean;
+  features: Feature[];
+  /** From BOOTSTRAP_ADMIN_EMAILS on the server: always admin, can't be removed. */
+  bootstrap: boolean;
+  createdAt: string;
+  updatedAt: string;
+  /** Present once the person has signed in at least once. */
+  user: { id: string; displayName: string | null; firstSignInAt: string } | null;
 };
 
 export type Category = {
@@ -387,6 +407,31 @@ export type ServerPassage = {
 export const api = {
   me: () => authedFetch("/me") as Promise<Me>,
 
+  // --- Admin (user access) ----------------------------------------------------
+  adminUsers: () =>
+    authedFetch("/admin/users") as Promise<{ users: AdminUser[] }>,
+  adminCreateUser: (input: {
+    email: string;
+    isAdmin: boolean;
+    features: Feature[];
+  }) =>
+    authedFetch("/admin/users", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }) as Promise<AdminUser>,
+  adminUpdateUser: (
+    email: string,
+    patch: { isAdmin?: boolean; features?: Feature[] }
+  ) =>
+    authedFetch(`/admin/users/${encodeURIComponent(email)}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }) as Promise<AdminUser>,
+  adminDeleteUser: (email: string) =>
+    authedFetch(`/admin/users/${encodeURIComponent(email)}`, {
+      method: "DELETE",
+    }) as Promise<null>,
+
   // --- Descartes (belief graph) -----------------------------------------------
   bibleTranslations: () =>
     authedFetch("/bible/translations") as Promise<{ translations: string[] }>,
@@ -638,4 +683,23 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(body),
     }) as Promise<unknown>,
+
+  // --- Moneyball -------------------------------------------------------------
+  moneyballBoard: () => authedFetch("/moneyball/board") as Promise<Board>,
+  moneyballPlayer: (id: string) =>
+    authedFetch(`/moneyball/players/${id}`) as Promise<PlayerDetail>,
+  moneyballSetRating: (id: string, scores: MoneyballScores) =>
+    authedFetch(`/moneyball/players/${id}/rating`, {
+      method: "PUT",
+      body: JSON.stringify({ scores }),
+    }) as Promise<PlayerDetail>,
+  moneyballClearRating: (id: string) =>
+    authedFetch(`/moneyball/players/${id}/rating`, {
+      method: "DELETE",
+    }) as Promise<null>,
+  moneyballSetWeights: (weights: MoneyballWeights) =>
+    authedFetch("/moneyball/weights", {
+      method: "PUT",
+      body: JSON.stringify({ weights }),
+    }) as Promise<{ weights: MoneyballWeights }>,
 };

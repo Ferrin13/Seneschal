@@ -20,6 +20,19 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1),
   FIREBASE_PROJECT_ID: z.string().min(1),
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
+  // Comma-separated emails that are always admins with every feature, even
+  // if their `user_access` row is missing or edited. This is the lockout
+  // guard: the admin page can't demote or delete them. Rows for them are
+  // upserted at boot so they show up on the admin page like everyone else.
+  BOOTSTRAP_ADMIN_EMAILS: z
+    .string()
+    .default("info@parthadae.com,12aplustech@gmail.com")
+    .transform((v) =>
+      v
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean)
+    ),
   CORS_ORIGINS: z
     .string()
     .optional()

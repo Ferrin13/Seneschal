@@ -28,12 +28,6 @@ class AuthRepository @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val firebaseAuth: FirebaseAuth,
 ) {
-    companion object {
-        // Single-tenant allowlist. Backend enforces the same; this client-side
-        // check just gives a friendlier error before any API call is made.
-        private val ALLOWED_EMAILS = listOf("info@parthadae.com", "12aplustech@gmail.com")
-    }
-
     val authState: Flow<AuthState> = callbackFlow {
         val listener = FirebaseAuth.AuthStateListener { auth ->
             val user = auth.currentUser
@@ -86,17 +80,10 @@ class AuthRepository @Inject constructor(
             credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
         ) {
             val googleCred = GoogleIdTokenCredential.createFrom(credential.data)
-            val email = googleCred.id
-            if (ALLOWED_EMAILS.none { it.equals(email, ignoreCase = true) }) {
-                // Don't even hand the token to Firebase if we already know it
-                // will be rejected by the backend. Clear any cached credential
-                // so the next attempt prompts for an account again.
-                runCatching {
-                    CredentialManager.create(appContext)
-                        .clearCredentialState(ClearCredentialStateRequest())
-                }
-                error("This Seneschal instance is restricted to ${ALLOWED_EMAILS.joinToString(", ")}. You signed in as $email.")
-            }
+            // Which accounts are allowed in — and to which products — is
+            // decided server-side (user_access table, managed from the web
+            // UI's Admin tab). An account without access gets 403 from every
+            // API call; there is no client-side allowlist to keep in sync.
             val firebaseCred = GoogleAuthProvider.getCredential(googleCred.idToken, null)
             firebaseAuth.signInWithCredential(firebaseCred).await()
         } else {

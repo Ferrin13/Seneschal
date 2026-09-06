@@ -4,7 +4,9 @@ import cors from "@fastify/cors";
 import { ZodError } from "zod";
 import { config } from "./config.js";
 import { authPlugin } from "./auth/middleware.js";
+import { ensureBootstrapAdmins } from "./auth/resolve.js";
 import { meRoutes } from "./routes/me.js";
+import { adminRoutes } from "./routes/admin.js";
 import { categoryRoutes } from "./routes/categories.js";
 import { activityRoutes } from "./routes/activities.js";
 import { slotRoutes } from "./routes/slots.js";
@@ -30,6 +32,8 @@ import { thrawnRoutes } from "./routes/thrawn.js";
 import { voiceRoutes } from "./routes/voice.js";
 import { bibleRoutes } from "./routes/bible.js";
 import { descartesRoutes } from "./routes/descartes.js";
+import { moneyballRoutes } from "./routes/moneyball.js";
+import { syncRosterFromCode } from "./moneyball/service.js";
 
 export async function buildServer() {
   const app = Fastify({
@@ -67,6 +71,7 @@ export async function buildServer() {
 
   await app.register(authPlugin);
   await app.register(meRoutes);
+  await app.register(adminRoutes);
   await app.register(categoryRoutes);
   await app.register(activityRoutes);
   await app.register(slotRoutes);
@@ -92,12 +97,28 @@ export async function buildServer() {
   await app.register(voiceRoutes);
   await app.register(bibleRoutes);
   await app.register(descartesRoutes);
+  await app.register(moneyballRoutes);
 
   return app;
 }
 
 async function main() {
   const app = await buildServer();
+  // Non-fatal: bootstrap admins are honored from the env list even without a
+  // user_access row, so a failure here (e.g. DB not migrated yet) only means
+  // they're missing from the admin page until the next boot.
+  await ensureBootstrapAdmins().catch((err) => {
+    app.log.error({ err }, "failed to upsert bootstrap admin rows");
+  });
+  // Non-fatal for the same reason: the Moneyball roster is committed code and
+  // gets re-synced on the next boot.
+  await syncRosterFromCode()
+    .then((r) => {
+      if (r.upserted > 0) app.log.info({ upserted: r.upserted }, "moneyball roster synced");
+    })
+    .catch((err) => {
+      app.log.error({ err }, "failed to sync moneyball roster");
+    });
   try {
     await app.listen({ port: config.PORT, host: "0.0.0.0" });
   } catch (err) {
