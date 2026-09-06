@@ -68,7 +68,7 @@ Weights are edited from the **Formula** button and stored in
 
 ### Blind rating ("Hide until I rate")
 
-The Players tab has a **Hide until I rate** switch, on by default, that masks
+The Players tab has a **Hide until I rate** switch, off by default, that masks
 everyone else's ratings for players the viewer hasn't rated yet so their own
 rating isn't anchored by the consensus. While a player is masked, the table
 shows `–` for OVR/OFF/DEF/GEN (and sorts them as unrated so the order doesn't
@@ -78,6 +78,13 @@ count stays visible. The preference is per browser (`localStorage`
 `moneyball.hideUnrated`, see `frontend/src/moneyball/prefs.ts`); the API is
 unaffected, and the Teams / Concentration tabs are aggregate views and are not
 masked.
+
+Every player row on the Players and Compare tabs carries a gender designation:
+the avatar is ringed and a small **M** / **W** tag (`GenderBadge.tsx`) sits
+next to the name, blue for men and magenta for women (grey `?` when unset —
+fix on the Roster tab). Both tabs have an Everyone / Men / Women filter
+(`GenderFilter.tsx`). Colours live in `stats.ts` (`GENDER_COLOR`) and are the
+same ones the Teams tab uses.
 
 ## Compare tab
 
@@ -90,8 +97,8 @@ one (pressing + on an unrated cell starts it at 5). Edits apply optimistically
 via `PUT /moneyball/players/:id/rating` after a 600 ms debounce, so a run of
 clicks becomes one request; pending saves are flushed when you leave the tab.
 Hovering a value shows the consensus for that stat, unless the player is masked
-by the "hide until I rate" preference. Filters: search, team, and "only players
-I've rated". Clicking a player name opens their card on the Players tab.
+by the "hide until I rate" preference. Filters: search, team, gender, and "only
+players I've rated". Clicking a player name opens their card on the Players tab.
 
 ## Teams tab
 

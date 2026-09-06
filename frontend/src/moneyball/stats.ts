@@ -2,6 +2,7 @@
  * Moneyball stat catalog + scoring, mirrored from backend/src/moneyball/engine.ts
  * so the card can preview OVR live while the user drags sliders. Keep in sync.
  */
+import type { Gender } from "./types";
 
 export const CATEGORIES = ["offense", "defense", "general"] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -137,6 +138,15 @@ export function statsInCategory(category: Category): StatDef[] {
 
 export const MIN_SCORE = 1;
 export const MAX_SCORE = 10;
+/** Gender colouring shared by the Players and Teams tabs. */
+export const GENDER_COLOR: Record<Gender, string> = { M: "#1e88e5", F: "#d81b60" };
+export const GENDER_LABEL: Record<Gender, string> = { M: "Man", F: "Woman" };
+export const GENDER_ABBR: Record<Gender, string> = { M: "M", F: "W" };
+export const UNKNOWN_GENDER_COLOR = "#9e9e9e";
+export function genderColor(g: Gender | null | undefined): string {
+  return g ? GENDER_COLOR[g] : UNKNOWN_GENDER_COLOR;
+}
+
 export const MIN_WEIGHT = 0;
 export const MAX_WEIGHT = 5;
 

@@ -34,7 +34,9 @@ import { WeightsDialog } from "./WeightsDialog";
 import { RatingGuideDialog } from "./RatingGuideDialog";
 import { MONEYBALL_PATH, MoneyballTabs } from "./MoneyballTabs";
 import { useHideUnrated } from "./prefs";
-import { fmtScore, STAT_KEYS, type Weights } from "./stats";
+import { fmtScore, genderColor, STAT_KEYS, type Weights } from "./stats";
+import { GenderBadge } from "./GenderBadge";
+import { GenderFilter, type GenderFilterValue } from "./GenderFilter";
 import type { Board, BoardPlayer, PlayerDetail } from "./types";
 
 type SortKey = "name" | "overall" | "offense" | "defense" | "general" | "raters" | "mine";
@@ -101,6 +103,7 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [team, setTeam] = useState<string>("");
+  const [gender, setGender] = useState<GenderFilterValue>("");
   const [sortKey, setSortKey] = useState<SortKey>("overall");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [weightsOpen, setWeightsOpen] = useState(false);
@@ -133,10 +136,12 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
     const q = search.trim().toLowerCase();
     const filtered = board.players.filter(
       (p) =>
-        (!q || p.name.toLowerCase().includes(q)) && (!team || p.team === team)
+        (!q || p.name.toLowerCase().includes(q)) &&
+        (!team || p.team === team) &&
+        (!gender || p.gender === gender)
     );
     return [...filtered].sort((a, b) => compare(a, b, sortKey, sortDir, hideUnrated));
-  }, [board, search, team, sortKey, sortDir, hideUnrated]);
+  }, [board, search, team, gender, sortKey, sortDir, hideUnrated]);
 
   const selected = board?.players.find((p) => p.id === selectedPlayerId) ?? null;
 
@@ -257,6 +262,7 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
               </Select>
             </FormControl>
           ) : null}
+          <GenderFilter id="moneyball-gender" value={gender} onChange={setGender} />
           <Tooltip
             title="Hide everyone else's ratings for players you haven't rated yet, so your rating isn't anchored by the consensus."
             enterDelay={400}
@@ -414,14 +420,22 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
                             src={p.photoUrl ?? undefined}
                             alt={p.name}
                             variant="rounded"
-                            sx={{ width: 36, height: 36, fontSize: 14 }}
+                            sx={{
+                              width: 36,
+                              height: 36,
+                              fontSize: 14,
+                              boxShadow: `0 0 0 2px ${genderColor(p.gender)}`,
+                            }}
                           >
                             {initials(p.name)}
                           </Avatar>
                           <Box sx={{ minWidth: 0 }}>
-                            <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
-                              {p.name}
-                            </Typography>
+                            <Stack direction="row" spacing={0.75} alignItems="center">
+                              <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+                                {p.name}
+                              </Typography>
+                              <GenderBadge gender={p.gender} />
+                            </Stack>
                             {p.team || p.number != null ? (
                               <Typography
                                 variant="caption"

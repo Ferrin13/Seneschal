@@ -5,17 +5,17 @@ const HIDE_UNRATED_KEY = "moneyball.hideUnrated";
 function readHideUnrated(): boolean {
   try {
     const raw = window.localStorage.getItem(HIDE_UNRATED_KEY);
-    // Default on: rate first, then see what everyone else thinks.
-    return raw == null ? true : raw === "1";
+    // Default off: show the consensus; opt in to blind rating.
+    return raw == null ? false : raw === "1";
   } catch {
-    return true;
+    return false;
   }
 }
 
 /**
  * "Blind rating" preference: hide other people's ratings for players the
  * current user hasn't rated yet, so their own rating isn't anchored by the
- * consensus. Persisted per browser; enabled by default.
+ * consensus. Persisted per browser; off by default.
  */
 export function useHideUnrated(): [boolean, (v: boolean) => void] {
   const [value, setValue] = useState<boolean>(readHideUnrated);

@@ -25,13 +25,16 @@ import {
   CATEGORIES,
   CATEGORY_ABBR,
   CATEGORY_LABELS,
+  GENDER_COLOR,
+  GENDER_LABEL,
   MAX_SCORE,
   STATS,
   fmtScore,
+  genderColor,
   scoreTone,
   statsInCategory,
 } from "./stats";
-import type { Gender, RankedPlayer, TeamSummary } from "./types";
+import type { RankedPlayer, TeamSummary } from "./types";
 
 const TONE_COLOR: Record<ReturnType<typeof scoreTone>, string> = {
   success: "success.main",
@@ -127,15 +130,6 @@ function PlayerRow({
       {trailing}
     </Stack>
   );
-}
-
-/** Gender colouring used across the role lists. */
-const GENDER_COLOR: Record<Gender, string> = { M: "#1e88e5", F: "#d81b60" };
-const GENDER_LABEL: Record<Gender, string> = { M: "Man", F: "Woman" };
-const UNKNOWN_COLOR = "#9e9e9e";
-
-function genderColor(g: Gender | null): string {
-  return g ? GENDER_COLOR[g] : UNKNOWN_COLOR;
 }
 
 type Role = keyof RankedPlayer["roles"];

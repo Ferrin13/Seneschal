@@ -38,6 +38,7 @@ import {
   MIN_SCORE,
   STATS,
   fmtScore,
+  genderColor,
   meansFromScores,
   score,
   scoreTone,
@@ -45,6 +46,8 @@ import {
   type Scores,
   type StatKey,
 } from "./stats";
+import { GenderBadge } from "./GenderBadge";
+import { GenderFilter, type GenderFilterValue } from "./GenderFilter";
 import type { Board, BoardPlayer, PlayerDetail } from "./types";
 
 /** Column headers are tight; these fit in ~60px. Full label is in the tooltip. */
@@ -202,6 +205,7 @@ export function CompareView() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [team, setTeam] = useState<string>("");
+  const [gender, setGender] = useState<GenderFilterValue>("");
   const [onlyRated, setOnlyRated] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("overall");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -338,10 +342,11 @@ export function CompareView() {
       (p) =>
         (!q || p.name.toLowerCase().includes(q)) &&
         (!team || p.team === team) &&
+        (!gender || p.gender === gender) &&
         (!onlyRated || p.myRating != null)
     );
     return [...filtered].sort((a, b) => compare(a, b, sortKey, sortDir));
-  }, [board, search, team, onlyRated, sortKey, sortDir]);
+  }, [board, search, team, gender, onlyRated, sortKey, sortDir]);
 
   const toggleSort = (key: SortKey) => {
     if (key === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -410,6 +415,7 @@ export function CompareView() {
               </Select>
             </FormControl>
           ) : null}
+          <GenderFilter id="moneyball-compare-gender" value={gender} onChange={setGender} />
           <FormControlLabel
             control={
               <Switch
@@ -564,14 +570,22 @@ export function CompareView() {
                           src={p.photoUrl ?? undefined}
                           alt={p.name}
                           variant="rounded"
-                          sx={{ width: 28, height: 28, fontSize: 12 }}
+                          sx={{
+                            width: 28,
+                            height: 28,
+                            fontSize: 12,
+                            boxShadow: `0 0 0 2px ${genderColor(p.gender)}`,
+                          }}
                         >
                           {initials(p.name)}
                         </Avatar>
                         <Box sx={{ minWidth: 0 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
-                            {p.name}
-                          </Typography>
+                          <Stack direction="row" spacing={0.75} alignItems="center">
+                            <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+                              {p.name}
+                            </Typography>
+                            <GenderBadge gender={p.gender} />
+                          </Stack>
                           {p.team ? (
                             <Typography variant="caption" color="text.secondary" noWrap display="block">
                               {p.team}
