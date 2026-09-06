@@ -7,6 +7,7 @@ import type {
   LazaxStats,
   StrategyCard,
 } from "./lazax/types";
+import type { DescartesChangeSet, DescartesGraph } from "./descartes/types";
 import type {
   LeagueAnalysis,
   LeagueValues,
@@ -376,8 +377,37 @@ export type LlmUsage = {
   }[];
 };
 
+/** Scripture passage returned by the backend for licensed translations. */
+export type ServerPassage = {
+  reference: string;
+  text: string;
+  translation: "esv";
+};
+
 export const api = {
   me: () => authedFetch("/me") as Promise<Me>,
+
+  // --- Descartes (belief graph) -----------------------------------------------
+  bibleTranslations: () =>
+    authedFetch("/bible/translations") as Promise<{ translations: string[] }>,
+  biblePassage: (q: string, translation: "esv") =>
+    authedFetch(
+      `/bible/passage?q=${encodeURIComponent(q)}&translation=${translation}`
+    ) as Promise<ServerPassage>,
+  descartesGraph: () =>
+    authedFetch("/descartes/graph") as Promise<DescartesGraph>,
+  /** Apply a batch of edits atomically. `keepalive` lets a final flush outlive the page. */
+  descartesApplyChanges: (changes: DescartesChangeSet, opts?: { keepalive?: boolean }) =>
+    authedFetch("/descartes/graph/changes", {
+      method: "POST",
+      body: JSON.stringify(changes),
+      ...(opts?.keepalive ? { keepalive: true } : {}),
+    }) as Promise<{ ok: true; appliedAt: string }>,
+  descartesReplaceGraph: (graph: DescartesGraph) =>
+    authedFetch("/descartes/graph", {
+      method: "PUT",
+      body: JSON.stringify(graph),
+    }) as Promise<DescartesGraph>,
   categories: () => authedFetch("/categories") as Promise<Category[]>,
   activities: () => authedFetch("/activities") as Promise<Activity[]>,
   slots: (fromIso: string, toIso: string) =>

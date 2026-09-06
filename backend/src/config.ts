@@ -85,6 +85,13 @@ const schema = z.object({
   // enable; unset skips it.
   CRAIGSLIST_SITE: z.string().min(1).optional(),
 
+  // --- Descartes (belief graph) -----------------------------------------
+  // Crossway's ESV API key (https://api.esv.org/, free for non-commercial
+  // use). The key must stay server-side, so the frontend fetches ESV text via
+  // GET /bible/passage. When unset, that route returns 503 and the web UI
+  // hides the ESV option; public-domain translations still work directly.
+  ESV_API_KEY: z.string().min(1).optional(),
+
   // --- Temporal ---------------------------------------------------------
   // The deal-hunter pipeline runs as a Temporal workflow. Server-side work
   // (Craigslist fetch, LLM calls, DB writes) runs on TEMPORAL_TASK_QUEUE;

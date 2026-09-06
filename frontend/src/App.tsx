@@ -41,14 +41,16 @@ import { GameBoard } from "./lazax/GameBoard";
 import { StatsView } from "./lazax/StatsView";
 import { ThrawnView } from "./thrawn/ThrawnView";
 import { LeagueView } from "./thrawn/LeagueView";
+import { DescartesView } from "./descartes/DescartesView";
 
 /**
- * Four independent sections: Time Tracking, Deal Hunter, Lazax, and Thrawn.
- * Each keeps its own secondary tabs where needed.
+ * Five independent sections: Time Tracking, Deal Hunter, Lazax, Thrawn, and
+ * Descartes. Each keeps its own secondary tabs where needed.
  */
 const TIME_PATH = "/time-tracking";
 const LAZAX_PATH = "/lazax";
 const THRAWN_PATH = "/thrawn";
+const DESCARTES_PATH = "/descartes";
 
 /** Sub-tabs within the Deal Hunter section. */
 const HUNTER_TABS = [
@@ -60,11 +62,12 @@ const HUNTER_TABS = [
 /** Default landing path for each primary section. */
 const HUNTER_DEFAULT = HUNTER_TABS[0].path;
 
-type Section = "time" | "hunter" | "lazax" | "thrawn";
+type Section = "time" | "hunter" | "lazax" | "thrawn" | "descartes";
 
 function sectionForPath(pathname: string): Section {
   if (pathname.startsWith(LAZAX_PATH)) return "lazax";
   if (pathname.startsWith(THRAWN_PATH)) return "thrawn";
+  if (pathname.startsWith(DESCARTES_PATH)) return "descartes";
   if (HUNTER_TABS.some((t) => pathname.startsWith(t.path))) return "hunter";
   return "time";
 }
@@ -116,6 +119,7 @@ export default function App() {
     if (v === "time") navigate(TIME_PATH);
     else if (v === "hunter") navigate(HUNTER_DEFAULT);
     else if (v === "thrawn") navigate(THRAWN_PATH);
+    else if (v === "descartes") navigate(DESCARTES_PATH);
     else navigate(LAZAX_PATH);
   };
 
@@ -149,6 +153,7 @@ export default function App() {
               <Tab value="hunter" label="Deal Hunter" sx={{ minHeight: 64 }} />
               <Tab value="lazax" label="Lazax" sx={{ minHeight: 64 }} />
               <Tab value="thrawn" label="Thrawn" sx={{ minHeight: 64 }} />
+              <Tab value="descartes" label="Descartes" sx={{ minHeight: 64 }} />
             </Tabs>
           ) : null}
           <Box sx={{ flexGrow: 1 }} />
@@ -219,6 +224,12 @@ export default function App() {
               >
                 <ListItemText primary="Thrawn" />
               </ListItemButton>
+              <ListItemButton
+                selected={section === "descartes"}
+                onClick={() => navigate(DESCARTES_PATH)}
+              >
+                <ListItemText primary="Descartes" />
+              </ListItemButton>
             </List>
             <Divider />
             <List
@@ -278,6 +289,7 @@ export default function App() {
                 path={`${THRAWN_PATH}/:leagueId`}
                 element={<ThrawnLeagueRoute />}
               />
+              <Route path={DESCARTES_PATH} element={<DescartesView />} />
               {HUNTER_TABS.map((t) => (
                 <Route
                   key={t.path}

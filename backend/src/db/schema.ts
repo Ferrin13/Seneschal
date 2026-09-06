@@ -12,6 +12,7 @@ import {
   check,
   jsonb,
   doublePrecision,
+  foreignKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -1573,6 +1574,167 @@ export const thrawnOverrides = pgTable(
     ),
   })
 );
+
+// ---------------------------------------------------------------------------
+// Descartes — a directed graph of theological beliefs (frontend/src/descartes)
+// ---------------------------------------------------------------------------
+//
+// Ids are client-generated short strings (the browser creates nodes offline
+// and needs a usable id synchronously), so every table is keyed by
+// (user_id, id) and cross-references are composite foreign keys scoped to the
+// same user. The whole graph is small enough (hundreds of nodes) that the API
+// loads it in one shot and applies batched change-sets.
+
+export type DescartesBeliefKind = "axiom" | "doctrine" | "principle" | "practice";
+export type DescartesBeliefScope = "general" | "specific";
+export type DescartesRelationKind =
+  | "grounds"
+  | "implies"
+  | "applies"
+  | "qualifies"
+  | "tension";
+
+/** A citation attached to a belief; scripture text is cached once fetched. */
+export type DescartesReference = {
+  id: string;
+  ref: string;
+  text?: string;
+  translation?: string;
+  note?: string;
+};
+
+export const descartesBeliefs = pgTable(
+  "descartes_beliefs",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    id: text("id").notNull(),
+    kind: text("kind").$type<DescartesBeliefKind>().notNull(),
+    scope: text("scope").$type<DescartesBeliefScope>().notNull(),
+    /** 1 (barely held) .. 10 (bedrock). */
+    confidence: integer("confidence").notNull(),
+    title: text("title").notNull().default(""),
+    summary: text("summary").notNull().default(""),
+    notes: text("notes").notNull().default(""),
+    references: jsonb("references")
+      .$type<DescartesReference[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    tags: jsonb("tags").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    /** Canvas position; null until the client has placed the card. */
+    x: doublePrecision("x"),
+    y: doublePrecision("y"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.id] }),
+    confidenceRange: check(
+      "descartes_beliefs_confidence_range",
+      sql`${t.confidence} BETWEEN 1 AND 10`
+    ),
+  })
+);
+
+export const descartesRelations = pgTable(
+  "descartes_relations",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    id: text("id").notNull(),
+    sourceId: text("source_id").notNull(),
+    targetId: text("target_id").notNull(),
+    kind: text("kind").$type<DescartesRelationKind>().notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.id] }),
+    sourceFk: foreignKey({
+      name: "descartes_relations_source_fk",
+      columns: [t.userId, t.sourceId],
+      foreignColumns: [descartesBeliefs.userId, descartesBeliefs.id],
+    }).onDelete("cascade"),
+    targetFk: foreignKey({
+      name: "descartes_relations_target_fk",
+      columns: [t.userId, t.targetId],
+      foreignColumns: [descartesBeliefs.userId, descartesBeliefs.id],
+    }).onDelete("cascade"),
+    /** One edge per ordered pair. */
+    pairIdx: uniqueIndex("descartes_relations_pair_idx").on(
+      t.userId,
+      t.sourceId,
+      t.targetId
+    ),
+  })
+);
+
+export const descartesClusters = pgTable(
+  "descartes_clusters",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    id: text("id").notNull(),
+    label: text("label").notNull().default(""),
+    description: text("description"),
+    color: text("color").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.id] }),
+  })
+);
+
+export const descartesClusterMembers = pgTable(
+  "descartes_cluster_members",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    clusterId: text("cluster_id").notNull(),
+    beliefId: text("belief_id").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.clusterId, t.beliefId] }),
+    clusterFk: foreignKey({
+      name: "descartes_cluster_members_cluster_fk",
+      columns: [t.userId, t.clusterId],
+      foreignColumns: [descartesClusters.userId, descartesClusters.id],
+    }).onDelete("cascade"),
+    beliefFk: foreignKey({
+      name: "descartes_cluster_members_belief_fk",
+      columns: [t.userId, t.beliefId],
+      foreignColumns: [descartesBeliefs.userId, descartesBeliefs.id],
+    }).onDelete("cascade"),
+  })
+);
+
+export type DescartesBelief = typeof descartesBeliefs.$inferSelect;
+export type NewDescartesBelief = typeof descartesBeliefs.$inferInsert;
+export type DescartesRelation = typeof descartesRelations.$inferSelect;
+export type NewDescartesRelation = typeof descartesRelations.$inferInsert;
+export type DescartesCluster = typeof descartesClusters.$inferSelect;
+export type NewDescartesCluster = typeof descartesClusters.$inferInsert;
+export type DescartesClusterMember = typeof descartesClusterMembers.$inferSelect;
+export type NewDescartesClusterMember = typeof descartesClusterMembers.$inferInsert;
 
 export type ThrawnLeague = typeof thrawnLeagues.$inferSelect;
 export type NewThrawnLeague = typeof thrawnLeagues.$inferInsert;
