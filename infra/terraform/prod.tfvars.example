@@ -73,10 +73,11 @@ github_owner    = "your-github-username"
 github_repo     = "Seneschal"
 github_branch   = "main"
 
-# Frontend build-time env vars. VITE_API_BASE_URL is filled in automatically.
+# Frontend build-time env vars. VITE_API_BASE_URL and VITE_FIREBASE_AUTH_DOMAIN
+# are filled in automatically (the auth domain is always the web FQDN, with
+# CloudFront proxying /__/auth/* to Firebase — see DEPLOY.md §8).
 frontend_build_env = {
-  VITE_FIREBASE_API_KEY     = "AIzaSy..."
-  VITE_FIREBASE_AUTH_DOMAIN = "seneschal-c4b9a.firebaseapp.com"
-  VITE_FIREBASE_PROJECT_ID  = "seneschal-c4b9a"
-  VITE_FIREBASE_APP_ID      = "1:1012077844190:web:..."
+  VITE_FIREBASE_API_KEY    = "AIzaSy..."
+  VITE_FIREBASE_PROJECT_ID = "seneschal-c4b9a"
+  VITE_FIREBASE_APP_ID     = "1:1012077844190:web:..."
 }

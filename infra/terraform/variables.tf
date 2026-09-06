@@ -233,7 +233,7 @@ variable "github_branch" {
 }
 
 variable "frontend_build_env" {
-  description = "Map of env vars injected at frontend build time (VITE_* values like the Firebase web config). VITE_API_BASE_URL is filled in automatically."
+  description = "Map of env vars injected at frontend build time (VITE_* values like the Firebase web config). VITE_API_BASE_URL and VITE_FIREBASE_AUTH_DOMAIN are filled in automatically (the latter is always the web FQDN)."
   type        = map(string)
   default     = {}
   sensitive   = true

@@ -12,6 +12,15 @@ locals {
     var.cors_origins,
     "https://${local.web_fqdn}",
   )
+
+  # The Firebase Auth handler is proxied under https://<web_fqdn>/__/auth/*
+  # (see modules/frontend-web/cloudfront.tf), so the SPA's authDomain is
+  # always the web FQDN. This overrides any value supplied in
+  # frontend_build_env — the default `<project>.firebaseapp.com` breaks
+  # sign-in in browsers that partition third-party storage.
+  frontend_build_env = merge(var.frontend_build_env, {
+    VITE_FIREBASE_AUTH_DOMAIN = local.web_fqdn
+  })
 }
 
 # ----- Deal-hunter shared secret --------------------------------------
@@ -88,6 +97,8 @@ module "frontend_web" {
   env            = var.env
   web_fqdn       = local.web_fqdn
   hosted_zone_id = data.aws_route53_zone.primary.zone_id
+
+  firebase_auth_proxy_domain = "${var.firebase_project_id}.firebaseapp.com"
 }
 
 # ----- Deal-hunter worker (second ECS service) ------------------------
@@ -313,7 +324,7 @@ module "pipeline" {
   cloudfront_distribution_arn = module.frontend_web.distribution_arn
 
   api_base_url       = "https://${local.api_fqdn}"
-  frontend_build_env = var.frontend_build_env
+  frontend_build_env = local.frontend_build_env
 
   # Scraper-agent release pipeline (only when the browser box is enabled).
   enable_agent_pipeline      = var.enable_browser_box

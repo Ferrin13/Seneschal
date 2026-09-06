@@ -8,6 +8,11 @@ import {
 
 const config: FirebaseOptions = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  // In prod this is the app's own hostname, not `<project>.firebaseapp.com`:
+  // CloudFront proxies `/__/auth/*` to Firebase so the OAuth handler page is
+  // same-origin. Otherwise browsers that partition third-party storage
+  // (Safari, Brave, Firefox strict, Chrome w/o 3P cookies) fail sign-in with
+  // `auth/missing-initial-state`. See infra/terraform/DEPLOY.md §8.
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,

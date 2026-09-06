@@ -21,6 +21,39 @@ resource "aws_cloudfront_distribution" "web" {
     origin_access_control_id = aws_cloudfront_origin_access_control.web.id
   }
 
+  # Firebase Auth handler pages, proxied so `authDomain` can be the web FQDN
+  # itself (see variables.tf). Firebase Hosting routes on the Host header, so
+  # CloudFront must send the origin's own hostname, not the viewer's — hence
+  # the AllViewerExceptHostHeader origin request policy below.
+  origin {
+    domain_name = var.firebase_auth_proxy_domain
+    origin_id   = "firebase-auth"
+
+    custom_origin_config {
+      http_port              = 80
+      https_port             = 443
+      origin_protocol_policy = "https-only"
+      origin_ssl_protocols   = ["TLSv1.2"]
+    }
+  }
+
+  # Must come before the default S3 behavior. Uncached: the handler is a
+  # dynamic page keyed on query params, and the responses are tiny.
+  ordered_cache_behavior {
+    path_pattern           = "/__/auth/*"
+    target_origin_id       = "firebase-auth"
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = true
+
+    # AWS managed CachingDisabled policy.
+    cache_policy_id = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+    # AWS managed AllViewerExceptHostHeader origin request policy: forwards
+    # all query strings, cookies and headers except Host.
+    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac"
+  }
+
   default_cache_behavior {
     target_origin_id       = "s3-${aws_s3_bucket.web.id}"
     viewer_protocol_policy = "redirect-to-https"
@@ -33,7 +66,9 @@ resource "aws_cloudfront_distribution" "web" {
   }
 
   # SPA fallback: any 404/403 from S3 returns index.html so client-side
-  # routing keeps working on deep links.
+  # routing keeps working on deep links. (Applies distribution-wide, so a
+  # 403/404 from the Firebase Auth origin would also render index.html; the
+  # handler pages return 200 in normal operation so this is harmless.)
   custom_error_response {
     error_code            = 403
     response_code         = 200

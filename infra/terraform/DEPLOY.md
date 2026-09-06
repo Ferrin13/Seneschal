@@ -284,16 +284,32 @@ aws ssm start-session --target (terraform output -raw browser_box_instance_id) -
 1. **Firebase authorized domains:** in the Firebase console
    (`seneschal-c4b9a`) → Authentication → Settings → Authorized domains, add
    `seneschal.parthadae.com`.
-2. **Health:**
+2. **Google OAuth redirect URI:** the SPA uses its own hostname as the
+   Firebase `authDomain` (CloudFront proxies `/__/auth/*` to
+   `seneschal-c4b9a.firebaseapp.com`), so Google must accept the handler on
+   that hostname. In the Google Cloud console for the same project →
+   APIs & Services → Credentials → the **Web client (auto created by Google
+   Service)** OAuth 2.0 client → Authorized redirect URIs, add
+   `https://seneschal.parthadae.com/__/auth/handler` (keep the existing
+   `...firebaseapp.com/__/auth/handler` entry). Skipping this yields
+   `redirect_uri_mismatch` from Google; skipping the proxy/authDomain change
+   yields `auth/missing-initial-state` in Safari, Brave, Firefox strict, and
+   Chrome with third-party cookies blocked.
+   Verify the proxy after `terraform apply`:
+   ```powershell
+   Invoke-WebRequest https://seneschal.parthadae.com/__/auth/iframe -UseBasicParsing | Select-Object StatusCode
+   ```
+   (expect 200 with Firebase's iframe HTML, not the SPA's `index.html`).
+3. **Health:**
    ```powershell
    Invoke-RestMethod https://api.seneschal.parthadae.com/healthz
    Invoke-RestMethod https://api.seneschal.parthadae.com/readyz
    ```
-3. **App:** open `https://seneschal.parthadae.com`, sign in with a bootstrap
+4. **App:** open `https://seneschal.parthadae.com`, sign in with a bootstrap
    admin Google account (`BOOTSTRAP_ADMIN_EMAILS` on the backend; defaults to
    `info@parthadae.com` / `12aplustech@gmail.com`). Grant other accounts
    access, and pick their products, from the **Admin** tab.
-4. **End-to-end hunt:** create a search target, then trigger a manual hunt
+5. **End-to-end hunt:** create a search target, then trigger a manual hunt
    (`POST /marketplace/targets/:id/hunt`) or wait for the schedule. Confirm
    the workflow runs (worker logs) and candidates/comps/evaluations land and
    show under `/deals`.
