@@ -259,6 +259,7 @@ export function CompareView() {
                     name: d.name,
                     photoUrl: d.photoUrl,
                     team: d.team,
+                    gender: d.gender,
                     number: d.number,
                     raterCount: d.raterCount,
                     stats: d.stats,
