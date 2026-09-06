@@ -225,6 +225,20 @@
       "when": 1788725981268,
       "tag": "0031_lying_manta",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1788731327282,
+      "tag": "0032_premium_the_renegades",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1788732228815,
+      "tag": "0033_luxuriant_tony_stark",
+      "breakpoints": true
     }
   ]
 }

@@ -18,7 +18,13 @@ import type {
   SeasonBoard,
   ThrawnLeague,
 } from "./thrawn/types";
-import type { Board, PlayerDetail, TeamsResponse } from "./moneyball/types";
+import type {
+  AdminPlayer,
+  AdminPlayerInput,
+  Board,
+  PlayerDetail,
+  TeamsResponse,
+} from "./moneyball/types";
 import type { Scores as MoneyballScores, Weights as MoneyballWeights } from "./moneyball/stats";
 
 export const API_BASE_URL: string = (
@@ -703,4 +709,25 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ weights }),
     }) as Promise<{ weights: MoneyballWeights }>,
+
+  // --- Moneyball roster admin (admin flag required) ----------------------------
+  moneyballAdminPlayers: () =>
+    authedFetch("/admin/moneyball/players") as Promise<{ players: AdminPlayer[] }>,
+  moneyballAdminCreatePlayer: (input: AdminPlayerInput) =>
+    authedFetch("/admin/moneyball/players", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }) as Promise<AdminPlayer>,
+  moneyballAdminUpdatePlayer: (id: string, patch: Partial<AdminPlayerInput>) =>
+    authedFetch(`/admin/moneyball/players/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }) as Promise<AdminPlayer>,
+  moneyballAdminDeletePlayer: (id: string) =>
+    authedFetch(`/admin/moneyball/players/${id}`, { method: "DELETE" }) as Promise<null>,
+  moneyballAdminUploadPhoto: (id: string, contentType: string, dataBase64: string) =>
+    authedFetch(`/admin/moneyball/players/${id}/photo`, {
+      method: "POST",
+      body: JSON.stringify({ contentType, dataBase64 }),
+    }) as Promise<AdminPlayer>,
 };

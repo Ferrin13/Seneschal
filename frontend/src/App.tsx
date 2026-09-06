@@ -48,6 +48,7 @@ import { MoneyballView } from "./moneyball/MoneyballView";
 import { TeamsView } from "./moneyball/TeamsView";
 import { ConcentrationView } from "./moneyball/ConcentrationView";
 import { CompareView } from "./moneyball/CompareView";
+import { RosterAdminView } from "./moneyball/RosterAdminView";
 import { AdminView } from "./admin/AdminView";
 
 /**
@@ -412,6 +413,9 @@ export default function App() {
                   <>
                     <Route path={MONEYBALL_PATH} element={<MoneyballRoute />} />
                     <Route path={`${MONEYBALL_PATH}/compare`} element={<CompareView />} />
+                    {me?.isAdmin ? (
+                      <Route path={`${MONEYBALL_PATH}/roster`} element={<RosterAdminView />} />
+                    ) : null}
                     <Route path={`${MONEYBALL_PATH}/teams`} element={<TeamsView />} />
                     <Route
                       path={`${MONEYBALL_PATH}/concentration`}

@@ -344,10 +344,20 @@ export const DEFENDER_STATS: readonly StatKey[] = [
   "effort",
 ];
 
-/** Line shape: seven on the field, split into handler and cutter roles. */
-export const LINE_HANDLERS = 4;
-export const LINE_CUTTERS = 3;
-export const LINE_SIZE = LINE_HANDLERS + LINE_CUTTERS;
+/** Seven on the field; used as the "top of the roster" size for concentration stats. */
+export const LINE_SIZE = 7;
+
+export type Gender = "M" | "F";
+export const GENDERS: readonly Gender[] = ["M", "F"];
+
+/** Coerce a stored/imported value ("m", "Female", ...) to a Gender, or null. */
+export function normalizeGender(v: unknown): Gender | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim().toLowerCase();
+  if (s === "m" || s === "male" || s === "man" || s === "men") return "M";
+  if (s === "f" || s === "female" || s === "woman" || s === "women") return "F";
+  return null;
+}
 
 export type RoleScores = {
   handler: number | null;
@@ -368,190 +378,37 @@ export type TeamPlayerInput = {
   id: string;
   name: string;
   photoUrl: string | null;
+  /** Splits the team rankings; null means unknown. */
+  gender: Gender | null;
   /** Team means per stat (null = nobody has rated it). */
   stats: StatMeans;
   raterCount: number;
 };
 
-export type LineSlot = {
-  playerId: string;
-  name: string;
-  photoUrl: string | null;
-  role: "handler" | "cutter";
-  /** The role score that earned the slot. */
-  score: number;
-  overall: number | null;
-};
-
-export type Line = {
-  slots: LineSlot[];
-  /** Mean of the slot scores; null when the line is empty. */
-  score: number | null;
-  /** True when fewer than LINE_SIZE rated players were available. */
-  short: boolean;
-};
-
-type Candidate = {
-  p: TeamPlayerInput;
-  handler: number | null;
-  cutter: number | null;
-  overall: number | null;
-};
-
-/**
- * Best offensive line: exactly `handlers` handler slots and `cutters` cutter
- * slots, each player used once, maximizing the sum of role scores. Solved
- * exactly with a small DP over players x (handlers used) x (cutters used) —
- * greedy by role would misplace players who are good at both.
- *
- * Players with no score for a role can't fill that role. If there aren't
- * enough rated players the line comes back short rather than padded.
- */
-export function bestOffenseLine(
-  players: readonly TeamPlayerInput[],
-  weights: Weights,
-  handlers = LINE_HANDLERS,
-  cutters = LINE_CUTTERS
-): Line {
-  const cands: Candidate[] = players
-    .map((p) => {
-      const r = roleScores(p.stats, weights);
-      return { p, handler: r.handler, cutter: r.cutter, overall: score(p.stats, weights).overall };
-    })
-    .filter((c) => c.handler != null || c.cutter != null);
-
-  const n = cands.length;
-  const NEG = -Infinity;
-  // best[h][c] after considering a prefix of players; choice[i][h][c] records
-  // what player i did to reach (h, c): 0 skip, 1 handler, 2 cutter.
-  let best: number[][] = Array.from({ length: handlers + 1 }, () =>
-    Array<number>(cutters + 1).fill(NEG)
-  );
-  best[0]![0] = 0;
-  const choice: Uint8Array[][] = [];
-  for (let i = 0; i < n; i++) {
-    const c = cands[i]!;
-    const next: number[][] = best.map((row) => row.slice());
-    const ch: Uint8Array[] = Array.from({ length: handlers + 1 }, () => new Uint8Array(cutters + 1));
-    for (let h = 0; h <= handlers; h++) {
-      for (let k = 0; k <= cutters; k++) {
-        const cur = best[h]![k]!;
-        if (cur === NEG) continue;
-        if (c.handler != null && h < handlers && cur + c.handler > next[h + 1]![k]!) {
-          next[h + 1]![k] = cur + c.handler;
-          ch[h + 1]![k] = 1;
-        }
-        if (c.cutter != null && k < cutters && cur + c.cutter > next[h]![k + 1]!) {
-          next[h]![k + 1] = cur + c.cutter;
-          ch[h]![k + 1] = 2;
-        }
-      }
-    }
-    best = next;
-    choice.push(ch);
-  }
-
-  // Pick the fullest reachable (h, c), preferring more players, then score.
-  let bh = 0;
-  let bc = 0;
-  for (let h = 0; h <= handlers; h++) {
-    for (let k = 0; k <= cutters; k++) {
-      if (best[h]![k] === NEG) continue;
-      const fuller = h + k > bh + bc;
-      const sameButBetter = h + k === bh + bc && best[h]![k]! > best[bh]![bc]!;
-      if (fuller || sameButBetter) {
-        bh = h;
-        bc = k;
-      }
-    }
-  }
-
-  // Walk back through the choices to recover the assignment. A cell's choice
-  // byte is only set when player i improved it; otherwise i was skipped.
-  const slots: LineSlot[] = [];
-  let h = bh;
-  let k = bc;
-  for (let i = n - 1; i >= 0 && h + k > 0; i--) {
-    const what = choice[i]![h]![k];
-    if (what === 1) {
-      const c = cands[i]!;
-      slots.push(slotOf(c, "handler", c.handler!));
-      h--;
-    } else if (what === 2) {
-      const c = cands[i]!;
-      slots.push(slotOf(c, "cutter", c.cutter!));
-      k--;
-    }
-  }
-  slots.sort((a, b) => (a.role === b.role ? b.score - a.score : a.role === "handler" ? -1 : 1));
-  return finishLine(slots, handlers + cutters);
-}
-
-function slotOf(c: Candidate, role: LineSlot["role"], s: number): LineSlot {
-  return {
-    playerId: c.p.id,
-    name: c.p.name,
-    photoUrl: c.p.photoUrl,
-    role,
-    score: s,
-    overall: c.overall,
-  };
-}
-
-function finishLine(slots: LineSlot[], size: number): Line {
-  const sum = slots.reduce((acc, s) => acc + s.score, 0);
-  return {
-    slots,
-    score: slots.length > 0 ? round1(sum / slots.length) : null,
-    short: slots.length < size,
-  };
-}
-
-/**
- * Best defensive line: the top `size` players by defender score. Roles are
- * still labelled (handler if their handler score beats their cutter score) so
- * the line reads like a real one, but the pick is purely defensive.
- */
-export function bestDefenseLine(
-  players: readonly TeamPlayerInput[],
-  weights: Weights,
-  size = LINE_SIZE
-): Line {
-  const slots = players
-    .map((p) => {
-      const r = roleScores(p.stats, weights);
-      return { p, r, overall: score(p.stats, weights).overall };
-    })
-    .filter((x) => x.r.defender != null)
-    .sort((a, b) => b.r.defender! - a.r.defender! || (b.overall ?? 0) - (a.overall ?? 0))
-    .slice(0, size)
-    .map(
-      (x): LineSlot => ({
-        playerId: x.p.id,
-        name: x.p.name,
-        photoUrl: x.p.photoUrl,
-        role: (x.r.handler ?? 0) >= (x.r.cutter ?? 0) ? "handler" : "cutter",
-        score: x.r.defender!,
-        overall: x.overall,
-      })
-    );
-  return finishLine(slots, size);
-}
-
 export type RankedPlayer = {
   playerId: string;
   name: string;
   photoUrl: string | null;
+  gender: Gender | null;
   scores: Scorecard;
   roles: RoleScores;
   raterCount: number;
 };
 
-export type StatLeader = {
-  stat: StatKey;
+/** A rostered player nobody has rated yet. */
+export type UnratedPlayer = {
   playerId: string;
   name: string;
+  photoUrl: string | null;
+  gender: Gender | null;
+};
+
+/** Top value for one stat and everyone tied at it (rounded means compare equal). */
+export type StatLeader = {
+  stat: StatKey;
   value: number;
+  /** All players sharing the top value, alphabetical. */
+  players: { playerId: string; name: string }[];
 };
 
 /**
@@ -649,17 +506,13 @@ export type TeamSummary = {
   stats: StatMeans;
   /** Scorecard over the team stat means, i.e. the "average player" on the team. */
   scores: Scorecard;
-  /** Every rated player, best OVR first. */
+  /** Every rated player, best OVR first (split by gender client-side). */
   players: RankedPlayer[];
-  /** Top of `players` for the headline section. */
-  bestPlayers: RankedPlayer[];
-  offenseLine: Line;
-  defenseLine: Line;
+  /** Rostered players with no ratings at all, alphabetical. */
+  unrated: UnratedPlayer[];
   /** Best player per stat. */
   leaders: StatLeader[];
 };
-
-export const BEST_PLAYERS_COUNT = 5;
 
 /** Mean over players of each stat's team mean. */
 export function teamStatMeans(players: readonly TeamPlayerInput[]): StatMeans {
@@ -684,12 +537,18 @@ export function summarizeTeam(
   players: readonly TeamPlayerInput[],
   weights: Weights
 ): TeamSummary {
-  const rated = players.filter((p) => STAT_KEYS.some((k) => p.stats[k] != null));
+  const isRated = (p: TeamPlayerInput) => STAT_KEYS.some((k) => p.stats[k] != null);
+  const rated = players.filter(isRated);
+  const unrated: UnratedPlayer[] = players
+    .filter((p) => !isRated(p))
+    .map((p) => ({ playerId: p.id, name: p.name, photoUrl: p.photoUrl, gender: p.gender }))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const ranked: RankedPlayer[] = rated
     .map((p) => ({
       playerId: p.id,
       name: p.name,
       photoUrl: p.photoUrl,
+      gender: p.gender,
       scores: score(p.stats, weights),
       roles: roleScores(p.stats, weights),
       raterCount: p.raterCount,
@@ -701,12 +560,20 @@ export function summarizeTeam(
 
   const leaders: StatLeader[] = [];
   for (const k of STAT_KEYS) {
-    let top: TeamPlayerInput | null = null;
+    let top: number | null = null;
     for (const p of rated) {
       const v = p.stats[k];
-      if (v != null && (top == null || v > top.stats[k]!)) top = p;
+      if (v != null && (top == null || v > top)) top = v;
     }
-    if (top) leaders.push({ stat: k, playerId: top.id, name: top.name, value: top.stats[k]! });
+    if (top == null) continue;
+    leaders.push({
+      stat: k,
+      value: top,
+      players: rated
+        .filter((p) => p.stats[k] === top)
+        .map((p) => ({ playerId: p.id, name: p.name }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    });
   }
 
   const stats = teamStatMeans(rated);
@@ -720,9 +587,7 @@ export function summarizeTeam(
     stats,
     scores: score(stats, weights),
     players: ranked,
-    bestPlayers: ranked.slice(0, BEST_PLAYERS_COUNT),
-    offenseLine: bestOffenseLine(rated, weights),
-    defenseLine: bestDefenseLine(rated, weights),
+    unrated,
     leaders,
   };
 }

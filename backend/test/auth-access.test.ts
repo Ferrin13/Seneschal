@@ -72,6 +72,8 @@ describe("requirementForPath", () => {
     expect(requirementForPath("/admin/users/a%40b.com")).toEqual({
       kind: "admin",
     });
+    // Roster CRUD is admin-only even though it's Moneyball data.
+    expect(requirementForPath("/admin/moneyball/players")).toEqual({ kind: "admin" });
   });
 
   it("matches on segment boundaries only", () => {

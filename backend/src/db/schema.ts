@@ -1784,8 +1784,15 @@ export const moneyballPlayers = pgTable(
     photoUrl: text("photo_url"),
     /** League team the player was imported from, for grouping/filtering. */
     team: text("team"),
+    /** "M" | "F" for the mixed 4/3 line ratio; null = unknown (can't be lined up). */
+    gender: text("gender"),
     number: integer("number"),
     active: boolean("active").notNull().default(true),
+    /**
+     * Set once an admin edits the row from the Roster page. The boot-time
+     * roster.ts sync then leaves this row alone instead of overwriting it.
+     */
+    manuallyEdited: boolean("manually_edited").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

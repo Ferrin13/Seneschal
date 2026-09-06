@@ -100,18 +100,21 @@ I've rated". Clicking a player name opens their card on the Players tab.
 
 - **Team scores** — the scorecard of the team's average player (mean of each
   stat's team mean, then the OVR formula).
-- **Best players** — top 5 by OVR, with handler / cutter / defender role scores.
+- **Top handlers / cutters / defenders** — three panels ranking rated players
+  by role score (top 7, expandable to all), each row colour-coded by gender
+  (blue = man, magenta = woman, grey = unknown) with a per-panel M / W count.
   Role scores are weighted means over role stat sets (`HANDLER_STATS`:
-  possession handling, huck handling, decision making, game IQ; `CUTTER_STATS`:
-  possession cutting, deep cutting, verticality, agility; `DEFENDER_STATS`: both
-  markings, agility, verticality, effort).
-- **Best offense line** — 4 handlers + 3 cutters, each player once, chosen by
-  an exact DP that maximizes total role score (so a two-way star lands where
-  the team gains most). Comes back `short` when fewer than 7 rated players.
-- **Best defense line** — 7 best by defender score.
-- **Stat leaders** — top player per stat.
+  possession handling, huck handling, decision making, game IQ;
+  `CUTTER_STATS`: possession cutting, deep cutting, verticality, agility;
+  `DEFENDER_STATS`: both markings, agility, verticality, effort); a player
+  with none of a role's stats rated is left out of that panel. Sorting and
+  colouring happen client-side from `players[].roles` and `players[].gender`.
+- **Stat leaders** — the top team-mean value per stat and every player tied at
+  it (means are rounded to one decimal before comparing).
 
-Unrated players are excluded from everything except the player count.
+Unrated players are excluded from the team scores, role lists and leaders;
+they appear as clickable chips in an "Unrated" panel (from `unrated[]`) and in
+the player count. The team table's "M / W" column is the roster's gender split.
 
 ## Concentration tab
 
@@ -126,8 +129,10 @@ the selected team.
 ## Data model
 
 - `moneyball_players` — shared roster, unique by `slug`. `photo_url` is a
-  site-relative path served from `frontend/public/moneyball/players/`;
-  `team` is the league team the player was imported from.
+  site-relative path served from `frontend/public/moneyball/players/`, an
+  https URL, or `s3:<key>` for an admin upload (see "Roster admin page");
+  `team` is the league team the player was imported from; `gender` is `M`/`F`
+  or null; `manually_edited` pins a row against the boot-time roster sync.
 - `moneyball_ratings` — one row per (player, rater) with a jsonb `scores`
   object; upserted whole on save.
 - `moneyball_settings` — key/value; only `weights` today.
@@ -138,6 +143,38 @@ the selected team.
 - `GET /moneyball/players/:id` — same plus per-rater breakdown
 - `PUT /moneyball/players/:id/rating` `{ scores }` / `DELETE ...` — your rating
 - `GET|PUT /moneyball/weights`
+
+## Roster admin page
+
+Admins (the account flag, not the Moneyball feature) get a **Roster** tab at
+`/moneyball/roster` (`RosterAdminView.tsx`) for raw CRUD on
+`moneyball_players`: every row including inactive ones, an edit dialog for
+name / slug / team / gender / number / photo / active, an Add player form, an
+Active toggle per row, and a permanent delete (cascades that player's
+ratings). API: `GET|POST /admin/moneyball/players`,
+`PATCH|DELETE /admin/moneyball/players/:id`,
+`POST /admin/moneyball/players/:id/photo` (`routes/moneyballAdmin.ts`,
+`moneyball/admin.ts`). The `/admin` prefix makes the auth middleware require
+the admin flag.
+
+**Interplay with the roster.ts sync.** Every write from this page sets
+`manually_edited = true` on the row, and the boot-time `syncRosterFromCode`
+skips flagged rows (`ON CONFLICT ... DO UPDATE ... WHERE manually_edited =
+false`). So a fix made here sticks across deploys while untouched rows keep
+following `roster.ts`. Two consequences: changing a slug means the sync will
+re-insert the original slug from `roster.ts`, and hard-deleting a player who is
+still in the file brings them back (unrated) on the next boot — mark them
+inactive instead unless you also remove them from the file. Edited rows show
+a "pinned" chip.
+
+**Photos.** `photo_url` is one of: a site-relative path shipped with the
+frontend by the importer (`/moneyball/players/x.jpg`), any https URL, or
+`s3:<key>` for a photo uploaded from the Roster page. Uploads go as base64
+JSON (jpeg/png/webp, ≤8 MB) to the private images bucket under
+`moneyball/players/<slug>-<rand>.<ext>`; `photos.ts` resolves `s3:` refs to
+6-hour presigned GET URLs wherever a player is served (board, detail, admin
+list), so the rest of the app only ever sees a loadable URL. Locally this
+needs AWS credentials for the images bucket (`AWS_PROFILE` in `.env`).
 
 ## Roster import
 
@@ -150,6 +187,14 @@ pages saved with "Save page as" — one "Players on <Team>" page per team. The
 importer reads every `.html` in a directory, takes each `a.media-item-tile`
 (name from `<h3>`, photo from the CSS `background-image`, slug from the
 `/u/<slug>` profile link) and the team name from `.team-show-header h1`.
+
+**Gender** comes from the nearest preceding section heading: tiles under
+`<h2>Women</h2>` are `F`, under `<h2>Men</h2>` are `M`. Ultimate Central lists
+captains only under a separate `Captains` heading, so they come out with no
+gender; the importer prints them at the end. Set `gender: "M" | "F"` on those
+entries in `roster.ts` by hand (the importer keeps an existing hand-set gender
+when the page doesn't provide one, so the fix survives re-imports) or fix them
+on the Roster admin tab, which pins the row against the sync.
 
 ```powershell
 cd backend
@@ -169,6 +214,5 @@ entries missing from the pages. Use `npx tsx` rather than
 
 ## Not yet
 
-- Adding/editing players or photos from the UI (roster is import-only)
 - Rating history over time
 - Android

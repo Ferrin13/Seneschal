@@ -31,7 +31,7 @@ import {
   scoreTone,
   statsInCategory,
 } from "./stats";
-import type { Line, LineSlot, RankedPlayer, TeamSummary } from "./types";
+import type { Gender, RankedPlayer, TeamSummary } from "./types";
 
 const TONE_COLOR: Record<ReturnType<typeof scoreTone>, string> = {
   success: "success.main",
@@ -129,83 +129,56 @@ function PlayerRow({
   );
 }
 
-function BestPlayers({ players }: { players: RankedPlayer[] }) {
-  return (
-    <Panel>
-      <SectionTitle>Best players</SectionTitle>
-      {players.length === 0 ? (
-        <Typography variant="body2" color="text.secondary">
-          Nobody on this team has been rated yet.
-        </Typography>
-      ) : (
-        players.map((p, i) => (
-          <Stack key={p.playerId} direction="row" alignItems="center" spacing={1}>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ width: 16, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
-            >
-              {i + 1}
-            </Typography>
-            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-              <PlayerRow
-                playerId={p.playerId}
-                name={p.name}
-                photoUrl={p.photoUrl}
-                secondary={`H ${fmtScore(p.roles.handler)} · C ${fmtScore(p.roles.cutter)} · D ${fmtScore(
-                  p.roles.defender
-                )}`}
-                trailing={<ScoreBadge value={p.scores.overall} size="sm" />}
-              />
-            </Box>
-          </Stack>
-        ))
-      )}
-    </Panel>
-  );
+/** Gender colouring used across the role lists. */
+const GENDER_COLOR: Record<Gender, string> = { M: "#1e88e5", F: "#d81b60" };
+const GENDER_LABEL: Record<Gender, string> = { M: "Man", F: "Woman" };
+const UNKNOWN_COLOR = "#9e9e9e";
+
+function genderColor(g: Gender | null): string {
+  return g ? GENDER_COLOR[g] : UNKNOWN_COLOR;
 }
 
-function LineGroup({ title, slots }: { title: string; slots: LineSlot[] }) {
-  if (slots.length === 0) return null;
-  return (
-    <Stack spacing={0.5}>
-      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>
-        {title}
-      </Typography>
-      {slots.map((s) => (
-        <PlayerRow
-          key={s.playerId}
-          playerId={s.playerId}
-          name={s.name}
-          photoUrl={s.photoUrl}
-          secondary={`OVR ${fmtScore(s.overall)}`}
-          trailing={
-            <Chip
-              size="small"
-              label={fmtScore(s.score)}
-              color={scoreTone(s.score) === "default" ? "default" : scoreTone(s.score)}
-              sx={{ fontWeight: 700, minWidth: 44 }}
-            />
-          }
-        />
-      ))}
-    </Stack>
-  );
-}
+type Role = keyof RankedPlayer["roles"];
 
-function LinePanel({
-  title,
-  hint,
-  line,
-  splitRoles,
-}: {
+const ROLES: { key: Role; title: string; hint: string }[] = [
+  {
+    key: "handler",
+    title: "Top handlers",
+    hint: "Weighted mean of possession handling, huck handling, decision making and game IQ.",
+  },
+  {
+    key: "cutter",
+    title: "Top cutters",
+    hint: "Weighted mean of possession cutting, deep cutting, verticality and agility.",
+  },
+  {
+    key: "defender",
+    title: "Top defenders",
+    hint: "Weighted mean of handler marking, cutter marking, agility, verticality and effort.",
+  },
+];
+
+const ROLE_LIST_SIZE = 7;
+
+/** Rated players ranked by one role score, coloured by gender. */
+function RoleRankings({ role, title, hint, players }: {
+  role: Role;
   title: string;
   hint: string;
-  line: Line;
-  splitRoles: boolean;
+  players: RankedPlayer[];
 }) {
-  const handlers = line.slots.filter((s) => s.role === "handler");
-  const cutters = line.slots.filter((s) => s.role === "cutter");
+  const [showAll, setShowAll] = useState(false);
+  const ranked = players
+    .filter((p) => p.roles[role] != null)
+    .sort(
+      (a, b) =>
+        b.roles[role]! - a.roles[role]! ||
+        (b.scores.overall ?? 0) - (a.scores.overall ?? 0) ||
+        a.name.localeCompare(b.name)
+    );
+  const visible = showAll ? ranked : ranked.slice(0, ROLE_LIST_SIZE);
+  const men = ranked.filter((p) => p.gender === "M").length;
+  const women = ranked.filter((p) => p.gender === "F").length;
   return (
     <Panel>
       <Stack direction="row" alignItems="center" justifyContent="space-between">
@@ -214,33 +187,86 @@ function LinePanel({
             <SectionTitle>{title}</SectionTitle>
           </Box>
         </Tooltip>
-        <Chip
-          size="small"
-          label={`line ${fmtScore(line.score)}`}
-          color={scoreTone(line.score) === "default" ? "default" : scoreTone(line.score)}
-          variant="outlined"
-          sx={{ fontWeight: 700 }}
-        />
+        <Stack direction="row" spacing={0.5}>
+          <Chip
+            size="small"
+            label={`${men} M`}
+            sx={{ bgcolor: GENDER_COLOR.M, color: "common.white", fontWeight: 700 }}
+          />
+          <Chip
+            size="small"
+            label={`${women} W`}
+            sx={{ bgcolor: GENDER_COLOR.F, color: "common.white", fontWeight: 700 }}
+          />
+        </Stack>
       </Stack>
-      {line.slots.length === 0 ? (
+      {ranked.length === 0 ? (
         <Typography variant="body2" color="text.secondary">
-          Not enough rated players.
+          Nobody on this team has been rated on these stats yet.
         </Typography>
-      ) : splitRoles ? (
-        <>
-          <LineGroup title={`Handlers (${handlers.length})`} slots={handlers} />
-          <LineGroup title={`Cutters (${cutters.length})`} slots={cutters} />
-        </>
-      ) : (
-        <LineGroup title={`On the field (${line.slots.length})`} slots={line.slots} />
-      )}
-      {line.short ? (
-        <Typography variant="caption" color="text.secondary">
-          Short line: rate more players to fill it.
-        </Typography>
+      ) : null}
+      {visible.map((p, i) => {
+        const color = genderColor(p.gender);
+        const v = p.roles[role]!;
+        return (
+          <Stack key={p.playerId} direction="row" alignItems="center" spacing={1}>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ width: 18, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
+            >
+              {i + 1}
+            </Typography>
+            <Box
+              sx={{
+                flexGrow: 1,
+                minWidth: 0,
+                borderLeft: "3px solid",
+                borderColor: color,
+                borderRadius: 1,
+                bgcolor: `${color}14`,
+              }}
+            >
+              <PlayerRow
+                playerId={p.playerId}
+                name={p.name}
+                photoUrl={p.photoUrl}
+                secondary={
+                  <>
+                    <Box component="span" sx={{ color, fontWeight: 700 }}>
+                      {p.gender ? GENDER_LABEL[p.gender] : "Gender unknown"}
+                    </Box>
+                    {` · OVR ${fmtScore(p.scores.overall)}`}
+                  </>
+                }
+                trailing={
+                  <Chip
+                    size="small"
+                    label={fmtScore(v)}
+                    color={scoreTone(v) === "default" ? "default" : scoreTone(v)}
+                    sx={{ fontWeight: 700, minWidth: 44 }}
+                  />
+                }
+              />
+            </Box>
+          </Stack>
+        );
+      })}
+      {ranked.length > ROLE_LIST_SIZE ? (
+        <Button size="small" onClick={() => setShowAll((s) => !s)} sx={{ alignSelf: "flex-start" }}>
+          {showAll ? "Show top 7" : `Show all ${ranked.length}`}
+        </Button>
       ) : null}
     </Panel>
   );
+}
+
+function genderCounts(team: TeamSummary): { men: number; women: number } {
+  const all = [...team.players, ...team.unrated];
+  return {
+    men: all.filter((p) => p.gender === "M").length,
+    women: all.filter((p) => p.gender === "F").length,
+  };
 }
 
 function TeamAverages({ team }: { team: TeamSummary }) {
@@ -312,15 +338,30 @@ function StatLeaders({ team }: { team: TeamSummary }) {
             {STATS.map((s) => {
               const l = byStat.get(s.key);
               return (
-                <TableRow
-                  key={s.key}
-                  hover={!!l}
-                  onClick={() => l && navigate(`${MONEYBALL_PATH}/${l.playerId}`)}
-                  sx={{ cursor: l ? "pointer" : "default" }}
-                >
-                  <TableCell sx={{ pl: 0, width: 140 }}>{s.label}</TableCell>
-                  <TableCell sx={{ fontWeight: 600 }}>{l?.name ?? "–"}</TableCell>
-                  <TableCell align="right" sx={{ pr: 0, fontVariantNumeric: "tabular-nums" }}>
+                <TableRow key={s.key}>
+                  <TableCell sx={{ pl: 0, width: 140, verticalAlign: "top" }}>{s.label}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>
+                    {l ? (
+                      <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
+                        {l.players.map((p) => (
+                          <Chip
+                            key={p.playerId}
+                            size="small"
+                            variant="outlined"
+                            label={p.name}
+                            onClick={() => navigate(`${MONEYBALL_PATH}/${p.playerId}`)}
+                            sx={{ fontWeight: 600 }}
+                          />
+                        ))}
+                      </Stack>
+                    ) : (
+                      "–"
+                    )}
+                  </TableCell>
+                  <TableCell
+                    align="right"
+                    sx={{ pr: 0, fontVariantNumeric: "tabular-nums", verticalAlign: "top" }}
+                  >
                     {l ? fmtScore(l.value) : "–"}
                   </TableCell>
                 </TableRow>
@@ -335,10 +376,12 @@ function StatLeaders({ team }: { team: TeamSummary }) {
 
 /**
  * Teams sub-tab: a comparison table of every team, then a detail panel for the
- * selected one — best players, best offense and defense lines, average by
- * stat, and per-stat leaders. All numbers come from GET /moneyball/teams.
+ * selected one — top handlers / cutters / defenders (gender colour-coded),
+ * average by stat, and per-stat leaders. All numbers come from
+ * GET /moneyball/teams.
  */
 export function TeamsView() {
+  const navigate = useNavigate();
   const [teams, setTeams] = useState<TeamSummary[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -371,8 +414,16 @@ export function TeamsView() {
           Teams
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Team scores are the average player's card. Lines are the best 4 handlers + 3
-          cutters (offense) and the 7 best defenders (defense), each player used once.
+          Team scores are the average player's card. Pick a team to see its top handlers,
+          cutters and defenders —{" "}
+          <Box component="span" sx={{ color: GENDER_COLOR.M, fontWeight: 700 }}>
+            men
+          </Box>{" "}
+          and{" "}
+          <Box component="span" sx={{ color: GENDER_COLOR.F, fontWeight: 700 }}>
+            women
+          </Box>{" "}
+          are colour-coded.
         </Typography>
       </Box>
 
@@ -419,13 +470,8 @@ export function TeamsView() {
                   </TableCell>
                 ))}
                 <TableCell align="center" sx={hideOnMobile}>
-                  <Tooltip title="Average role score of the best offense line">
-                    <span>O-line</span>
-                  </Tooltip>
-                </TableCell>
-                <TableCell align="center" sx={hideOnMobile}>
-                  <Tooltip title="Average defender score of the best defense line">
-                    <span>D-line</span>
+                  <Tooltip title="Men / women on the roster">
+                    <span>M / W</span>
                   </Tooltip>
                 </TableCell>
                 <TableCell align="right" sx={hideOnMobile}>
@@ -452,10 +498,10 @@ export function TeamsView() {
                     </TableCell>
                   ))}
                   <TableCell align="center" sx={{ ...hideOnMobile, fontVariantNumeric: "tabular-nums" }}>
-                    {fmtScore(t.offenseLine.score)}
-                  </TableCell>
-                  <TableCell align="center" sx={{ ...hideOnMobile, fontVariantNumeric: "tabular-nums" }}>
-                    {fmtScore(t.defenseLine.score)}
+                    {(() => {
+                      const g = genderCounts(t);
+                      return `${g.men} / ${g.women}`;
+                    })()}
                   </TableCell>
                   <TableCell align="right" sx={{ ...hideOnMobile, fontVariantNumeric: "tabular-nums" }}>
                     {t.ratedCount}/{t.playerCount}
@@ -505,25 +551,34 @@ export function TeamsView() {
               gridTemplateColumns: { xs: "1fr", md: "1fr 1fr", lg: "1fr 1fr 1fr" },
             }}
           >
-            <Stack spacing={2}>
-              <BestPlayers players={selected.bestPlayers} />
-              <StatLeaders team={selected} />
-            </Stack>
-            <Stack spacing={2}>
-              <LinePanel
-                title="Best offense line"
-                hint="4 handlers by throwing/decision/IQ score, 3 cutters by cutting/athleticism score; assignment maximizes the total."
-                line={selected.offenseLine}
-                splitRoles
+            {ROLES.map((r) => (
+              <RoleRankings
+                key={r.key}
+                role={r.key}
+                title={r.title}
+                hint={r.hint}
+                players={selected.players}
               />
-              <LinePanel
-                title="Best defense line"
-                hint="7 best by marking, agility, verticality and effort."
-                line={selected.defenseLine}
-                splitRoles={false}
-              />
-            </Stack>
+            ))}
             <TeamAverages team={selected} />
+            <StatLeaders team={selected} />
+            {selected.unrated.length > 0 ? (
+              <Panel>
+                <SectionTitle>Unrated ({selected.unrated.length})</SectionTitle>
+                <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
+                  {selected.unrated.map((p) => (
+                    <Chip
+                      key={p.playerId}
+                      size="small"
+                      variant="outlined"
+                      label={p.name}
+                      onClick={() => navigate(`${MONEYBALL_PATH}/${p.playerId}`)}
+                      sx={{ borderColor: genderColor(p.gender), color: genderColor(p.gender) }}
+                    />
+                  ))}
+                </Stack>
+              </Panel>
+            ) : null}
           </Box>
         </Stack>
       ) : null}

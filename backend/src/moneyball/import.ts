@@ -28,6 +28,13 @@
  * `.team-show-header h1`, Ultimate Central) and stored on every player found
  * on that page.
  *
+ * Gender (needed for the mixed 4 men / 3 women line ratio) is taken from the
+ * nearest preceding section heading: a tile under `<h2>Women</h2>` is F, under
+ * `<h2>Men</h2>` is M. Tiles under other headings (e.g. "Captains", which
+ * Ultimate Central lists separately) get no gender; a hand-set `gender` in the
+ * existing roster.ts is kept on re-import, and unresolved players are listed
+ * at the end so you can fill them in.
+ *
  * Always run with `--dry-run` first and eyeball the table it prints. Nothing
  * here touches the database.
  *
@@ -47,6 +54,7 @@
  *   --keep                  Keep existing roster entries not found on the pages
  */
 import * as cheerio from "cheerio";
+import type { AnyNode } from "domhandler";
 import { readFile, writeFile, mkdir, readdir, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -225,13 +233,24 @@ async function loadHtml(source: string): Promise<{ html: string; base: string | 
   return { html: await readFile(source, "utf8"), base: undefined };
 }
 
+type Gender = NonNullable<RosterEntry["gender"]>;
+
 type Found = {
   name: string;
   slug: string;
   photo: string | null;
   href: string | null;
   team: string | null;
+  gender: Gender | null;
 };
+
+/** "Women" / "Female" → F, "Men" / "Male" → M, anything else → null. */
+function genderFromHeading(text: string): Gender | null {
+  const s = cleanText(text).toLowerCase();
+  if (/^(women|woman|female|females|ladies|wmp|w)\b/.test(s)) return "F";
+  if (/^(men|man|male|males|mmp|m)\b/.test(s)) return "M";
+  return null;
+}
 
 /** Pull player candidates out of one roster page. */
 function extractFromPage(html: string, base: string | undefined, opts: Options): Found[] {
@@ -271,6 +290,21 @@ function extractFromPage(html: string, base: string | undefined, opts: Options):
     if (containers.length > 0) break;
   }
 
+  // Section headings in document order; a tile's gender comes from the
+  // nearest heading above it. Only headings that don't sit inside a tile count.
+  const headings = $("h1, h2, h3")
+    .toArray()
+    .filter((h) => !containers.some((c) => c === h || $.contains(c, h)))
+    .map((h) => ({ el: h, gender: genderFromHeading($(h).text()) }));
+  const genderFor = (el: ReturnType<typeof $>[number]): Gender | null => {
+    let g: Gender | null = null;
+    for (const h of headings) {
+      if (isBefore(h.el, el)) g = h.gender;
+      else break;
+    }
+    return g;
+  };
+
   for (const el of containers) {
     const c = $(el);
     const img = opts.imgSelector ? c.find(opts.imgSelector).first() : c.find("img").first();
@@ -290,7 +324,14 @@ function extractFromPage(html: string, base: string | undefined, opts: Options):
       cleanText(c.text());
     const hrefRaw = c.is("a") ? c.attr("href") : c.find("a[href]").first().attr("href");
     const href = resolveUrl(hrefRaw, base);
-    push({ name, slug: slugFromHref(href), photo: resolveUrl(src, base), href, team });
+    push({
+      name,
+      slug: slugFromHref(href),
+      photo: resolveUrl(src, base),
+      href,
+      team,
+      gender: genderFor(el),
+    });
   }
 
   // Link-out mode without cards: every distinct link is a candidate.
@@ -298,10 +339,36 @@ function extractFromPage(html: string, base: string | undefined, opts: Options):
     $("a[href]").each((_, a) => {
       const href = resolveUrl($(a).attr("href"), base);
       if (!href) return;
-      push({ name: cleanText($(a).text()) || href, slug: slugFromHref(href), photo: null, href, team });
+      push({
+        name: cleanText($(a).text()) || href,
+        slug: slugFromHref(href),
+        photo: null,
+        href,
+        team,
+        gender: genderFor(a),
+      });
     });
   }
   return found;
+}
+
+/** Document-order comparison: does `a` come before `b`? (DOM nodes from cheerio.) */
+function isBefore(a: AnyNode, b: AnyNode): boolean {
+  const pathOf = (n: AnyNode): number[] => {
+    const out: number[] = [];
+    let cur: AnyNode | null = n;
+    while (cur && cur.parent) {
+      out.unshift(cur.parent.children.indexOf(cur));
+      cur = cur.parent;
+    }
+    return out;
+  };
+  const pa = pathOf(a);
+  const pb = pathOf(b);
+  for (let i = 0; i < Math.min(pa.length, pb.length); i++) {
+    if (pa[i]! !== pb[i]!) return pa[i]! < pb[i]!;
+  }
+  return pa.length < pb.length;
 }
 
 /** Visit a per-player page and fill in name/photo from its metadata. */
@@ -362,6 +429,7 @@ function renderRoster(entries: readonly RosterEntry[]): string {
       `photoUrl: ${JSON.stringify(e.photoUrl)}`,
     ];
     if (e.team != null) parts.push(`team: ${JSON.stringify(e.team)}`);
+    if (e.gender != null) parts.push(`gender: ${JSON.stringify(e.gender)}`);
     if (e.number != null) parts.push(`number: ${e.number}`);
     return `  { ${parts.join(", ")} },`;
   });
@@ -378,6 +446,8 @@ export type RosterEntry = {
   name: string;
   photoUrl: string | null;
   team?: string | null;
+  /** "M" | "F" for the mixed 4/3 line ratio; omit/null when unknown. */
+  gender?: "M" | "F" | null;
   number?: number | null;
 };
 
@@ -416,11 +486,23 @@ async function main() {
     process.exit(2);
   }
 
+  // Page gender wins; otherwise keep whatever was hand-set in roster.ts.
+  const genderOf = (f: Found): Gender | null =>
+    f.gender ?? EXISTING.find((e) => e.slug === f.slug)?.gender ?? null;
+
   console.log(`\nFound ${all.length} players:`);
   for (const f of all) {
     console.log(
-      `  ${f.slug.padEnd(26)} ${f.name.padEnd(26)} ${(f.team ?? "").padEnd(36)} ${f.photo ? "photo" : "(no photo)"}`
+      `  ${f.slug.padEnd(26)} ${f.name.padEnd(26)} ${(f.team ?? "").padEnd(36)} ${(genderOf(f) ?? "?").padEnd(2)} ${f.photo ? "photo" : "(no photo)"}`
     );
+  }
+  const noGender = all.filter((f) => genderOf(f) == null);
+  if (noGender.length > 0) {
+    console.log(
+      `\n${noGender.length} player(s) without a gender (not under a Women/Men heading — captains, usually).` +
+        ` Set \`gender: "M" | "F"\` on them in roster.ts; hand edits survive re-import:`
+    );
+    for (const f of noGender) console.log(`  ${f.slug.padEnd(26)} ${f.name.padEnd(26)} ${f.team ?? ""}`);
   }
   if (opts.dryRun) {
     console.log("\n--dry-run: nothing written.");
@@ -442,6 +524,7 @@ async function main() {
       name: f.name,
       photoUrl,
       team: f.team ?? existing?.team ?? null,
+      gender: genderOf(f),
       number: existing?.number ?? null,
     });
   }

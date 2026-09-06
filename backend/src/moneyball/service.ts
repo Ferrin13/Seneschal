@@ -18,6 +18,7 @@ import {
   aggregate,
   meansFromScores,
   meansOf,
+  normalizeGender,
   normalizeScores,
   normalizeWeights,
   raterCount,
@@ -25,12 +26,14 @@ import {
   STAT_KEYS,
   summarizeTeam,
   type Aggregate,
+  type Gender,
   type Scorecard,
   type Scores,
   type StatKey,
   type TeamSummary,
   type Weights,
 } from "./engine.js";
+import { resolvePhotoUrl } from "./photos.js";
 import { ROSTER } from "./roster.js";
 
 export class MoneyballError extends Error {
@@ -48,7 +51,8 @@ const WEIGHTS_KEY = "weights";
 /**
  * Upsert the committed roster by slug. Idempotent; safe to run on every boot.
  * Players present in the DB but missing from the roster are left alone (they
- * may hold ratings) — deactivate them by hand if needed.
+ * may hold ratings) — deactivate them from the Roster admin page if needed.
+ * Rows an admin has edited (`manually_edited`) are never overwritten here.
  */
 export async function syncRosterFromCode(): Promise<{ upserted: number }> {
   if (ROSTER.length === 0) return { upserted: 0 };
@@ -60,6 +64,7 @@ export async function syncRosterFromCode(): Promise<{ upserted: number }> {
         name: r.name,
         photoUrl: r.photoUrl,
         team: r.team ?? null,
+        gender: r.gender ?? null,
         number: r.number ?? null,
         active: true,
       }))
@@ -70,9 +75,11 @@ export async function syncRosterFromCode(): Promise<{ upserted: number }> {
         name: sql`excluded.name`,
         photoUrl: sql`excluded.photo_url`,
         team: sql`excluded.team`,
+        gender: sql`excluded.gender`,
         number: sql`excluded.number`,
         updatedAt: sql`now()`,
       },
+      setWhere: eq(moneyballPlayers.manuallyEdited, false),
     });
   return { upserted: ROSTER.length };
 }
@@ -110,6 +117,7 @@ export type BoardPlayer = {
   name: string;
   photoUrl: string | null;
   team: string | null;
+  gender: Gender | null;
   number: number | null;
   raterCount: number;
   /** Team mean per stat (null when nobody has rated it). */
@@ -142,6 +150,7 @@ function toBoardPlayer(
     name: p.name,
     photoUrl: p.photoUrl,
     team: p.team,
+    gender: normalizeGender(p.gender),
     number: p.number,
     raterCount: raterCount(ratings),
     stats: means,
@@ -176,11 +185,18 @@ export async function getBoard(userId: string): Promise<Board> {
 
   return {
     weights,
-    players: players.map((p) => {
-      const e = byPlayer.get(p.id) ?? { all: [], mine: null };
-      return toBoardPlayer(p, e.all, e.mine, weights);
-    }),
+    players: await Promise.all(
+      players.map(async (p) => {
+        const e = byPlayer.get(p.id) ?? { all: [], mine: null };
+        return withPhoto(toBoardPlayer(p, e.all, e.mine, weights));
+      })
+    ),
   };
+}
+
+/** Swap an `s3:` photo reference for a loadable presigned URL. */
+async function withPhoto<T extends { photoUrl: string | null }>(p: T): Promise<T> {
+  return { ...p, photoUrl: await resolvePhotoUrl(p.photoUrl) };
 }
 
 export const UNASSIGNED_TEAM = "Unassigned";
@@ -203,6 +219,7 @@ export async function getTeams(userId: string): Promise<{ weights: Weights; team
           id: p.id,
           name: p.name,
           photoUrl: p.photoUrl,
+          gender: p.gender,
           stats: p.stats,
           raterCount: p.raterCount,
         })),
@@ -266,12 +283,14 @@ export async function getPlayerDetail(userId: string, playerId: string): Promise
   const mine = raters.find((r) => r.isMe)?.scores ?? null;
 
   return {
-    ...toBoardPlayer(
-      player,
-      raters.map((r) => r.scores),
-      mine,
-      weights
-    ),
+    ...(await withPhoto(
+      toBoardPlayer(
+        player,
+        raters.map((r) => r.scores),
+        mine,
+        weights
+      )
+    )),
     weights,
     raters: raters.sort((a, b) => Number(b.isMe) - Number(a.isMe) || a.label.localeCompare(b.label)),
   };

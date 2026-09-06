@@ -33,6 +33,7 @@ import { voiceRoutes } from "./routes/voice.js";
 import { bibleRoutes } from "./routes/bible.js";
 import { descartesRoutes } from "./routes/descartes.js";
 import { moneyballRoutes } from "./routes/moneyball.js";
+import { moneyballAdminRoutes } from "./routes/moneyballAdmin.js";
 import { syncRosterFromCode } from "./moneyball/service.js";
 
 export async function buildServer() {
@@ -98,6 +99,7 @@ export async function buildServer() {
   await app.register(bibleRoutes);
   await app.register(descartesRoutes);
   await app.register(moneyballRoutes);
+  await app.register(moneyballAdminRoutes);
 
   return app;
 }
