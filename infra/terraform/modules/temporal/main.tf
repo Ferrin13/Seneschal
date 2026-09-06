@@ -102,8 +102,18 @@ resource "aws_security_group" "db" {
 resource "aws_db_instance" "temporal" {
   identifier     = "${var.name_prefix}-temporal"
   engine         = "postgres"
-  engine_version = var.db_engine_version
+  engine_version = var.db_engine_version # major only; see variables.tf
   instance_class = var.db_instance_class
+
+  # RDS applies minor upgrades on its own during the maintenance window.
+  auto_minor_version_upgrade = true
+
+  # Don't fight RDS over the minor version (see db_engine_version). To do a
+  # deliberate MAJOR upgrade, temporarily remove engine_version from this
+  # list, bump db_engine_version, and set allow_major_version_upgrade = true.
+  lifecycle {
+    ignore_changes = [engine_version]
+  }
 
   allocated_storage = var.db_allocated_storage
   storage_type      = "gp3"

@@ -50,9 +50,15 @@ variable "frontend_port" {
 }
 
 variable "db_engine_version" {
-  description = "Postgres engine version for the Temporal RDS instance."
+  description = <<-EOT
+    Postgres engine version for the Temporal RDS instance. Pin the MAJOR only
+    ("16"): RDS auto-applies minor upgrades (auto_minor_version_upgrade
+    defaults to true), and pinning a full minor causes Terraform to try to
+    "downgrade" back to it on the next apply, which RDS rejects
+    (InvalidParameterCombination: Cannot upgrade postgres from 16.13 to 16.9).
+  EOT
   type        = string
-  default     = "16.9"
+  default     = "16"
 }
 
 variable "db_instance_class" {
