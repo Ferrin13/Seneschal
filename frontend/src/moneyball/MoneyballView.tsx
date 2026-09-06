@@ -6,10 +6,12 @@ import {
   Chip,
   CircularProgress,
   FormControl,
+  FormControlLabel,
   InputLabel,
   MenuItem,
   Select,
   Stack,
+  Switch,
   Table,
   TableBody,
   TableCell,
@@ -31,6 +33,7 @@ import { ScoreBadge } from "./ScoreBadge";
 import { WeightsDialog } from "./WeightsDialog";
 import { RatingGuideDialog } from "./RatingGuideDialog";
 import { MONEYBALL_PATH, MoneyballTabs } from "./MoneyballTabs";
+import { useHideUnrated } from "./prefs";
 import { fmtScore, STAT_KEYS, type Weights } from "./stats";
 import type { Board, BoardPlayer, PlayerDetail } from "./types";
 
@@ -38,7 +41,12 @@ type SortKey = "name" | "overall" | "offense" | "defense" | "general" | "raters"
 
 const hideOnMobile = { display: { xs: "none", sm: "table-cell" } } as const;
 
-function sortValue(p: BoardPlayer, key: SortKey): number | string | null {
+/** Consensus scores are masked for players I haven't rated when the pref is on. */
+function isMasked(p: BoardPlayer, hideUnrated: boolean): boolean {
+  return hideUnrated && p.myRating == null;
+}
+
+function sortValue(p: BoardPlayer, key: SortKey, hideUnrated: boolean): number | string | null {
   switch (key) {
     case "name":
       return p.name.toLowerCase();
@@ -47,13 +55,20 @@ function sortValue(p: BoardPlayer, key: SortKey): number | string | null {
     case "mine":
       return p.myScores?.overall ?? null;
     default:
-      return p.scores[key];
+      // Masked players sort as unrated so the order doesn't leak their scores.
+      return isMasked(p, hideUnrated) ? null : p.scores[key];
   }
 }
 
-function compare(a: BoardPlayer, b: BoardPlayer, key: SortKey, dir: "asc" | "desc"): number {
-  const av = sortValue(a, key);
-  const bv = sortValue(b, key);
+function compare(
+  a: BoardPlayer,
+  b: BoardPlayer,
+  key: SortKey,
+  dir: "asc" | "desc",
+  hideUnrated: boolean
+): number {
+  const av = sortValue(a, key, hideUnrated);
+  const bv = sortValue(b, key, hideUnrated);
   // Unrated always sinks to the bottom regardless of direction.
   if (av == null && bv == null) return a.name.localeCompare(b.name);
   if (av == null) return 1;
@@ -90,6 +105,7 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [weightsOpen, setWeightsOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [hideUnrated, setHideUnrated] = useHideUnrated();
 
   const load = useCallback(async () => {
     setError(null);
@@ -119,8 +135,8 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
       (p) =>
         (!q || p.name.toLowerCase().includes(q)) && (!team || p.team === team)
     );
-    return [...filtered].sort((a, b) => compare(a, b, sortKey, sortDir));
-  }, [board, search, team, sortKey, sortDir]);
+    return [...filtered].sort((a, b) => compare(a, b, sortKey, sortDir, hideUnrated));
+  }, [board, search, team, sortKey, sortDir, hideUnrated]);
 
   const selected = board?.players.find((p) => p.id === selectedPlayerId) ?? null;
 
@@ -241,6 +257,26 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
               </Select>
             </FormControl>
           ) : null}
+          <Tooltip
+            title="Hide everyone else's ratings for players you haven't rated yet, so your rating isn't anchored by the consensus."
+            enterDelay={400}
+          >
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={hideUnrated}
+                  onChange={(e) => setHideUnrated(e.target.checked)}
+                />
+              }
+              label={
+                <Typography variant="body2" noWrap>
+                  Hide until I rate
+                </Typography>
+              }
+              sx={{ mr: 0 }}
+            />
+          </Tooltip>
           <Button
             variant="outlined"
             startIcon={<HelpOutlineIcon />}
@@ -303,6 +339,7 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
                 key={selected.id}
                 player={selected}
                 weights={board.weights}
+                masked={isMasked(selected, hideUnrated)}
                 onSaved={applyDetail}
                 onClose={() => navigate(MONEYBALL_PATH)}
               />
@@ -354,6 +391,8 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
                   const ratedByMe = p.myRating
                     ? STAT_KEYS.filter((k) => p.myRating?.[k] != null).length
                     : 0;
+                  const masked = isMasked(p, hideUnrated);
+                  const shown = (v: number | null) => (masked ? null : v);
                   return (
                     <TableRow
                       key={p.id}
@@ -399,16 +438,24 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
                         </Stack>
                       </TableCell>
                       <TableCell align="center">
-                        <ScoreBadge value={p.scores.overall} size="sm" />
+                        {masked && p.raterCount > 0 ? (
+                          <Tooltip title="Rate this player to see the consensus">
+                            <Box component="span" sx={{ display: "inline-flex" }}>
+                              <ScoreBadge value={null} size="sm" />
+                            </Box>
+                          </Tooltip>
+                        ) : (
+                          <ScoreBadge value={shown(p.scores.overall)} size="sm" />
+                        )}
                       </TableCell>
                       <TableCell align="center" sx={{ fontVariantNumeric: "tabular-nums" }}>
-                        {fmtScore(p.scores.offense)}
+                        {fmtScore(shown(p.scores.offense))}
                       </TableCell>
                       <TableCell align="center" sx={{ fontVariantNumeric: "tabular-nums" }}>
-                        {fmtScore(p.scores.defense)}
+                        {fmtScore(shown(p.scores.defense))}
                       </TableCell>
                       <TableCell align="center" sx={{ fontVariantNumeric: "tabular-nums" }}>
-                        {fmtScore(p.scores.general)}
+                        {fmtScore(shown(p.scores.general))}
                       </TableCell>
                       <TableCell align="center" sx={hideOnMobile}>
                         {p.myScores ? (

@@ -191,14 +191,27 @@ function StatEditor({
  * a marker for the viewer's own score; edit mode swaps in sliders and previews
  * the OVR the viewer's rating alone would produce.
  */
+const EMPTY_SCORECARD: Scorecard = {
+  overall: null,
+  offense: null,
+  defense: null,
+  general: null,
+};
+
 export function PlayerCard({
   player,
   weights,
+  masked = false,
   onSaved,
   onClose,
 }: {
   player: BoardPlayer;
   weights: Weights;
+  /**
+   * Hide everyone else's ratings (consensus scores, stat means, rater chips)
+   * because the viewer hasn't rated this player yet.
+   */
+  masked?: boolean;
   /** Called with the fresh detail after a save/clear so the board can update. */
   onSaved: (detail: PlayerDetail | null) => void;
   onClose?: () => void;
@@ -271,7 +284,8 @@ export function PlayerCard({
     }
   };
 
-  const scores = editing ? preview : player.scores;
+  const scores = editing ? preview : masked ? EMPTY_SCORECARD : player.scores;
+  const othersHidden = masked && !editing && player.raterCount > 0;
 
   return (
     <Box
@@ -394,6 +408,19 @@ export function PlayerCard({
 
       {/* Body: stats grouped by category */}
       <Stack spacing={2.5} sx={{ p: 2 }}>
+        {othersHidden ? (
+          <Alert
+            severity="info"
+            action={
+              <Button color="inherit" size="small" onClick={startEditing} disabled={saving}>
+                Rate player
+              </Button>
+            }
+          >
+            {player.raterCount === 1 ? "1 rating is" : `${player.raterCount} ratings are`}{" "}
+            hidden until you rate this player.
+          </Alert>
+        ) : null}
         {CATEGORIES.map((c) => (
           <Stack key={c} spacing={1}>
             <Stack direction="row" alignItems="center" justifyContent="space-between">
@@ -435,8 +462,8 @@ export function PlayerCard({
                   key={s.key}
                   label={s.label}
                   description={s.description}
-                  mean={player.stats[s.key]}
-                  count={player.statCounts[s.key]}
+                  mean={masked ? null : player.stats[s.key]}
+                  count={masked ? 0 : player.statCounts[s.key]}
                   mine={player.myRating?.[s.key]}
                 />
               )
@@ -444,7 +471,7 @@ export function PlayerCard({
           </Stack>
         ))}
 
-        {!editing && detail && detail.raters.length > 0 ? (
+        {!editing && !masked && detail && detail.raters.length > 0 ? (
           <Stack spacing={0.75}>
             <Typography
               variant="overline"

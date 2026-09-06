@@ -4,11 +4,13 @@ import { useNavigate } from "react-router-dom";
 export const MONEYBALL_PATH = "/moneyball";
 export const MONEYBALL_TEAMS_PATH = "/moneyball/teams";
 export const MONEYBALL_CONCENTRATION_PATH = "/moneyball/concentration";
+export const MONEYBALL_COMPARE_PATH = "/moneyball/compare";
 
-export type MoneyballTab = "players" | "teams" | "concentration";
+export type MoneyballTab = "players" | "compare" | "teams" | "concentration";
 
 const TAB_PATHS: Record<MoneyballTab, string> = {
   players: MONEYBALL_PATH,
+  compare: MONEYBALL_COMPARE_PATH,
   teams: MONEYBALL_TEAMS_PATH,
   concentration: MONEYBALL_CONCENTRATION_PATH,
 };
@@ -25,6 +27,7 @@ export function MoneyballTabs({ value }: { value: MoneyballTab }) {
       sx={{ borderBottom: 1, borderColor: "divider" }}
     >
       <Tab value="players" label="Players" />
+      <Tab value="compare" label="Compare" />
       <Tab value="teams" label="Teams" />
       <Tab value="concentration" label="Concentration" />
     </Tabs>

@@ -47,6 +47,7 @@ import { DescartesView } from "./descartes/DescartesView";
 import { MoneyballView } from "./moneyball/MoneyballView";
 import { TeamsView } from "./moneyball/TeamsView";
 import { ConcentrationView } from "./moneyball/ConcentrationView";
+import { CompareView } from "./moneyball/CompareView";
 import { AdminView } from "./admin/AdminView";
 
 /**
@@ -410,6 +411,7 @@ export default function App() {
                 {has("moneyball") ? (
                   <>
                     <Route path={MONEYBALL_PATH} element={<MoneyballRoute />} />
+                    <Route path={`${MONEYBALL_PATH}/compare`} element={<CompareView />} />
                     <Route path={`${MONEYBALL_PATH}/teams`} element={<TeamsView />} />
                     <Route
                       path={`${MONEYBALL_PATH}/concentration`}

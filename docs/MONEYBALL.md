@@ -66,6 +66,33 @@ Per-stat rubric:
 Weights are edited from the **Formula** button and stored in
 `moneyball_settings` (key `weights`). They apply to everyone.
 
+### Blind rating ("Hide until I rate")
+
+The Players tab has a **Hide until I rate** switch, on by default, that masks
+everyone else's ratings for players the viewer hasn't rated yet so their own
+rating isn't anchored by the consensus. While a player is masked, the table
+shows `–` for OVR/OFF/DEF/GEN (and sorts them as unrated so the order doesn't
+leak scores), and the card hides the consensus badges, stat means, and the
+rater chips behind an info banner with a **Rate player** shortcut. The rater
+count stays visible. The preference is per browser (`localStorage`
+`moneyball.hideUnrated`, see `frontend/src/moneyball/prefs.ts`); the API is
+unaffected, and the Teams / Concentration tabs are aggregate views and are not
+masked.
+
+## Compare tab
+
+`/moneyball/compare` (`CompareView.tsx`) is a calibration grid: every player as
+a row, every stat as a column, showing **your own ratings only**. Click any
+stat header to sort by it and scan down the column to check the ordering makes
+sense; each cell has **−/+** buttons that nudge your score for that player by
+one (pressing + on an unrated cell starts it at 5). Edits apply optimistically
+(your OVR updates instantly using the shared weights) and are saved per player
+via `PUT /moneyball/players/:id/rating` after a 600 ms debounce, so a run of
+clicks becomes one request; pending saves are flushed when you leave the tab.
+Hovering a value shows the consensus for that stat, unless the player is masked
+by the "hide until I rate" preference. Filters: search, team, and "only players
+I've rated". Clicking a player name opens their card on the Players tab.
+
 ## Teams tab
 
 `GET /moneyball/teams` groups the board by `team` and runs `summarizeTeam`
