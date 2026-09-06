@@ -10,7 +10,7 @@ marks your own score.
 
 | Category | Stats |
 |----------|-------|
-| Offense  | Short Handling, Hucking Handling, Short Cutting, Deep Cutting, Decision Making |
+| Offense  | Possession Handling, Huck Handling, Possession Cutting, Deep Cutting, Decision Making |
 | Defense  | Handler Marking, Cutter Marking |
 | General  | Verticality, Agility, Team Chemistry, Effort, Game IQ |
 
@@ -18,6 +18,41 @@ The catalog lives in `backend/src/moneyball/engine.ts` (`STATS`) and is
 mirrored in `frontend/src/moneyball/stats.ts` for live preview. Adding a stat
 is a code change to both files — the DB stores scores as jsonb so no migration
 is needed.
+
+### Rating guide
+
+Every stat carries a `description` (the rubric a rater should apply) and the
+catalog is accompanied by `RATING_GUIDE`, two general rules that apply to every
+stat. Both are surfaced in the UI: hovering a stat label in the player card or
+the Formula dialog shows its description, and the **Rating guide** toolbar
+button (also "How to rate" while editing a rating) opens the full rubric.
+
+General rules:
+
+- Ratings are an **absolute scale, regardless of gender**. A player with a
+  verticality rating of 8 should be a favorite to sky any player rated 7 or
+  lower, regardless of gender.
+- Rate **outcomes, not mechanics**. Forehand/backhand bias only matters insofar
+  as it affects the actual skill: a backhand-dominant player who still throws
+  breakside effectively (via cutting ability, release points, etc.) is not
+  penalized for lacking a flick.
+
+Per-stat rubric:
+
+| Stat | Description |
+|------|-------------|
+| Possession Handling | Ability to execute all non-huck throws: in-cuts, strikes, dumps, swings, etc. |
+| Huck Handling | Ability to throw deep hucks. |
+| Possession Cutting | Ability to cut within the normal flow of an offense: in-cuts, strike cuts, sit-down cuts against zone, etc. |
+| Deep Cutting | Ability to make and catch deep cuts. |
+| Decision Making | As a handler, making good choices on when to throw and when to holster. As a cutter, understanding field space and positioning. |
+| Handler Marking | Ability to mark on the disc and to mark and help off of an off-handler. In a zone, ability to play in the cup. |
+| Cutter Marking | Ability to mark a cutter. |
+| Verticality | Ability to play in the air: a combination of height, leaping ability, and timing. |
+| Agility | Ability to move quickly and change directions quickly. Essentially speed plus quickness. |
+| Team Chemistry | Non-playing impact on the team's morale. |
+| Effort | Effort |
+| Game IQ | Understanding of the state of the game (score/time); ability to identify and exploit strategic and tactical advantages. |
 
 ## Scoring
 
@@ -30,6 +65,36 @@ is needed.
 
 Weights are edited from the **Formula** button and stored in
 `moneyball_settings` (key `weights`). They apply to everyone.
+
+## Teams tab
+
+`GET /moneyball/teams` groups the board by `team` and runs `summarizeTeam`
+(engine) on each:
+
+- **Team scores** — the scorecard of the team's average player (mean of each
+  stat's team mean, then the OVR formula).
+- **Best players** — top 5 by OVR, with handler / cutter / defender role scores.
+  Role scores are weighted means over role stat sets (`HANDLER_STATS`:
+  possession handling, huck handling, decision making, game IQ; `CUTTER_STATS`:
+  possession cutting, deep cutting, verticality, agility; `DEFENDER_STATS`: both
+  markings, agility, verticality, effort).
+- **Best offense line** — 4 handlers + 3 cutters, each player once, chosen by
+  an exact DP that maximizes total role score (so a two-way star lands where
+  the team gains most). Comes back `short` when fewer than 7 rated players.
+- **Best defense line** — 7 best by defender score.
+- **Stat leaders** — top player per stat.
+
+Unrated players are excluded from everything except the player count.
+
+## Concentration tab
+
+Each `TeamSummary` also carries `concentration` — dispersion of rated players'
+OVRs: min/max/range, p25/median/p75, standard deviation, top-7 mean vs bench
+mean and their gap, and a Gini coefficient over (OVR − 1), where 0 is a
+perfectly even roster and 1 is one player holding all the ability. The tab
+shows a cross-team table (box plot per team, sorted by Gini), overlaid talent
+curves (OVR by roster rank, one line per team) and a sorted OVR bar chart for
+the selected team.
 
 ## Data model
 

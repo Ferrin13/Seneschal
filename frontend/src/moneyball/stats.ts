@@ -35,21 +35,100 @@ export const STAT_KEYS = [
 
 export type StatKey = (typeof STAT_KEYS)[number];
 
-export type StatDef = { key: StatKey; label: string; category: Category };
+export type StatDef = {
+  key: StatKey;
+  label: string;
+  category: Category;
+  /** What a rater should be judging. Shown as help text. */
+  description: string;
+};
+
+/** How to rate: absolute scale across the league, outcomes over mechanics. */
+export const RATING_GUIDE: readonly string[] = [
+  "These ratings are an absolute scale, regardless of gender. A player with a verticality rating of 8 should be a favorite to sky any player with a rating of 7 or lower, regardless of gender.",
+  "Stats should be considered in terms of actual outcomes, not necessarily underlying mechanics. For example, forehand/backhand bias should be considered insofar as it impacts the actual skill: a backhand-dominant player that is still able to effectively throw breakside because of cutting ability, release points, etc. should not be penalized for not having a flick.",
+];
 
 export const STATS: readonly StatDef[] = [
-  { key: "short_handling", label: "Short Handling", category: "offense" },
-  { key: "huck_handling", label: "Hucking Handling", category: "offense" },
-  { key: "short_cutting", label: "Short Cutting", category: "offense" },
-  { key: "deep_cutting", label: "Deep Cutting", category: "offense" },
-  { key: "decision_making", label: "Decision Making", category: "offense" },
-  { key: "handler_marking", label: "Handler Marking", category: "defense" },
-  { key: "cutter_marking", label: "Cutter Marking", category: "defense" },
-  { key: "verticality", label: "Verticality", category: "general" },
-  { key: "agility", label: "Agility", category: "general" },
-  { key: "team_chemistry", label: "Team Chemistry", category: "general" },
-  { key: "effort", label: "Effort", category: "general" },
-  { key: "game_iq", label: "Game IQ", category: "general" },
+  {
+    key: "short_handling",
+    label: "Possession Handling",
+    category: "offense",
+    description:
+      "Ability to execute all non-huck throws. This includes throwing in-cuts, strikes, dumps, swings, etc.",
+  },
+  {
+    key: "huck_handling",
+    label: "Huck Handling",
+    category: "offense",
+    description: "Ability to throw deep hucks.",
+  },
+  {
+    key: "short_cutting",
+    label: "Possession Cutting",
+    category: "offense",
+    description:
+      "Ability to cut within the normal flow of an offense. This includes in-cuts, strike cuts, sit-down cuts against zone, etc.",
+  },
+  {
+    key: "deep_cutting",
+    label: "Deep Cutting",
+    category: "offense",
+    description: "Ability to make and catch deep cuts.",
+  },
+  {
+    key: "decision_making",
+    label: "Decision Making",
+    category: "offense",
+    description:
+      "As a handler, making good choices on when to throw and when to holster. As a cutter, understanding field space and positioning.",
+  },
+  {
+    key: "handler_marking",
+    label: "Handler Marking",
+    category: "defense",
+    description:
+      "Ability to mark on the disc as well as effectively mark and help off of an off-handler. In a zone, ability to play in the cup.",
+  },
+  {
+    key: "cutter_marking",
+    label: "Cutter Marking",
+    category: "defense",
+    description: "Ability to mark a cutter.",
+  },
+  {
+    key: "verticality",
+    label: "Verticality",
+    category: "general",
+    description:
+      "Ability to play in the air: a combination of height, leaping ability, and timing.",
+  },
+  {
+    key: "agility",
+    label: "Agility",
+    category: "general",
+    description:
+      "Ability to move quickly and change directions quickly. Essentially speed plus quickness.",
+  },
+  {
+    key: "team_chemistry",
+    label: "Team Chemistry",
+    category: "general",
+    description: "Non-playing impact on the team's morale.",
+  },
+  {
+    key: "effort",
+    label: "Effort",
+    category: "general",
+    description: " Effort",
+  },
+  {
+    key: "game_iq",
+    label: "Game IQ",
+    category: "general",
+    description:
+      "Understanding of the state of the game (score/time); ability to identify and exploit strategic and tactical advantages.",
+  },
 ];
 
 export function statsInCategory(category: Category): StatDef[] {

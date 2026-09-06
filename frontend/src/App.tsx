@@ -45,6 +45,8 @@ import { ThrawnView } from "./thrawn/ThrawnView";
 import { LeagueView } from "./thrawn/LeagueView";
 import { DescartesView } from "./descartes/DescartesView";
 import { MoneyballView } from "./moneyball/MoneyballView";
+import { TeamsView } from "./moneyball/TeamsView";
+import { ConcentrationView } from "./moneyball/ConcentrationView";
 import { AdminView } from "./admin/AdminView";
 
 /**
@@ -408,6 +410,11 @@ export default function App() {
                 {has("moneyball") ? (
                   <>
                     <Route path={MONEYBALL_PATH} element={<MoneyballRoute />} />
+                    <Route path={`${MONEYBALL_PATH}/teams`} element={<TeamsView />} />
+                    <Route
+                      path={`${MONEYBALL_PATH}/concentration`}
+                      element={<ConcentrationView />}
+                    />
                     <Route
                       path={`${MONEYBALL_PATH}/:playerId`}
                       element={<MoneyballRoute />}

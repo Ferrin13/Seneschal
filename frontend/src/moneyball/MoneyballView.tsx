@@ -22,16 +22,17 @@ import {
   Typography,
 } from "@mui/material";
 import TuneIcon from "@mui/icons-material/Tune";
+import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { PlayerCard } from "./PlayerCard";
 import { ScoreBadge } from "./ScoreBadge";
 import { WeightsDialog } from "./WeightsDialog";
+import { RatingGuideDialog } from "./RatingGuideDialog";
+import { MONEYBALL_PATH, MoneyballTabs } from "./MoneyballTabs";
 import { fmtScore, STAT_KEYS, type Weights } from "./stats";
 import type { Board, BoardPlayer, PlayerDetail } from "./types";
-
-const MONEYBALL_PATH = "/moneyball";
 
 type SortKey = "name" | "overall" | "offense" | "defense" | "general" | "raters" | "mine";
 
@@ -88,6 +89,7 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
   const [sortKey, setSortKey] = useState<SortKey>("overall");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [weightsOpen, setWeightsOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -184,14 +186,18 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
 
   if (loading) {
     return (
-      <Stack alignItems="center" sx={{ mt: 8 }}>
-        <CircularProgress />
+      <Stack spacing={2}>
+        <MoneyballTabs value="players" />
+        <Stack alignItems="center" sx={{ mt: 8 }}>
+          <CircularProgress />
+        </Stack>
       </Stack>
     );
   }
 
   return (
     <Stack spacing={2}>
+      <MoneyballTabs value="players" />
       <Stack
         direction={{ xs: "column", sm: "row" }}
         spacing={2}
@@ -235,6 +241,13 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
               </Select>
             </FormControl>
           ) : null}
+          <Button
+            variant="outlined"
+            startIcon={<HelpOutlineIcon />}
+            onClick={() => setGuideOpen(true)}
+          >
+            Rating guide
+          </Button>
           <Button
             variant="outlined"
             startIcon={<TuneIcon />}
@@ -435,6 +448,7 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
         </Box>
       ) : null}
 
+      <RatingGuideDialog open={guideOpen} onClose={() => setGuideOpen(false)} />
       {board ? (
         <WeightsDialog
           open={weightsOpen}

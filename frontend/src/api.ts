@@ -18,7 +18,7 @@ import type {
   SeasonBoard,
   ThrawnLeague,
 } from "./thrawn/types";
-import type { Board, PlayerDetail } from "./moneyball/types";
+import type { Board, PlayerDetail, TeamsResponse } from "./moneyball/types";
 import type { Scores as MoneyballScores, Weights as MoneyballWeights } from "./moneyball/stats";
 
 export const API_BASE_URL: string = (
@@ -686,6 +686,7 @@ export const api = {
 
   // --- Moneyball -------------------------------------------------------------
   moneyballBoard: () => authedFetch("/moneyball/board") as Promise<Board>,
+  moneyballTeams: () => authedFetch("/moneyball/teams") as Promise<TeamsResponse>,
   moneyballPlayer: (id: string) =>
     authedFetch(`/moneyball/players/${id}`) as Promise<PlayerDetail>,
   moneyballSetRating: (id: string, scores: MoneyballScores) =>

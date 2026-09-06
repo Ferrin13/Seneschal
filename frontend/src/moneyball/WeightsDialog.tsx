@@ -7,6 +7,7 @@ import {
   DialogTitle,
   Slider,
   Stack,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import { useEffect, useState } from "react";
@@ -87,9 +88,14 @@ export function WeightsDialog({
                   alignItems="center"
                   spacing={2}
                 >
-                  <Typography sx={{ width: 150, flexShrink: 0 }} variant="body2">
-                    {s.label}
-                  </Typography>
+                  <Tooltip title={s.description} placement="top-start" enterDelay={300}>
+                    <Typography
+                      sx={{ width: 150, flexShrink: 0, cursor: "help" }}
+                      variant="body2"
+                    >
+                      {s.label}
+                    </Typography>
+                  </Tooltip>
                   <Slider
                     size="small"
                     min={MIN_WEIGHT}

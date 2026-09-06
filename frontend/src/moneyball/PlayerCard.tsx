@@ -14,6 +14,7 @@ import {
 import CloseIcon from "@mui/icons-material/Close";
 import { useEffect, useMemo, useState } from "react";
 import { api, ApiError } from "../api";
+import { RatingGuideDialog } from "./RatingGuideDialog";
 import { ScoreBadge } from "./ScoreBadge";
 import {
   CATEGORIES,
@@ -48,23 +49,44 @@ function initials(name: string): string {
     .join("");
 }
 
+/** Stat label with its rubric description on hover. */
+function StatLabel({ label, description }: { label: string; description: string }) {
+  return (
+    <Tooltip title={description} placement="top-start" enterDelay={300}>
+      <Typography
+        variant="body2"
+        sx={{
+          width: 140,
+          flexShrink: 0,
+          cursor: "help",
+          textDecoration: "underline dotted",
+          textDecorationColor: "rgba(0,0,0,0.25)",
+          textUnderlineOffset: 3,
+        }}
+      >
+        {label}
+      </Typography>
+    </Tooltip>
+  );
+}
+
 /** One stat row in view mode: label, team-average bar, value, my score. */
 function StatRow({
   label,
+  description,
   mean,
   count,
   mine,
 }: {
   label: string;
+  description: string;
   mean: number | null;
   count: number;
   mine: number | undefined;
 }) {
   return (
     <Stack direction="row" alignItems="center" spacing={1.5}>
-      <Typography variant="body2" sx={{ width: 140, flexShrink: 0 }}>
-        {label}
-      </Typography>
+      <StatLabel label={label} description={description} />
       <Tooltip
         title={
           count === 0
@@ -125,18 +147,18 @@ function StatRow({
 /** One stat row in edit mode: slider 0 (unrated) .. 10. */
 function StatEditor({
   label,
+  description,
   value,
   onChange,
 }: {
   label: string;
+  description: string;
   value: number | undefined;
   onChange: (v: number | undefined) => void;
 }) {
   return (
     <Stack direction="row" alignItems="center" spacing={1.5}>
-      <Typography variant="body2" sx={{ width: 140, flexShrink: 0 }}>
-        {label}
-      </Typography>
+      <StatLabel label={label} description={description} />
       <Slider
         size="small"
         min={0}
@@ -186,6 +208,7 @@ export function PlayerCard({
   const [draft, setDraft] = useState<Scores>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [guideOpen, setGuideOpen] = useState(false);
 
   // Reset when switching players.
   useEffect(() => {
@@ -396,6 +419,7 @@ export function PlayerCard({
                 <StatEditor
                   key={s.key}
                   label={s.label}
+                  description={s.description}
                   value={draft[s.key]}
                   onChange={(v) =>
                     setDraft((d) => {
@@ -410,6 +434,7 @@ export function PlayerCard({
                 <StatRow
                   key={s.key}
                   label={s.label}
+                  description={s.description}
                   mean={player.stats[s.key]}
                   count={player.statCounts[s.key]}
                   mine={player.myRating?.[s.key]}
@@ -447,9 +472,17 @@ export function PlayerCard({
 
         {error ? <Alert severity="error">{error}</Alert> : null}
 
-        <Stack direction="row" spacing={1} justifyContent="flex-end">
+        <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
           {editing ? (
             <>
+              <Button
+                size="small"
+                color="inherit"
+                onClick={() => setGuideOpen(true)}
+                sx={{ mr: "auto" }}
+              >
+                How to rate
+              </Button>
               <Button onClick={() => setEditing(false)} disabled={saving}>
                 Cancel
               </Button>
@@ -483,6 +516,7 @@ export function PlayerCard({
           )}
         </Stack>
       </Stack>
+      <RatingGuideDialog open={guideOpen} onClose={() => setGuideOpen(false)} />
     </Box>
   );
 }

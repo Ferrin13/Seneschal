@@ -5,6 +5,7 @@ import {
   deleteMyRating,
   getBoard,
   getPlayerDetail,
+  getTeams,
   getWeights,
   MoneyballError,
   setWeights,
@@ -28,6 +29,9 @@ function mapError(err: unknown): { status: number; body: { error: string; code?:
 export const moneyballRoutes: FastifyPluginAsync = async (app) => {
   /** Roster + team means + scores + the caller's own ratings, in one shot. */
   app.get("/moneyball/board", async (req) => getBoard(req.auth.userId));
+
+  /** Per-team summaries: average by stat, best players, best O/D lines, leaders. */
+  app.get("/moneyball/teams", async (req) => getTeams(req.auth.userId));
 
   app.get("/moneyball/players/:id", async (req, reply) => {
     const { id } = idParams.parse(req.params);

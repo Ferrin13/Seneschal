@@ -23,10 +23,12 @@ import {
   raterCount,
   score,
   STAT_KEYS,
+  summarizeTeam,
   type Aggregate,
   type Scorecard,
   type Scores,
   type StatKey,
+  type TeamSummary,
   type Weights,
 } from "./engine.js";
 import { ROSTER } from "./roster.js";
@@ -179,6 +181,39 @@ export async function getBoard(userId: string): Promise<Board> {
       return toBoardPlayer(p, e.all, e.mine, weights);
     }),
   };
+}
+
+export const UNASSIGNED_TEAM = "Unassigned";
+
+/** One summary per team (players without a team grouped as "Unassigned"). */
+export async function getTeams(userId: string): Promise<{ weights: Weights; teams: TeamSummary[] }> {
+  const board = await getBoard(userId);
+  const byTeam = new Map<string, BoardPlayer[]>();
+  for (const p of board.players) {
+    const key = p.team ?? UNASSIGNED_TEAM;
+    const list = byTeam.get(key) ?? [];
+    list.push(p);
+    byTeam.set(key, list);
+  }
+  const teams = [...byTeam.entries()]
+    .map(([team, players]) =>
+      summarizeTeam(
+        team,
+        players.map((p) => ({
+          id: p.id,
+          name: p.name,
+          photoUrl: p.photoUrl,
+          stats: p.stats,
+          raterCount: p.raterCount,
+        })),
+        board.weights
+      )
+    )
+    .sort(
+      (a, b) =>
+        (b.scores.overall ?? -1) - (a.scores.overall ?? -1) || a.team.localeCompare(b.team)
+    );
+  return { weights: board.weights, teams };
 }
 
 export type RaterBreakdown = {
