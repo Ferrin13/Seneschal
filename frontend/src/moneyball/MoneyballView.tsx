@@ -391,18 +391,30 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
               bgcolor: "background.paper",
             }}
           >
-            <Table size="small" stickyHeader>
+            <Table
+              size="small"
+              stickyHeader
+              sx={{
+                // On phones the table must fit the viewport exactly — a
+                // horizontally scrolling table would drag the inline player
+                // card (a full-width row) along with it. Fixed layout with
+                // percentage columns + tighter cell padding gets all five
+                // columns into ~360px; names truncate rather than push.
+                tableLayout: { xs: "fixed", sm: "auto" },
+                "& .MuiTableCell-root": { px: { xs: 0.75, sm: 2 } },
+              }}
+            >
               <TableHead>
                 <TableRow>
-                  {header("Player", "name", "left")}
-                  {header("OVR", "overall", "center")}
+                  {header("Player", "name", "left", { width: { xs: "43%", sm: "auto" } })}
+                  {header("OVR", "overall", "center", { width: { xs: "15%", sm: "auto" } })}
                   {ROLES.map((r) => (
                     <Fragment key={r}>
                       {header(
                         ROLE_ABBR[r],
                         r,
                         "center",
-                        undefined,
+                        { width: { xs: "14%", sm: "auto" } },
                         `${ROLE_LABELS[r]} OVR — adjust its stat weights from Formulas`
                       )}
                     </Fragment>
@@ -448,12 +460,18 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
                       }
                       sx={{ cursor: "pointer" }}
                     >
-                      <TableCell>
+                      <TableCell sx={{ overflow: "hidden" }}>
                         <Stack direction="row" spacing={1.5} alignItems="center">
                           <Typography
                             variant="caption"
                             color="text.secondary"
-                            sx={{ width: 20, textAlign: "right", fontVariantNumeric: "tabular-nums" }}
+                            sx={{
+                              width: 20,
+                              textAlign: "right",
+                              fontVariantNumeric: "tabular-nums",
+                              // The rank cedes its space to the name on phones.
+                              display: { xs: "none", sm: "block" },
+                            }}
                           >
                             {i + 1}
                           </Typography>

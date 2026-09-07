@@ -62,7 +62,8 @@ function StatLabel({ label, description }: { label: string; description: string 
       <Typography
         variant="body2"
         sx={{
-          width: 140,
+          // Narrower on phones so the bars and sliders keep usable width.
+          width: { xs: 104, sm: 140 },
           flexShrink: 0,
           cursor: "help",
           textDecoration: "underline dotted",
@@ -368,8 +369,8 @@ export function PlayerCard({
         <Stack direction="row" spacing={2} alignItems="flex-end">
           <Box
             sx={{
-              width: 128,
-              height: 160,
+              width: { xs: 96, sm: 128 },
+              height: { xs: 120, sm: 160 },
               flexShrink: 0,
               borderRadius: 1.5,
               overflow: "hidden",
