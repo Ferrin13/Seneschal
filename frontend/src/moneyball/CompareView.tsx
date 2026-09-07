@@ -265,6 +265,7 @@ export function CompareView() {
                     stats: d.stats,
                     statCounts: d.statCounts,
                     scores: d.scores,
+                    roles: d.roles,
                     myRating: d.myRating,
                     myScores: d.myScores,
                   }
