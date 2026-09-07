@@ -1842,7 +1842,9 @@ export const moneyballRatings = pgTable(
  */
 export const moneyballSettings = pgTable("moneyball_settings", {
   key: text("key").primaryKey(),
-  value: jsonb("value").$type<Record<string, number>>().notNull(),
+  // Flat stat->weight tables (`weights`) or nested role->stat->weight tables
+  // (`roleWeights`); TS-only widening, the column is plain jsonb either way.
+  value: jsonb("value").$type<Record<string, number | Record<string, number>>>().notNull(),
   updatedByUserId: uuid("updated_by_user_id").references(() => users.id, {
     onDelete: "set null",
   }),

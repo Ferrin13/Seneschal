@@ -319,6 +319,22 @@ export function raterCount(ratings: readonly Scores[]): number {
 // Team summaries
 // ---------------------------------------------------------------------------
 
+export const ROLES = ["handler", "cutter", "defender"] as const;
+export type Role = (typeof ROLES)[number];
+
+export const ROLE_LABELS: Record<Role, string> = {
+  handler: "Handler",
+  cutter: "Cutter",
+  defender: "Defender",
+};
+
+/** Short badge label per role. "DFD" so it can't be read as the DEF category. */
+export const ROLE_ABBR: Record<Role, string> = {
+  handler: "HND",
+  cutter: "CUT",
+  defender: "DFD",
+};
+
 /** Stats that make a good handler: throwing, decisions, field vision. */
 export const HANDLER_STATS: readonly StatKey[] = [
   "short_handling",
@@ -344,6 +360,58 @@ export const DEFENDER_STATS: readonly StatKey[] = [
   "effort",
 ];
 
+/**
+ * One editable weight table per role: how much each stat feeds that role's
+ * OVR. Unlike the shared OVR weights, most entries are expected to be 0 — a
+ * role only cares about a slice of the catalog.
+ */
+export type RoleWeights = Record<Role, Weights>;
+
+function setWeightsFor(keys: readonly StatKey[]): Weights {
+  return Object.fromEntries(STAT_KEYS.map((k) => [k, keys.includes(k) ? 1 : 0])) as Weights;
+}
+
+/** The historical fixed stat sets, expressed as weight tables (1 in, 0 out). */
+export const DEFAULT_ROLE_WEIGHTS: RoleWeights = {
+  handler: setWeightsFor(HANDLER_STATS),
+  cutter: setWeightsFor(CUTTER_STATS),
+  defender: setWeightsFor(DEFENDER_STATS),
+};
+
+/** Zod schema for the shared role weight tables. Every role and stat present. */
+export const roleWeightsSchema: z.ZodType<RoleWeights> = z.object(
+  Object.fromEntries(ROLES.map((r) => [r, weightsSchema])) as Record<
+    Role,
+    z.ZodType<Weights>
+  >
+) as unknown as z.ZodType<RoleWeights>;
+
+/**
+ * Coerce a stored role-weights blob into a full RoleWeights record. Missing
+ * roles or stat keys fall back to that role's DEFAULT value (not 1 — a stale
+ * blob must not quietly switch every stat on for a role).
+ */
+export function normalizeRoleWeights(
+  input: Partial<Record<string, Record<string, unknown>>> | null | undefined
+): RoleWeights {
+  const out = {} as RoleWeights;
+  for (const role of ROLES) {
+    const defaults = DEFAULT_ROLE_WEIGHTS[role];
+    const stored = input?.[role];
+    const table: Weights = { ...defaults };
+    if (stored) {
+      for (const k of STAT_KEYS) {
+        const v = stored[k];
+        if (typeof v === "number" && Number.isFinite(v)) {
+          table[k] = Math.min(MAX_WEIGHT, Math.max(MIN_WEIGHT, v));
+        }
+      }
+    }
+    out[role] = table;
+  }
+  return out;
+}
+
 /** Seven on the field; used as the "top of the roster" size for concentration stats. */
 export const LINE_SIZE = 7;
 
@@ -359,18 +427,16 @@ export function normalizeGender(v: unknown): Gender | null {
   return null;
 }
 
-export type RoleScores = {
-  handler: number | null;
-  cutter: number | null;
-  defender: number | null;
-};
+export type RoleScores = Record<Role, number | null>;
 
-export function roleScores(means: StatMeans, weights: Weights): RoleScores {
-  return {
-    handler: weightedMean(means, weights, HANDLER_STATS),
-    cutter: weightedMean(means, weights, CUTTER_STATS),
-    defender: weightedMean(means, weights, DEFENDER_STATS),
-  };
+/**
+ * Role OVRs: a weighted mean over the whole catalog per role, so any stat can
+ * feed any role — the role's weight table decides how much (0 = not at all).
+ */
+export function roleScores(means: StatMeans, roleWeights: RoleWeights): RoleScores {
+  return Object.fromEntries(
+    ROLES.map((r) => [r, weightedMean(means, roleWeights[r], STAT_KEYS)])
+  ) as RoleScores;
 }
 
 /** What the team engine needs to know about one player. */
@@ -535,7 +601,8 @@ export function teamStatMeans(players: readonly TeamPlayerInput[]): StatMeans {
 export function summarizeTeam(
   team: string,
   players: readonly TeamPlayerInput[],
-  weights: Weights
+  weights: Weights,
+  roleWeights: RoleWeights = DEFAULT_ROLE_WEIGHTS
 ): TeamSummary {
   const isRated = (p: TeamPlayerInput) => STAT_KEYS.some((k) => p.stats[k] != null);
   const rated = players.filter(isRated);
@@ -550,7 +617,7 @@ export function summarizeTeam(
       photoUrl: p.photoUrl,
       gender: p.gender,
       scores: score(p.stats, weights),
-      roles: roleScores(p.stats, weights),
+      roles: roleScores(p.stats, roleWeights),
       raterCount: p.raterCount,
     }))
     .sort(

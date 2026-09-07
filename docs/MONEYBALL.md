@@ -6,6 +6,19 @@ scores, and a bar per stat. Every account with the `moneyball` feature rates
 players independently on a 1-10 scale; the card shows the team average and
 marks your own score.
 
+The card's **Raters** row is a selector: tapping a rater's chip swaps the
+whole card (OVR, category badges, stat bars) to that person's individual
+scores, with the thin marker then holding the team mean for comparison; the
+**Team avg** chip (or tapping the selected rater again) returns to the
+consensus. The per-rater data comes from `GET /moneyball/players/:id`, so this
+respects the same masking as everything else — a player hidden by "Hide until
+I rate" shows no rater chips at all.
+
+**Layout by screen size:** at `md` and up the card is a sticky column beside
+the table; below `md` it expands **in place**, inline under the tapped row
+(tapping the row again collapses it), so picking a player on a phone never
+means scrolling back to the top.
+
 ## Stats
 
 | Category | Stats |
@@ -63,15 +76,30 @@ Per-stat rubric:
    weights restricted to that category's stats.
 3. Rounded to one decimal. `null` when nothing contributes.
 
-Weights are edited from the **Formula** button and stored in
+Weights are edited from the **Formulas** button and stored in
 `moneyball_settings` (key `weights`). They apply to everyone.
+
+### Role OVRs (handler / cutter / defender)
+
+Every player also carries three role OVRs — **HND / CUT / DFD**. The Players
+table's summary columns are exactly these plus the overall (OVR · HND · CUT ·
+DFD, all sortable); the OFF/DEF/GEN category scores live on the card, which
+also shows the roles as a badge row.
+Each role has its own editable stat-weight table (any stat can feed any role;
+weight 0 drops it), edited from the **Formulas** dialog's Handler / Cutter /
+Defender tabs and stored in `moneyball_settings` (key `roleWeights`), shared
+like the OVR weights. The defaults reproduce the historical fixed stat sets
+(`HANDLER_STATS` / `CUTTER_STATS` / `DEFENDER_STATS`, weight 1 in-set, 0 out),
+and the Teams tab's role panels rank by these same tables. On the card the
+role badges follow whatever the card is showing — the consensus, one selected
+rater's scores, or the live edit preview.
 
 ### Blind rating ("Hide until I rate")
 
 The Players tab has a **Hide until I rate** switch, off by default, that masks
 everyone else's ratings for players the viewer hasn't rated yet so their own
 rating isn't anchored by the consensus. While a player is masked, the table
-shows `–` for OVR/OFF/DEF/GEN (and sorts them as unrated so the order doesn't
+shows `–` for OVR/HND/CUT/DFD (and sorts them as unrated so the order doesn't
 leak scores), and the card hides the consensus badges, stat means, and the
 rater chips behind an info banner with a **Rate player** shortcut. The rater
 count stays visible. The preference is per browser (`localStorage`
@@ -110,11 +138,12 @@ players I've rated". Clicking a player name opens their card on the Players tab.
 - **Top handlers / cutters / defenders** — three panels ranking rated players
   by role score (top 7, expandable to all), each row colour-coded by gender
   (blue = man, magenta = woman, grey = unknown) with a per-panel M / W count.
-  Role scores are weighted means over role stat sets (`HANDLER_STATS`:
-  possession handling, huck handling, decision making, game IQ;
-  `CUTTER_STATS`: possession cutting, deep cutting, verticality, agility;
-  `DEFENDER_STATS`: both markings, agility, verticality, effort); a player
-  with none of a role's stats rated is left out of that panel. Sorting and
+  Role scores use the editable `roleWeights` tables (see "Role OVRs" above);
+  the defaults are `HANDLER_STATS` (possession handling, huck handling,
+  decision making, game IQ), `CUTTER_STATS` (possession cutting, deep cutting,
+  verticality, agility) and `DEFENDER_STATS` (both markings, agility,
+  verticality, effort). A player with none of a role's weighted stats rated is
+  left out of that panel. Sorting and
   colouring happen client-side from `players[].roles` and `players[].gender`.
 - **Stat leaders** — the top team-mean value per stat and every player tied at
   it (means are rounded to one decimal before comparing).
@@ -142,14 +171,17 @@ the selected team.
   or null; `manually_edited` pins a row against the boot-time roster sync.
 - `moneyball_ratings` — one row per (player, rater) with a jsonb `scores`
   object; upserted whole on save.
-- `moneyball_settings` — key/value; only `weights` today.
+- `moneyball_settings` — key/value; `weights` (flat stat→weight) and
+  `roleWeights` (role→stat→weight).
 
 ## API (`/moneyball`, gated by the `moneyball` feature)
 
-- `GET /moneyball/board` — players + team means + scores + your rating + weights
+- `GET /moneyball/board` — players + team means + scores + role OVRs + your
+  rating + weights + roleWeights
 - `GET /moneyball/players/:id` — same plus per-rater breakdown
 - `PUT /moneyball/players/:id/rating` `{ scores }` / `DELETE ...` — your rating
-- `GET|PUT /moneyball/weights`
+- `GET|PUT /moneyball/weights` — `{ weights, roleWeights }` (`roleWeights`
+  optional on PUT for older clients)
 
 ## Roster admin page
 

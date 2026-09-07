@@ -21,11 +21,17 @@ import {
   CATEGORY_ABBR,
   CATEGORY_LABELS,
   MAX_SCORE,
+  ROLE_ABBR,
+  ROLE_LABELS,
+  ROLES,
   fmtScore,
   meansFromScores,
+  roleScores,
   score,
   scoreTone,
   statsInCategory,
+  type RoleScores,
+  type RoleWeights,
   type Scorecard,
   type Scores,
   type Weights,
@@ -70,55 +76,60 @@ function StatLabel({ label, description }: { label: string; description: string 
   );
 }
 
-/** One stat row in view mode: label, team-average bar, value, my score. */
+/**
+ * One stat row in view mode: label, bar, value, plus a thin marker for a
+ * reference score. By default the bar is the team mean and the marker is the
+ * viewer's own score; when a single rater is being viewed the bar is that
+ * rater's score and the marker holds the team mean for comparison.
+ */
 function StatRow({
   label,
   description,
   mean,
   count,
   mine,
+  rater,
 }: {
   label: string;
   description: string;
   mean: number | null;
   count: number;
   mine: number | undefined;
+  /** Set when the card is showing one rater's scores instead of the mean. */
+  rater: { label: string; value: number | undefined } | null;
 }) {
+  const bar = rater ? rater.value ?? null : mean;
+  const marker = rater ? mean : mine ?? null;
+  const tooltip = rater
+    ? `${rater.label}: ${rater.value ?? "not rated"} · team avg ${fmtScore(mean)}`
+    : count === 0
+      ? "No ratings yet"
+      : `${count} rater${count === 1 ? "" : "s"}${mine != null ? ` · you: ${mine}` : ""}`;
   return (
     <Stack direction="row" alignItems="center" spacing={1.5}>
       <StatLabel label={label} description={description} />
-      <Tooltip
-        title={
-          count === 0
-            ? "No ratings yet"
-            : `${count} rater${count === 1 ? "" : "s"}${
-                mine != null ? ` · you: ${mine}` : ""
-              }`
-        }
-        placement="top"
-        enterDelay={400}
-      >
+      <Tooltip title={tooltip} placement="top" enterDelay={400}>
         <Box sx={{ flexGrow: 1, position: "relative" }}>
           <LinearProgress
             variant="determinate"
-            value={mean == null ? 0 : (mean / MAX_SCORE) * 100}
+            value={bar == null ? 0 : (bar / MAX_SCORE) * 100}
             sx={{
               height: 10,
               borderRadius: 5,
               bgcolor: "action.hover",
               "& .MuiLinearProgress-bar": {
-                bgcolor: TONE_COLOR[scoreTone(mean)],
+                bgcolor: TONE_COLOR[scoreTone(bar)],
                 borderRadius: 5,
               },
             }}
           />
-          {mine != null ? (
+          {marker != null ? (
             <Box
               aria-hidden
               sx={{
                 position: "absolute",
                 top: -3,
-                left: `calc(${(mine / MAX_SCORE) * 100}% - 2px)`,
+                left: `calc(${(marker / MAX_SCORE) * 100}% - 2px)`,
                 width: 4,
                 height: 16,
                 borderRadius: 1,
@@ -138,7 +149,7 @@ function StatRow({
           fontVariantNumeric: "tabular-nums",
         }}
       >
-        {fmtScore(mean)}
+        {rater ? (rater.value != null ? rater.value : "–") : fmtScore(mean)}
       </Typography>
     </Stack>
   );
@@ -188,8 +199,10 @@ function StatEditor({
 
 /**
  * Madden-style player card. View mode shows the team's averaged ratings with
- * a marker for the viewer's own score; edit mode swaps in sliders and previews
- * the OVR the viewer's rating alone would produce.
+ * a marker for the viewer's own score; tapping a rater chip swaps the card to
+ * that rater's individual scores (the marker then holds the team mean); edit
+ * mode swaps in sliders and previews the OVR the viewer's rating alone would
+ * produce.
  */
 const EMPTY_SCORECARD: Scorecard = {
   overall: null,
@@ -198,15 +211,19 @@ const EMPTY_SCORECARD: Scorecard = {
   general: null,
 };
 
+const EMPTY_ROLES: RoleScores = { handler: null, cutter: null, defender: null };
+
 export function PlayerCard({
   player,
   weights,
+  roleWeights,
   masked = false,
   onSaved,
   onClose,
 }: {
   player: BoardPlayer;
   weights: Weights;
+  roleWeights: RoleWeights;
   /**
    * Hide everyone else's ratings (consensus scores, stat means, rater chips)
    * because the viewer hasn't rated this player yet.
@@ -222,12 +239,15 @@ export function PlayerCard({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [guideOpen, setGuideOpen] = useState(false);
+  /** Rater whose individual scores the card is showing; null = team average. */
+  const [viewRaterId, setViewRaterId] = useState<string | null>(null);
 
   // Reset when switching players.
   useEffect(() => {
     setEditing(false);
     setError(null);
     setDetail(null);
+    setViewRaterId(null);
     let cancelled = false;
     api
       .moneyballPlayer(player.id)
@@ -284,7 +304,28 @@ export function PlayerCard({
     }
   };
 
-  const scores = editing ? preview : masked ? EMPTY_SCORECARD : player.scores;
+  // The rater whose card is being viewed, when one is selected and viewable.
+  const viewedRater =
+    !editing && !masked && viewRaterId != null
+      ? detail?.raters.find((r) => r.userId === viewRaterId) ?? null
+      : null;
+
+  const scores = editing
+    ? preview
+    : viewedRater
+      ? viewedRater.scorecard
+      : masked
+        ? EMPTY_SCORECARD
+        : player.scores;
+
+  // Role OVRs follow whatever the card is showing: the edit preview, one
+  // rater's scores, or the consensus (which the server already computed).
+  const roles: RoleScores = useMemo(() => {
+    if (editing) return roleScores(meansFromScores(draft), roleWeights);
+    if (viewedRater) return roleScores(meansFromScores(viewedRater.scores), roleWeights);
+    return masked ? EMPTY_ROLES : player.roles;
+  }, [editing, draft, viewedRater, masked, player.roles, roleWeights]);
+
   const othersHidden = masked && !editing && player.raterCount > 0;
 
   return (
@@ -386,9 +427,13 @@ export function PlayerCard({
                   {player.number != null ? `#${player.number} · ` : ""}
                   {editing
                     ? "Preview of your rating"
-                    : player.raterCount === 0
-                      ? "Not rated yet"
-                      : `${player.raterCount} rater${player.raterCount === 1 ? "" : "s"}`}
+                    : viewedRater
+                      ? viewedRater.isMe
+                        ? "Viewing your rating"
+                        : `Viewing ${viewedRater.label}'s rating`
+                      : player.raterCount === 0
+                        ? "Not rated yet"
+                        : `${player.raterCount} rater${player.raterCount === 1 ? "" : "s"}`}
                 </Typography>
               </Box>
             </Stack>
@@ -400,6 +445,16 @@ export function PlayerCard({
                   label={CATEGORY_ABBR[c]}
                   size="sm"
                 />
+              ))}
+            </Stack>
+            {/* Role OVRs: what kind of player this is, per the role formulas. */}
+            <Stack direction="row" spacing={1}>
+              {ROLES.map((r) => (
+                <Tooltip key={r} title={`${ROLE_LABELS[r]} OVR`} enterDelay={300}>
+                  <Box sx={{ display: "inline-flex" }}>
+                    <ScoreBadge value={roles[r]} label={ROLE_ABBR[r]} size="sm" />
+                  </Box>
+                </Tooltip>
               ))}
             </Stack>
           </Stack>
@@ -465,6 +520,14 @@ export function PlayerCard({
                   mean={masked ? null : player.stats[s.key]}
                   count={masked ? 0 : player.statCounts[s.key]}
                   mine={player.myRating?.[s.key]}
+                  rater={
+                    viewedRater
+                      ? {
+                          label: viewedRater.isMe ? "You" : viewedRater.label,
+                          value: viewedRater.scores[s.key],
+                        }
+                      : null
+                  }
                 />
               )
             )}
@@ -473,26 +536,43 @@ export function PlayerCard({
 
         {!editing && !masked && detail && detail.raters.length > 0 ? (
           <Stack spacing={0.75}>
-            <Typography
-              variant="overline"
-              sx={{ fontWeight: 700, letterSpacing: 1.5 }}
-            >
-              Raters
-            </Typography>
+            <Stack direction="row" alignItems="baseline" spacing={1}>
+              <Typography
+                variant="overline"
+                sx={{ fontWeight: 700, letterSpacing: 1.5 }}
+              >
+                Raters
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                tap one to see their scores
+              </Typography>
+            </Stack>
             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
-              {detail.raters.map((r) => (
-                <Tooltip
-                  key={r.userId}
-                  title={`Updated ${new Date(r.updatedAt).toLocaleDateString()}`}
-                >
-                  <Chip
-                    size="small"
-                    variant={r.isMe ? "filled" : "outlined"}
-                    color={r.isMe ? "primary" : "default"}
-                    label={`${r.isMe ? "You" : r.label} · ${fmtScore(r.scorecard.overall)}`}
-                  />
-                </Tooltip>
-              ))}
+              <Chip
+                size="small"
+                variant={viewRaterId == null ? "filled" : "outlined"}
+                color={viewRaterId == null ? "primary" : "default"}
+                label={`Team avg · ${fmtScore(player.scores.overall)}`}
+                onClick={() => setViewRaterId(null)}
+              />
+              {detail.raters.map((r) => {
+                const selected = r.userId === viewRaterId;
+                return (
+                  <Tooltip
+                    key={r.userId}
+                    title={`Updated ${new Date(r.updatedAt).toLocaleDateString()}`}
+                  >
+                    <Chip
+                      size="small"
+                      variant={selected ? "filled" : "outlined"}
+                      color={selected ? "primary" : r.isMe ? "primary" : "default"}
+                      label={`${r.isMe ? "You" : r.label} · ${fmtScore(r.scorecard.overall)}`}
+                      // Tapping the selected rater again returns to the mean.
+                      onClick={() => setViewRaterId(selected ? null : r.userId)}
+                    />
+                  </Tooltip>
+                );
+              })}
             </Stack>
           </Stack>
         ) : null}

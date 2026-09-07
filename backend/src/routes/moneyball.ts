@@ -1,13 +1,15 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { scoresSchema, weightsSchema } from "../moneyball/engine.js";
+import { roleWeightsSchema, scoresSchema, weightsSchema } from "../moneyball/engine.js";
 import {
   deleteMyRating,
   getBoard,
   getPlayerDetail,
+  getRoleWeights,
   getTeams,
   getWeights,
   MoneyballError,
+  setRoleWeights,
   setWeights,
   upsertMyRating,
 } from "../moneyball/service.js";
@@ -61,10 +63,24 @@ export const moneyballRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(204).send();
   });
 
-  app.get("/moneyball/weights", async () => ({ weights: await getWeights() }));
+  app.get("/moneyball/weights", async () => ({
+    weights: await getWeights(),
+    roleWeights: await getRoleWeights(),
+  }));
 
+  /**
+   * Save the shared formula. `roleWeights` (the per-role stat weight tables
+   * behind the handler/cutter/defender OVRs) is optional so older clients
+   * that only send `weights` keep working.
+   */
   app.put("/moneyball/weights", async (req) => {
-    const body = z.object({ weights: weightsSchema }).parse(req.body);
-    return { weights: await setWeights(req.auth.userId, body.weights) };
+    const body = z
+      .object({ weights: weightsSchema, roleWeights: roleWeightsSchema.optional() })
+      .parse(req.body);
+    const weights = await setWeights(req.auth.userId, body.weights);
+    const roleWeights = body.roleWeights
+      ? await setRoleWeights(req.auth.userId, body.roleWeights)
+      : await getRoleWeights();
+    return { weights, roleWeights };
   });
 };

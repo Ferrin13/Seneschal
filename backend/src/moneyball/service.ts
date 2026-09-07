@@ -19,14 +19,18 @@ import {
   meansFromScores,
   meansOf,
   normalizeGender,
+  normalizeRoleWeights,
   normalizeScores,
   normalizeWeights,
   raterCount,
+  roleScores,
   score,
   STAT_KEYS,
   summarizeTeam,
   type Aggregate,
   type Gender,
+  type RoleScores,
+  type RoleWeights,
   type Scorecard,
   type Scores,
   type StatKey,
@@ -43,6 +47,7 @@ export class MoneyballError extends Error {
 }
 
 const WEIGHTS_KEY = "weights";
+const ROLE_WEIGHTS_KEY = "roleWeights";
 
 // ---------------------------------------------------------------------------
 // Roster
@@ -107,6 +112,29 @@ export async function setWeights(userId: string, weights: Weights): Promise<Weig
   return value;
 }
 
+/** Per-role stat weight tables (handler/cutter/defender OVRs). Shared, like weights. */
+export async function getRoleWeights(): Promise<RoleWeights> {
+  const row = await db.query.moneyballSettings.findFirst({
+    where: eq(moneyballSettings.key, ROLE_WEIGHTS_KEY),
+  });
+  return normalizeRoleWeights(row?.value as Record<string, Record<string, unknown>> | undefined);
+}
+
+export async function setRoleWeights(
+  userId: string,
+  roleWeights: RoleWeights
+): Promise<RoleWeights> {
+  const value = normalizeRoleWeights(roleWeights);
+  await db
+    .insert(moneyballSettings)
+    .values({ key: ROLE_WEIGHTS_KEY, value, updatedByUserId: userId })
+    .onConflictDoUpdate({
+      target: moneyballSettings.key,
+      set: { value, updatedByUserId: userId, updatedAt: sql`now()` },
+    });
+  return value;
+}
+
 // ---------------------------------------------------------------------------
 // Board / detail
 // ---------------------------------------------------------------------------
@@ -125,6 +153,8 @@ export type BoardPlayer = {
   /** How many raters scored each stat. */
   statCounts: Record<StatKey, number>;
   scores: Scorecard;
+  /** Handler/cutter/defender OVRs over the team means (role weight tables). */
+  roles: RoleScores;
   /** The requesting user's own scores, or null if they haven't rated. */
   myRating: Scores | null;
   /** Scores computed from the requesting user's own rating alone. */
@@ -133,6 +163,7 @@ export type BoardPlayer = {
 
 export type Board = {
   weights: Weights;
+  roleWeights: RoleWeights;
   players: BoardPlayer[];
 };
 
@@ -140,7 +171,8 @@ function toBoardPlayer(
   p: MoneyballPlayer,
   ratings: Scores[],
   mine: Scores | null,
-  weights: Weights
+  weights: Weights,
+  roleWeights: RoleWeights
 ): BoardPlayer {
   const agg: Aggregate = aggregate(ratings);
   const means = meansOf(agg);
@@ -159,14 +191,16 @@ function toBoardPlayer(
       number
     >,
     scores: score(means, weights),
+    roles: roleScores(means, roleWeights),
     myRating: mine,
     myScores: mine ? score(meansFromScores(mine), weights) : null,
   };
 }
 
 export async function getBoard(userId: string): Promise<Board> {
-  const [weights, players, ratingRows] = await Promise.all([
+  const [weights, roleWeights, players, ratingRows] = await Promise.all([
     getWeights(),
+    getRoleWeights(),
     db.query.moneyballPlayers.findMany({
       where: eq(moneyballPlayers.active, true),
       orderBy: (t, { asc }) => [asc(t.name)],
@@ -185,10 +219,11 @@ export async function getBoard(userId: string): Promise<Board> {
 
   return {
     weights,
+    roleWeights,
     players: await Promise.all(
       players.map(async (p) => {
         const e = byPlayer.get(p.id) ?? { all: [], mine: null };
-        return withPhoto(toBoardPlayer(p, e.all, e.mine, weights));
+        return withPhoto(toBoardPlayer(p, e.all, e.mine, weights, roleWeights));
       })
     ),
   };
@@ -223,7 +258,8 @@ export async function getTeams(userId: string): Promise<{ weights: Weights; team
           stats: p.stats,
           raterCount: p.raterCount,
         })),
-        board.weights
+        board.weights,
+        board.roleWeights
       )
     )
     .sort(
@@ -245,6 +281,7 @@ export type RaterBreakdown = {
 
 export type PlayerDetail = BoardPlayer & {
   weights: Weights;
+  roleWeights: RoleWeights;
   raters: RaterBreakdown[];
 };
 
@@ -254,8 +291,9 @@ export async function getPlayerDetail(userId: string, playerId: string): Promise
   });
   if (!player) throw new MoneyballError("player_not_found", "Player not found", 404);
 
-  const [weights, ratingRows] = await Promise.all([
+  const [weights, roleWeights, ratingRows] = await Promise.all([
     getWeights(),
+    getRoleWeights(),
     db
       .select({
         raterUserId: moneyballRatings.raterUserId,
@@ -288,10 +326,12 @@ export async function getPlayerDetail(userId: string, playerId: string): Promise
         player,
         raters.map((r) => r.scores),
         mine,
-        weights
+        weights,
+        roleWeights
       )
     )),
     weights,
+    roleWeights,
     raters: raters.sort((a, b) => Number(b.isMe) - Number(a.isMe) || a.label.localeCompare(b.label)),
   };
 }

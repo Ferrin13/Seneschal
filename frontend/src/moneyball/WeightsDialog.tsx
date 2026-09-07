@@ -7,6 +7,8 @@ import {
   DialogTitle,
   Slider,
   Stack,
+  Tab,
+  Tabs,
   Tooltip,
   Typography,
 } from "@mui/material";
@@ -15,45 +17,66 @@ import { api, ApiError } from "../api";
 import {
   CATEGORIES,
   CATEGORY_LABELS,
+  DEFAULT_ROLE_WEIGHTS,
   DEFAULT_WEIGHTS,
   MAX_WEIGHT,
   MIN_WEIGHT,
+  ROLES,
+  ROLE_LABELS,
   statsInCategory,
+  type Role,
+  type RoleWeights,
   type Weights,
 } from "./stats";
 
+type FormulaTab = "overall" | Role;
+
+const TAB_BLURB: Record<FormulaTab, string> = {
+  overall:
+    "Weighted mean of the team's average per stat. Category scores use the same weights restricted to their stats.",
+  handler: "How much each stat feeds the Handler OVR.",
+  cutter: "How much each stat feeds the Cutter OVR.",
+  defender: "How much each stat feeds the Defender OVR.",
+};
+
 /**
- * Edits the shared OVR formula: one weight per stat. Category scores use the
- * same weights restricted to their stats. Saving affects everyone.
+ * Edits the shared formulas: the OVR weight per stat, plus one weight table
+ * per role (handler/cutter/defender OVRs). Weight 0 drops a stat entirely.
+ * Saving affects everyone — the tables are shared, like the roster.
  */
 export function WeightsDialog({
   open,
   weights,
+  roleWeights,
   onClose,
   onSaved,
 }: {
   open: boolean;
   weights: Weights;
+  roleWeights: RoleWeights;
   onClose: () => void;
-  onSaved: (weights: Weights) => void;
+  onSaved: (weights: Weights, roleWeights: RoleWeights) => void;
 }) {
+  const [tab, setTab] = useState<FormulaTab>("overall");
   const [draft, setDraft] = useState<Weights>(weights);
+  const [roleDraft, setRoleDraft] = useState<RoleWeights>(roleWeights);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setDraft(weights);
+      setRoleDraft(roleWeights);
       setError(null);
     }
-  }, [open, weights]);
+  }, [open, weights, roleWeights]);
 
   const save = async () => {
     setSaving(true);
     setError(null);
     try {
-      const res = await api.moneyballSetWeights(draft);
-      onSaved(res.weights);
+      const res = await api.moneyballSetWeights(draft, roleDraft);
+      onSaved(res.weights, res.roleWeights);
       onClose();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to save weights");
@@ -62,17 +85,41 @@ export function WeightsDialog({
     }
   };
 
+  const table: Weights = tab === "overall" ? draft : roleDraft[tab];
+  const setValue = (key: keyof Weights, v: number) => {
+    if (tab === "overall") setDraft((d) => ({ ...d, [key]: v }));
+    else setRoleDraft((rw) => ({ ...rw, [tab]: { ...rw[tab], [key]: v } }));
+  };
+  const resetTab = () => {
+    if (tab === "overall") setDraft(DEFAULT_WEIGHTS);
+    else setRoleDraft((rw) => ({ ...rw, [tab]: { ...DEFAULT_ROLE_WEIGHTS[tab] } }));
+  };
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-      <DialogTitle>
-        OVR formula
+      <DialogTitle sx={{ pb: 1 }}>
+        Formulas
         <Typography variant="body2" color="text.secondary">
-          Weighted mean of the team's average per stat. Weight 0 drops a stat
-          entirely. Shared with every rater.
+          Weight 0 drops a stat entirely. Shared with every rater.
         </Typography>
       </DialogTitle>
+      <Tabs
+        value={tab}
+        onChange={(_e, v) => setTab(v as FormulaTab)}
+        variant="scrollable"
+        allowScrollButtonsMobile
+        sx={{ px: 3, borderBottom: 1, borderColor: "divider" }}
+      >
+        <Tab value="overall" label="Overall" />
+        {ROLES.map((r) => (
+          <Tab key={r} value={r} label={ROLE_LABELS[r]} />
+        ))}
+      </Tabs>
       <DialogContent>
         <Stack spacing={2.5} sx={{ mt: 0.5 }}>
+          <Typography variant="body2" color="text.secondary">
+            {TAB_BLURB[tab]}
+          </Typography>
           {CATEGORIES.map((c) => (
             <Stack key={c} spacing={0.5}>
               <Typography
@@ -90,7 +137,13 @@ export function WeightsDialog({
                 >
                   <Tooltip title={s.description} placement="top-start" enterDelay={300}>
                     <Typography
-                      sx={{ width: 150, flexShrink: 0, cursor: "help" }}
+                      sx={{
+                        width: 150,
+                        flexShrink: 0,
+                        cursor: "help",
+                        // Zero-weight stats read as "not part of this formula".
+                        color: table[s.key] > 0 ? "text.primary" : "text.disabled",
+                      }}
                       variant="body2"
                     >
                       {s.label}
@@ -102,10 +155,8 @@ export function WeightsDialog({
                     max={MAX_WEIGHT}
                     step={0.5}
                     marks
-                    value={draft[s.key]}
-                    onChange={(_e, v) =>
-                      setDraft((d) => ({ ...d, [s.key]: v as number }))
-                    }
+                    value={table[s.key]}
+                    onChange={(_e, v) => setValue(s.key, v as number)}
                     valueLabelDisplay="auto"
                   />
                   <Typography
@@ -116,7 +167,7 @@ export function WeightsDialog({
                       fontVariantNumeric: "tabular-nums",
                     }}
                   >
-                    {draft[s.key].toFixed(1)}
+                    {table[s.key].toFixed(1)}
                   </Typography>
                 </Stack>
               ))}
@@ -126,8 +177,8 @@ export function WeightsDialog({
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={() => setDraft(DEFAULT_WEIGHTS)} disabled={saving}>
-          Reset to 1.0
+        <Button onClick={resetTab} disabled={saving}>
+          Reset {tab === "overall" ? "to 1.0" : `${ROLE_LABELS[tab]} to default`}
         </Button>
         <Button onClick={onClose} disabled={saving}>
           Cancel

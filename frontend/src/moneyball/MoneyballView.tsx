@@ -22,10 +22,12 @@ import {
   TextField,
   Tooltip,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import TuneIcon from "@mui/icons-material/Tune";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { PlayerCard } from "./PlayerCard";
@@ -34,12 +36,28 @@ import { WeightsDialog } from "./WeightsDialog";
 import { RatingGuideDialog } from "./RatingGuideDialog";
 import { MONEYBALL_PATH, MoneyballTabs } from "./MoneyballTabs";
 import { useHideUnrated } from "./prefs";
-import { fmtScore, genderColor, STAT_KEYS, type Weights } from "./stats";
+import {
+  fmtScore,
+  genderColor,
+  ROLE_ABBR,
+  ROLE_LABELS,
+  ROLES,
+  STAT_KEYS,
+  type RoleWeights,
+  type Weights,
+} from "./stats";
 import { GenderBadge } from "./GenderBadge";
 import { GenderFilter, type GenderFilterValue } from "./GenderFilter";
 import type { Board, BoardPlayer, PlayerDetail } from "./types";
 
-type SortKey = "name" | "overall" | "offense" | "defense" | "general" | "raters" | "mine";
+type SortKey =
+  | "name"
+  | "overall"
+  | "handler"
+  | "cutter"
+  | "defender"
+  | "raters"
+  | "mine";
 
 const hideOnMobile = { display: { xs: "none", sm: "table-cell" } } as const;
 
@@ -56,9 +74,11 @@ function sortValue(p: BoardPlayer, key: SortKey, hideUnrated: boolean): number |
       return p.raterCount;
     case "mine":
       return p.myScores?.overall ?? null;
-    default:
+    case "overall":
       // Masked players sort as unrated so the order doesn't leak their scores.
-      return isMasked(p, hideUnrated) ? null : p.scores[key];
+      return isMasked(p, hideUnrated) ? null : p.scores.overall;
+    default:
+      return isMasked(p, hideUnrated) ? null : p.roles[key];
   }
 }
 
@@ -93,11 +113,16 @@ function initials(name: string): string {
 
 /**
  * Moneyball home: sortable roster table on the left, Madden-style card for the
- * selected player on the right (stacked on small screens). Selection lives in
- * the URL (/moneyball/:playerId) so cards are linkable.
+ * selected player on the right. On small screens the card instead expands in
+ * place, inline under the tapped row, so selecting a player never means
+ * scrolling back to the top; tapping the row again collapses it. Selection
+ * lives in the URL (/moneyball/:playerId) so cards are linkable either way.
  */
 export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string | null }) {
   const navigate = useNavigate();
+  const theme = useTheme();
+  /** Below md the card is inline in the table; at md+ it's the side column. */
+  const sideCard = useMediaQuery(theme.breakpoints.up("md"));
   const [board, setBoard] = useState<Board | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -177,6 +202,7 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
                     stats: d.stats,
                     statCounts: d.statCounts,
                     scores: d.scores,
+                    roles: d.roles,
                     myRating: d.myRating,
                     myScores: d.myScores,
                   }
@@ -187,22 +213,30 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
     );
   };
 
-  const applyWeights = (_w: Weights) => {
+  const applyWeights = (_w: Weights, _rw: RoleWeights) => {
     // Scores are computed server-side with the new weights; refetch.
     void load();
   };
 
   const myRatedCount = board?.players.filter((p) => p.myRating != null).length ?? 0;
 
-  const header = (label: string, key: SortKey, align: "left" | "right" | "center" = "right") => (
-    <TableCell align={align} sortDirection={sortKey === key ? sortDir : false}>
-      <TableSortLabel
-        active={sortKey === key}
-        direction={sortKey === key ? sortDir : "desc"}
-        onClick={() => toggleSort(key)}
-      >
-        {label}
-      </TableSortLabel>
+  const header = (
+    label: string,
+    key: SortKey,
+    align: "left" | "right" | "center" = "right",
+    sx?: object,
+    tooltip?: string
+  ) => (
+    <TableCell align={align} sx={sx} sortDirection={sortKey === key ? sortDir : false}>
+      <Tooltip title={tooltip ?? ""}>
+        <TableSortLabel
+          active={sortKey === key}
+          direction={sortKey === key ? sortDir : "desc"}
+          onClick={() => toggleSort(key)}
+        >
+          {label}
+        </TableSortLabel>
+      </Tooltip>
     </TableCell>
   );
 
@@ -297,7 +331,7 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
             onClick={() => setWeightsOpen(true)}
             disabled={!board}
           >
-            Formula
+            Formulas
           </Button>
         </Stack>
       </Stack>
@@ -334,18 +368,13 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
             },
           }}
         >
-          {selected ? (
-            <Box
-              sx={{
-                order: { xs: 0, md: 1 },
-                position: { md: "sticky" },
-                top: { md: 80 },
-              }}
-            >
+          {selected && sideCard ? (
+            <Box sx={{ order: 1, position: "sticky", top: 80 }}>
               <PlayerCard
                 key={selected.id}
                 player={selected}
                 weights={board.weights}
+                roleWeights={board.roleWeights}
                 masked={isMasked(selected, hideUnrated)}
                 onSaved={applyDetail}
                 onClose={() => navigate(MONEYBALL_PATH)}
@@ -355,7 +384,7 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
 
           <TableContainer
             sx={{
-              order: { xs: 1, md: 0 },
+              order: 0,
               border: "1px solid",
               borderColor: "divider",
               borderRadius: 2,
@@ -367,9 +396,17 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
                 <TableRow>
                   {header("Player", "name", "left")}
                   {header("OVR", "overall", "center")}
-                  {header("OFF", "offense", "center")}
-                  {header("DEF", "defense", "center")}
-                  {header("GEN", "general", "center")}
+                  {ROLES.map((r) => (
+                    <Fragment key={r}>
+                      {header(
+                        ROLE_ABBR[r],
+                        r,
+                        "center",
+                        undefined,
+                        `${ROLE_LABELS[r]} OVR — adjust its stat weights from Formulas`
+                      )}
+                    </Fragment>
+                  ))}
                   <TableCell align="center" sx={hideOnMobile} sortDirection={sortKey === "mine" ? sortDir : false}>
                     <Tooltip title="OVR from your rating alone">
                       <TableSortLabel
@@ -401,11 +438,14 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
                   const masked = isMasked(p, hideUnrated);
                   const shown = (v: number | null) => (masked ? null : v);
                   return (
+                    <Fragment key={p.id}>
                     <TableRow
-                      key={p.id}
                       hover
                       selected={isSelected}
-                      onClick={() => navigate(`${MONEYBALL_PATH}/${p.id}`)}
+                      // Tapping the selected row again collapses/closes it.
+                      onClick={() =>
+                        navigate(isSelected ? MONEYBALL_PATH : `${MONEYBALL_PATH}/${p.id}`)
+                      }
                       sx={{ cursor: "pointer" }}
                     >
                       <TableCell>
@@ -463,15 +503,15 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
                           <ScoreBadge value={shown(p.scores.overall)} size="sm" />
                         )}
                       </TableCell>
-                      <TableCell align="center" sx={{ fontVariantNumeric: "tabular-nums" }}>
-                        {fmtScore(shown(p.scores.offense))}
-                      </TableCell>
-                      <TableCell align="center" sx={{ fontVariantNumeric: "tabular-nums" }}>
-                        {fmtScore(shown(p.scores.defense))}
-                      </TableCell>
-                      <TableCell align="center" sx={{ fontVariantNumeric: "tabular-nums" }}>
-                        {fmtScore(shown(p.scores.general))}
-                      </TableCell>
+                      {ROLES.map((r) => (
+                        <TableCell
+                          key={r}
+                          align="center"
+                          sx={{ fontVariantNumeric: "tabular-nums" }}
+                        >
+                          {fmtScore(shown(p.roles[r]))}
+                        </TableCell>
+                      ))}
                       <TableCell align="center" sx={hideOnMobile}>
                         {p.myScores ? (
                           <Tooltip title={`${ratedByMe}/${STAT_KEYS.length} stats rated`}>
@@ -492,6 +532,24 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
                         {p.raterCount}
                       </TableCell>
                     </TableRow>
+                    {/* Small screens: the card expands in place, right under
+                        the tapped row, instead of mounting above the table. */}
+                    {isSelected && !sideCard ? (
+                      <TableRow>
+                        <TableCell colSpan={7} sx={{ p: 1, bgcolor: "background.default" }}>
+                          <PlayerCard
+                            key={p.id}
+                            player={p}
+                            weights={board.weights}
+                            roleWeights={board.roleWeights}
+                            masked={masked}
+                            onSaved={applyDetail}
+                            onClose={() => navigate(MONEYBALL_PATH)}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                    </Fragment>
                   );
                 })}
                 {players.length === 0 && board.players.length > 0 ? (
@@ -515,6 +573,7 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
         <WeightsDialog
           open={weightsOpen}
           weights={board.weights}
+          roleWeights={board.roleWeights}
           onClose={() => setWeightsOpen(false)}
           onSaved={applyWeights}
         />

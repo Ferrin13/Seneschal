@@ -25,7 +25,11 @@ import type {
   PlayerDetail,
   TeamsResponse,
 } from "./moneyball/types";
-import type { Scores as MoneyballScores, Weights as MoneyballWeights } from "./moneyball/stats";
+import type {
+  RoleWeights as MoneyballRoleWeights,
+  Scores as MoneyballScores,
+  Weights as MoneyballWeights,
+} from "./moneyball/stats";
 
 export const API_BASE_URL: string = (
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:18080"
@@ -704,11 +708,11 @@ export const api = {
     authedFetch(`/moneyball/players/${id}/rating`, {
       method: "DELETE",
     }) as Promise<null>,
-  moneyballSetWeights: (weights: MoneyballWeights) =>
+  moneyballSetWeights: (weights: MoneyballWeights, roleWeights: MoneyballRoleWeights) =>
     authedFetch("/moneyball/weights", {
       method: "PUT",
-      body: JSON.stringify({ weights }),
-    }) as Promise<{ weights: MoneyballWeights }>,
+      body: JSON.stringify({ weights, roleWeights }),
+    }) as Promise<{ weights: MoneyballWeights; roleWeights: MoneyballRoleWeights }>,
 
   // --- Moneyball roster admin (admin flag required) ----------------------------
   moneyballAdminPlayers: () =>

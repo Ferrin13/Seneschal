@@ -1,4 +1,6 @@
-import type { Scorecard, Scores, StatKey, Weights } from "./stats";
+import type { RoleScores, RoleWeights, Scorecard, Scores, StatKey, Weights } from "./stats";
+
+export type { RoleScores } from "./stats";
 
 export type Gender = "M" | "F";
 
@@ -16,12 +18,15 @@ export type BoardPlayer = {
   stats: Record<StatKey, number | null>;
   statCounts: Record<StatKey, number>;
   scores: Scorecard;
+  /** Handler/cutter/defender OVRs over the team means. */
+  roles: RoleScores;
   myRating: Scores | null;
   myScores: Scorecard | null;
 };
 
 export type Board = {
   weights: Weights;
+  roleWeights: RoleWeights;
   players: BoardPlayer[];
 };
 
@@ -36,13 +41,8 @@ export type RaterBreakdown = {
 
 export type PlayerDetail = BoardPlayer & {
   weights: Weights;
+  roleWeights: RoleWeights;
   raters: RaterBreakdown[];
-};
-
-export type RoleScores = {
-  handler: number | null;
-  cutter: number | null;
-  defender: number | null;
 };
 
 export type RankedPlayer = {

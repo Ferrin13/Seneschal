@@ -2,10 +2,18 @@ import { describe, expect, it } from "vitest";
 import {
   aggregate,
   concentration,
+  CUTTER_STATS,
+  DEFAULT_ROLE_WEIGHTS,
   DEFAULT_WEIGHTS,
+  HANDLER_STATS,
+  normalizeRoleWeights,
+  ROLES,
+  roleScores,
+  roleWeightsSchema,
   summarizeTeam,
   teamStatMeans,
   type Gender,
+  type RoleWeights,
   type TeamPlayerInput,
   meansFromScores,
   meansOf,
@@ -274,5 +282,96 @@ describe("validation and normalization", () => {
     expect(normalizeWeights(null)).toEqual(DEFAULT_WEIGHTS);
     expect(normalizeWeights({ effort: 99 }).effort).toBe(5);
     expect(normalizeScores({ effort: 7, old_stat: 3, agility: 42 })).toEqual({ effort: 7 });
+  });
+});
+
+describe("roleScores", () => {
+  const full = (v: number): Scores =>
+    Object.fromEntries(STAT_KEYS.map((k) => [k, v])) as Scores;
+
+  it("with default role weights matches the historical fixed stat sets", () => {
+    const means = meansFromScores({ ...full(5), short_handling: 9, deep_cutting: 9 });
+    const roles = roleScores(means, DEFAULT_ROLE_WEIGHTS);
+    // Handler: 9 + three 5s = 24/4; cutter: 9 + three 5s = 24/4.
+    expect(roles.handler).toBe(6);
+    expect(roles.cutter).toBe(6);
+    expect(roles.defender).toBe(5);
+    expect(roles.handler).toBe(weightedMean(means, DEFAULT_WEIGHTS, HANDLER_STATS));
+    expect(roles.cutter).toBe(weightedMean(means, DEFAULT_WEIGHTS, CUTTER_STATS));
+  });
+
+  it("lets any stat feed any role via its weight table", () => {
+    // Effort isn't in the default handler set; weight it in and it counts.
+    const rw: RoleWeights = {
+      ...DEFAULT_ROLE_WEIGHTS,
+      handler: { ...DEFAULT_ROLE_WEIGHTS.handler, effort: 4, short_handling: 0 },
+    };
+    const means = meansFromScores({ ...full(5), effort: 10, short_handling: 10 });
+    const roles = roleScores(means, rw);
+    // 10*4 (effort) + 5*3 (huck/decision/iq) = 55 / 7; the zero-weight
+    // short_handling 10 is dropped entirely.
+    expect(roles.handler).toBe(7.9);
+    // Other roles keep their defaults.
+    expect(roles.cutter).toBe(5);
+  });
+
+  it("is null for a role whose weighted stats are all unrated", () => {
+    const means = meansFromScores({ handler_marking: 8 });
+    const roles = roleScores(means, DEFAULT_ROLE_WEIGHTS);
+    expect(roles.handler).toBeNull();
+    expect(roles.defender).toBe(8);
+  });
+
+  it("flows editable role weights through team summaries", () => {
+    const stats = meansFromScores({ ...full(5), effort: 10 });
+    const player: TeamPlayerInput = {
+      id: "a",
+      name: "a",
+      photoUrl: null,
+      gender: "M",
+      stats,
+      raterCount: 1,
+    };
+    const rw: RoleWeights = {
+      ...DEFAULT_ROLE_WEIGHTS,
+      cutter: { ...DEFAULT_ROLE_WEIGHTS.cutter, effort: 4 },
+    };
+    const s = summarizeTeam("Team", [player], DEFAULT_WEIGHTS, rw);
+    // 4 fives + effort 10*4 = 60 / 8.
+    expect(s.players[0]?.roles.cutter).toBe(7.5);
+    // Default when the tables aren't passed (back-compat).
+    const d = summarizeTeam("Team", [player], DEFAULT_WEIGHTS);
+    expect(d.players[0]?.roles.cutter).toBe(5);
+  });
+});
+
+describe("role weight normalization and validation", () => {
+  it("falls back to each role's own defaults, not 1, for missing entries", () => {
+    const rw = normalizeRoleWeights({ handler: { effort: 3 } });
+    // Provided key applies...
+    expect(rw.handler.effort).toBe(3);
+    // ...missing keys keep the role's default (short_cutting is NOT a handler stat).
+    expect(rw.handler.short_handling).toBe(1);
+    expect(rw.handler.short_cutting).toBe(0);
+    // Whole missing roles come back as their defaults.
+    expect(rw.cutter).toEqual(DEFAULT_ROLE_WEIGHTS.cutter);
+    expect(normalizeRoleWeights(null)).toEqual(DEFAULT_ROLE_WEIGHTS);
+  });
+
+  it("clamps out-of-range stored values", () => {
+    expect(normalizeRoleWeights({ defender: { effort: 99 } }).defender.effort).toBe(5);
+    expect(normalizeRoleWeights({ defender: { effort: -2 } }).defender.effort).toBe(0);
+  });
+
+  it("requires every role and stat in the schema", () => {
+    expect(roleWeightsSchema.safeParse(DEFAULT_ROLE_WEIGHTS).success).toBe(true);
+    const missingRole = { handler: DEFAULT_ROLE_WEIGHTS.handler, cutter: DEFAULT_ROLE_WEIGHTS.cutter };
+    expect(roleWeightsSchema.safeParse(missingRole).success).toBe(false);
+    const badWeight = {
+      ...DEFAULT_ROLE_WEIGHTS,
+      handler: { ...DEFAULT_ROLE_WEIGHTS.handler, effort: 9 },
+    };
+    expect(roleWeightsSchema.safeParse(badWeight).success).toBe(false);
+    expect(ROLES).toEqual(["handler", "cutter", "defender"]);
   });
 });

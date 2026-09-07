@@ -207,6 +207,54 @@ export function score(means: StatMeans, weights: Weights): Scorecard {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Roles (handler / cutter / defender OVRs)
+// ---------------------------------------------------------------------------
+
+export const ROLES = ["handler", "cutter", "defender"] as const;
+export type Role = (typeof ROLES)[number];
+
+export const ROLE_LABELS: Record<Role, string> = {
+  handler: "Handler",
+  cutter: "Cutter",
+  defender: "Defender",
+};
+
+/** Short badge label per role. "DFD" so it can't be read as the DEF category. */
+export const ROLE_ABBR: Record<Role, string> = {
+  handler: "HND",
+  cutter: "CUT",
+  defender: "DFD",
+};
+
+/** One editable weight table per role: how much each stat feeds that role's OVR. */
+export type RoleWeights = Record<Role, Weights>;
+export type RoleScores = Record<Role, number | null>;
+
+function setWeightsFor(keys: readonly StatKey[]): Weights {
+  return Object.fromEntries(STAT_KEYS.map((k) => [k, keys.includes(k) ? 1 : 0])) as Weights;
+}
+
+/** The historical fixed stat sets, expressed as weight tables (1 in, 0 out). */
+export const DEFAULT_ROLE_WEIGHTS: RoleWeights = {
+  handler: setWeightsFor(["short_handling", "huck_handling", "decision_making", "game_iq"]),
+  cutter: setWeightsFor(["short_cutting", "deep_cutting", "verticality", "agility"]),
+  defender: setWeightsFor([
+    "handler_marking",
+    "cutter_marking",
+    "agility",
+    "verticality",
+    "effort",
+  ]),
+};
+
+/** Role OVRs: a weighted mean over the whole catalog per role (0 drops a stat). */
+export function roleScores(means: StatMeans, roleWeights: RoleWeights): RoleScores {
+  return Object.fromEntries(
+    ROLES.map((r) => [r, weightedMean(means, roleWeights[r], STAT_KEYS)])
+  ) as RoleScores;
+}
+
 /** Format a 1-10 score for display ("7.4", or "–" when unrated). */
 export function fmtScore(v: number | null | undefined): string {
   return v == null ? "–" : v.toFixed(1);
