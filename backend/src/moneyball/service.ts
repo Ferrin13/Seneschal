@@ -139,6 +139,16 @@ export async function setRoleWeights(
 // Board / detail
 // ---------------------------------------------------------------------------
 
+/**
+ * Viewer-side options for the consensus. `excludeRaters` drops those users'
+ * ratings from every team mean, scorecard and role OVR so a viewer can see
+ * the board "without so-and-so" — the stored ratings are untouched and the
+ * viewer's own `myRating` is always reported regardless.
+ */
+export type BoardOptions = {
+  excludeRaters?: readonly string[];
+};
+
 export type BoardPlayer = {
   id: string;
   slug: string;
@@ -147,7 +157,10 @@ export type BoardPlayer = {
   team: string | null;
   gender: Gender | null;
   number: number | null;
+  /** Raters contributing to the consensus (after any exclusions). */
   raterCount: number;
+  /** Raters of this player dropped by `BoardOptions.excludeRaters`. */
+  excludedRaterCount: number;
   /** Team mean per stat (null when nobody has rated it). */
   stats: Record<StatKey, number | null>;
   /** How many raters scored each stat. */
@@ -161,20 +174,47 @@ export type BoardPlayer = {
   myScores: Scorecard | null;
 };
 
+/** Someone who has rated at least one player; drives the viewer's rater filter. */
+export type BoardRater = {
+  userId: string;
+  /** Display name, else email, else a short id. */
+  label: string;
+  isMe: boolean;
+  /** How many players this person has rated. */
+  ratingCount: number;
+};
+
 export type Board = {
   weights: Weights;
   roleWeights: RoleWeights;
+  /** Everyone with a rating on the board, alphabetical (viewer first). */
+  raters: BoardRater[];
+  /** The exclusions actually applied (unknown ids are passed through as-is). */
+  excludedRaters: string[];
   players: BoardPlayer[];
 };
 
+/** One stored rating tagged with who submitted it. */
+type RaterScores = { raterUserId: string; scores: Scores };
+
+function raterLabel(r: {
+  raterUserId: string;
+  displayName: string | null;
+  email: string | null;
+}): string {
+  return r.displayName || r.email || r.raterUserId.slice(0, 8);
+}
+
 function toBoardPlayer(
   p: MoneyballPlayer,
-  ratings: Scores[],
+  ratings: readonly RaterScores[],
   mine: Scores | null,
   weights: Weights,
-  roleWeights: RoleWeights
+  roleWeights: RoleWeights,
+  excluded: ReadonlySet<string>
 ): BoardPlayer {
-  const agg: Aggregate = aggregate(ratings);
+  const counted = ratings.filter((r) => !excluded.has(r.raterUserId)).map((r) => r.scores);
+  const agg: Aggregate = aggregate(counted);
   const means = meansOf(agg);
   return {
     id: p.id,
@@ -184,7 +224,9 @@ function toBoardPlayer(
     team: p.team,
     gender: normalizeGender(p.gender),
     number: p.number,
-    raterCount: raterCount(ratings),
+    raterCount: raterCount(counted),
+    excludedRaterCount:
+      raterCount(ratings.map((r) => r.scores)) - raterCount(counted),
     stats: means,
     statCounts: Object.fromEntries(STAT_KEYS.map((k) => [k, agg[k].count])) as Record<
       StatKey,
@@ -197,7 +239,8 @@ function toBoardPlayer(
   };
 }
 
-export async function getBoard(userId: string): Promise<Board> {
+export async function getBoard(userId: string, opts: BoardOptions = {}): Promise<Board> {
+  const excluded = new Set(opts.excludeRaters ?? []);
   const [weights, roleWeights, players, ratingRows] = await Promise.all([
     getWeights(),
     getRoleWeights(),
@@ -205,25 +248,48 @@ export async function getBoard(userId: string): Promise<Board> {
       where: eq(moneyballPlayers.active, true),
       orderBy: (t, { asc }) => [asc(t.name)],
     }),
-    db.select().from(moneyballRatings),
+    db
+      .select({
+        playerId: moneyballRatings.playerId,
+        raterUserId: moneyballRatings.raterUserId,
+        scores: moneyballRatings.scores,
+        displayName: users.displayName,
+        email: users.email,
+      })
+      .from(moneyballRatings)
+      .leftJoin(users, eq(users.id, moneyballRatings.raterUserId)),
   ]);
 
-  const byPlayer = new Map<string, { all: Scores[]; mine: Scores | null }>();
+  const byPlayer = new Map<string, { all: RaterScores[]; mine: Scores | null }>();
+  const raterMap = new Map<string, BoardRater>();
   for (const r of ratingRows) {
     const entry = byPlayer.get(r.playerId) ?? { all: [], mine: null };
     const scores = normalizeScores(r.scores);
-    entry.all.push(scores);
+    entry.all.push({ raterUserId: r.raterUserId, scores });
     if (r.raterUserId === userId) entry.mine = scores;
     byPlayer.set(r.playerId, entry);
+
+    const rater = raterMap.get(r.raterUserId) ?? {
+      userId: r.raterUserId,
+      label: raterLabel(r),
+      isMe: r.raterUserId === userId,
+      ratingCount: 0,
+    };
+    rater.ratingCount += 1;
+    raterMap.set(r.raterUserId, rater);
   }
 
   return {
     weights,
     roleWeights,
+    raters: [...raterMap.values()].sort(
+      (a, b) => Number(b.isMe) - Number(a.isMe) || a.label.localeCompare(b.label)
+    ),
+    excludedRaters: [...excluded],
     players: await Promise.all(
       players.map(async (p) => {
         const e = byPlayer.get(p.id) ?? { all: [], mine: null };
-        return withPhoto(toBoardPlayer(p, e.all, e.mine, weights, roleWeights));
+        return withPhoto(toBoardPlayer(p, e.all, e.mine, weights, roleWeights, excluded));
       })
     ),
   };
@@ -236,9 +302,16 @@ async function withPhoto<T extends { photoUrl: string | null }>(p: T): Promise<T
 
 export const UNASSIGNED_TEAM = "Unassigned";
 
-/** One summary per team (players without a team grouped as "Unassigned"). */
-export async function getTeams(userId: string): Promise<{ weights: Weights; teams: TeamSummary[] }> {
-  const board = await getBoard(userId);
+/**
+ * One summary per team (players without a team grouped as "Unassigned").
+ * Honors the same viewer-side rater filter as the board: every team mean,
+ * ranking and leader is computed from the filtered consensus.
+ */
+export async function getTeams(
+  userId: string,
+  opts: BoardOptions = {}
+): Promise<{ weights: Weights; teams: TeamSummary[] }> {
+  const board = await getBoard(userId, opts);
   const byTeam = new Map<string, BoardPlayer[]>();
   for (const p of board.players) {
     const key = p.team ?? UNASSIGNED_TEAM;
@@ -274,6 +347,8 @@ export type RaterBreakdown = {
   /** Display name, else email, else a short id. */
   label: string;
   isMe: boolean;
+  /** True when the viewer's rater filter left this rating out of the consensus. */
+  excluded: boolean;
   scores: Scores;
   scorecard: Scorecard;
   updatedAt: string;
@@ -285,7 +360,12 @@ export type PlayerDetail = BoardPlayer & {
   raters: RaterBreakdown[];
 };
 
-export async function getPlayerDetail(userId: string, playerId: string): Promise<PlayerDetail> {
+export async function getPlayerDetail(
+  userId: string,
+  playerId: string,
+  opts: BoardOptions = {}
+): Promise<PlayerDetail> {
+  const excluded = new Set(opts.excludeRaters ?? []);
   const player = await db.query.moneyballPlayers.findFirst({
     where: eq(moneyballPlayers.id, playerId),
   });
@@ -311,8 +391,9 @@ export async function getPlayerDetail(userId: string, playerId: string): Promise
     const scores = normalizeScores(r.scores);
     return {
       userId: r.raterUserId,
-      label: r.displayName || r.email || r.raterUserId.slice(0, 8),
+      label: raterLabel(r),
       isMe: r.raterUserId === userId,
+      excluded: excluded.has(r.raterUserId),
       scores,
       scorecard: score(meansFromScores(scores), weights),
       updatedAt: r.updatedAt.toISOString(),
@@ -324,10 +405,11 @@ export async function getPlayerDetail(userId: string, playerId: string): Promise
     ...(await withPhoto(
       toBoardPlayer(
         player,
-        raters.map((r) => r.scores),
+        raters.map((r) => ({ raterUserId: r.userId, scores: r.scores })),
         mine,
         weights,
-        roleWeights
+        roleWeights,
+        excluded
       )
     )),
     weights,
@@ -348,17 +430,22 @@ async function requirePlayer(playerId: string): Promise<MoneyballPlayer> {
   return player;
 }
 
-/** Replace the caller's rating for a player (whole-object semantics). */
+/**
+ * Replace the caller's rating for a player (whole-object semantics). `opts`
+ * only shapes the returned detail (so the client can patch its filtered board
+ * in place); it never affects what is stored.
+ */
 export async function upsertMyRating(
   userId: string,
   playerId: string,
-  scores: Scores
+  scores: Scores,
+  opts: BoardOptions = {}
 ): Promise<PlayerDetail> {
   await requirePlayer(playerId);
   const clean = normalizeScores(scores);
   if (Object.keys(clean).length === 0) {
     await deleteMyRating(userId, playerId);
-    return getPlayerDetail(userId, playerId);
+    return getPlayerDetail(userId, playerId, opts);
   }
   await db
     .insert(moneyballRatings)
@@ -367,7 +454,7 @@ export async function upsertMyRating(
       target: [moneyballRatings.playerId, moneyballRatings.raterUserId],
       set: { scores: clean, updatedAt: sql`now()` },
     });
-  return getPlayerDetail(userId, playerId);
+  return getPlayerDetail(userId, playerId, opts);
 }
 
 export async function deleteMyRating(userId: string, playerId: string): Promise<void> {

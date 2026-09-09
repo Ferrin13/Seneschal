@@ -1,13 +1,19 @@
 import {
   Alert,
   Avatar,
+  Badge,
   Box,
   Button,
+  Checkbox,
   Chip,
   CircularProgress,
+  Divider,
   FormControl,
   FormControlLabel,
   InputLabel,
+  ListItemText,
+  ListSubheader,
+  Menu,
   MenuItem,
   Select,
   Stack,
@@ -27,7 +33,8 @@ import {
 } from "@mui/material";
 import TuneIcon from "@mui/icons-material/Tune";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import GroupIcon from "@mui/icons-material/Group";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { PlayerCard } from "./PlayerCard";
@@ -35,7 +42,7 @@ import { ScoreBadge } from "./ScoreBadge";
 import { WeightsDialog } from "./WeightsDialog";
 import { RatingGuideDialog } from "./RatingGuideDialog";
 import { MONEYBALL_PATH, MoneyballTabs } from "./MoneyballTabs";
-import { useHideUnrated } from "./prefs";
+import { useExcludedRaters, useHideUnrated } from "./prefs";
 import {
   fmtScore,
   genderColor,
@@ -134,21 +141,46 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
   const [weightsOpen, setWeightsOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(false);
   const [hideUnrated, setHideUnrated] = useHideUnrated();
+  /** Raters the viewer has switched off; the consensus is recomputed server-side without them. */
+  const [excludedRaters, setExcludedRaters] = useExcludedRaters();
+  const [ratersAnchor, setRatersAnchor] = useState<HTMLElement | null>(null);
+  // Toggling raters quickly can leave two board fetches in flight; only the
+  // latest one may land, or a stale response would show the wrong averages.
+  const loadSeq = useRef(0);
 
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     setError(null);
     try {
-      setBoard(await api.moneyballBoard());
+      const next = await api.moneyballBoard(excludedRaters);
+      if (seq === loadSeq.current) setBoard(next);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to load roster");
+      if (seq === loadSeq.current) {
+        setError(err instanceof ApiError ? err.message : "Failed to load roster");
+      }
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
-  }, []);
+  }, [excludedRaters]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** Exclusions that refer to someone actually on the board (stale ids are ignored). */
+  const excludedCount = useMemo(() => {
+    if (!board) return 0;
+    const known = new Set(board.raters.map((r) => r.userId));
+    return excludedRaters.filter((id) => known.has(id)).length;
+  }, [board, excludedRaters]);
+
+  const toggleRater = (userId: string) => {
+    setExcludedRaters(
+      excludedRaters.includes(userId)
+        ? excludedRaters.filter((id) => id !== userId)
+        : [...excludedRaters, userId]
+    );
+  };
 
   const teams = useMemo(() => {
     const set = new Set<string>();
@@ -199,6 +231,7 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
                     gender: d.gender,
                     number: d.number,
                     raterCount: d.raterCount,
+                    excludedRaterCount: d.excludedRaterCount,
                     stats: d.stats,
                     statCounts: d.statCounts,
                     scores: d.scores,
@@ -266,7 +299,10 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
           </Typography>
           <Typography variant="body2" color="text.secondary">
             {board
-              ? `${board.players.length} players · you've rated ${myRatedCount}`
+              ? `${board.players.length} players · you've rated ${myRatedCount}` +
+                (excludedCount > 0
+                  ? ` · averages exclude ${excludedCount} of ${board.raters.length} raters`
+                  : "")
               : ""}
           </Typography>
         </Box>
@@ -318,6 +354,67 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
               sx={{ mr: 0 }}
             />
           </Tooltip>
+          <Tooltip title="Choose which raters count toward the averages" enterDelay={400}>
+            <Badge
+              badgeContent={excludedCount}
+              color="warning"
+              invisible={excludedCount === 0}
+              overlap="rectangular"
+            >
+              <Button
+                variant="outlined"
+                startIcon={<GroupIcon />}
+                onClick={(e) => setRatersAnchor(e.currentTarget)}
+                disabled={!board || board.raters.length === 0}
+                aria-haspopup="menu"
+                aria-expanded={ratersAnchor ? "true" : undefined}
+              >
+                Raters
+              </Button>
+            </Badge>
+          </Tooltip>
+          <Menu
+            anchorEl={ratersAnchor}
+            open={ratersAnchor != null}
+            onClose={() => setRatersAnchor(null)}
+            slotProps={{ paper: { sx: { minWidth: 260 } } }}
+          >
+            <ListSubheader disableSticky sx={{ lineHeight: "32px" }}>
+              Counted in the averages
+            </ListSubheader>
+            {(board?.raters ?? []).map((r) => {
+              const included = !excludedRaters.includes(r.userId);
+              return (
+                <MenuItem key={r.userId} dense onClick={() => toggleRater(r.userId)}>
+                  <Checkbox
+                    size="small"
+                    checked={included}
+                    tabIndex={-1}
+                    disableRipple
+                    sx={{ p: 0.5, mr: 1 }}
+                  />
+                  <ListItemText
+                    primary={r.isMe ? `You (${r.label})` : r.label}
+                    secondary={`${r.ratingCount} player${r.ratingCount === 1 ? "" : "s"} rated`}
+                    primaryTypographyProps={{
+                      sx: included ? undefined : { color: "text.disabled" },
+                    }}
+                  />
+                </MenuItem>
+              );
+            })}
+            <Divider />
+            <MenuItem
+              dense
+              disabled={excludedCount === 0}
+              onClick={() => {
+                setExcludedRaters([]);
+                setRatersAnchor(null);
+              }}
+            >
+              <ListItemText primary="Include everyone" />
+            </MenuItem>
+          </Menu>
           <Button
             variant="outlined"
             startIcon={<HelpOutlineIcon />}
@@ -376,6 +473,7 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
                 weights={board.weights}
                 roleWeights={board.roleWeights}
                 masked={isMasked(selected, hideUnrated)}
+                excludeRaters={excludedRaters}
                 onSaved={applyDetail}
                 onClose={() => navigate(MONEYBALL_PATH)}
               />
@@ -546,8 +644,25 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
                           </Typography>
                         )}
                       </TableCell>
-                      <TableCell align="right" sx={hideOnMobile}>
-                        {p.raterCount}
+                      <TableCell align="right" sx={{ ...hideOnMobile, fontVariantNumeric: "tabular-nums" }}>
+                        {p.excludedRaterCount > 0 ? (
+                          <Tooltip
+                            title={`${p.raterCount} of ${p.raterCount + p.excludedRaterCount} raters counted — ${p.excludedRaterCount} excluded by your rater filter`}
+                          >
+                            <Box component="span" sx={{ whiteSpace: "nowrap" }}>
+                              {p.raterCount}
+                              <Typography
+                                component="span"
+                                variant="caption"
+                                color="text.secondary"
+                              >
+                                {" "}/ {p.raterCount + p.excludedRaterCount}
+                              </Typography>
+                            </Box>
+                          </Tooltip>
+                        ) : (
+                          p.raterCount
+                        )}
                       </TableCell>
                     </TableRow>
                     {/* Small screens: the card expands in place, right under
@@ -561,6 +676,7 @@ export function MoneyballView({ selectedPlayerId }: { selectedPlayerId: string |
                             weights={board.weights}
                             roleWeights={board.roleWeights}
                             masked={masked}
+                            excludeRaters={excludedRaters}
                             onSaved={applyDetail}
                             onClose={() => navigate(MONEYBALL_PATH)}
                           />

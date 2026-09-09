@@ -16,10 +16,11 @@ import {
 } from "@mui/material";
 import { BarChart } from "@mui/x-charts/BarChart";
 import { LineChart } from "@mui/x-charts/LineChart";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { MONEYBALL_PATH, MoneyballTabs } from "./MoneyballTabs";
+import { useExcludedRaters } from "./prefs";
 import { ScoreBadge } from "./ScoreBadge";
 import { MAX_SCORE, MIN_SCORE, fmtScore, scoreTone } from "./stats";
 import type { Concentration, TeamSummary } from "./types";
@@ -41,7 +42,7 @@ function pct(v: number): string {
 }
 
 /**
- * Pure-CSS box plot on the 1-10 axis: whiskers min→max, box p25→p75, a
+ * Pure-CSS box plot on the 1-20 axis: whiskers min→max, box p25→p75, a
  * median line, and a dot for the top-7 mean so the line/bench gap is visible.
  */
 function SpreadBar({ c }: { c: Concentration }) {
@@ -150,10 +151,13 @@ export function ConcentrationView() {
   const [error, setError] = useState<string | null>(null);
   const [selectedName, setSelectedName] = useState<string | null>(null);
 
-  const load = async () => {
+  /** The viewer's rater filter applies here too (set on the Players tab). */
+  const [excludedRaters] = useExcludedRaters();
+
+  const load = useCallback(async () => {
     setError(null);
     try {
-      const res = await api.moneyballTeams();
+      const res = await api.moneyballTeams(excludedRaters);
       setTeams(res.teams);
       setSelectedName((cur) => cur ?? res.teams.find((t) => t.concentration)?.team ?? null);
     } catch (err) {
@@ -161,11 +165,11 @@ export function ConcentrationView() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [excludedRaters]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   /** Rated teams, most concentrated (highest Gini) first. */
   const rows = useMemo(
@@ -205,6 +209,12 @@ export function ConcentrationView() {
           curves and low Gini mean depth; steep curves and a big top-7 gap mean the team
           leans on a few stars.
         </Typography>
+        {excludedRaters.length > 0 ? (
+          <Typography variant="caption" color="warning.main" sx={{ fontWeight: 600 }}>
+            Rater filter active — {excludedRaters.length} rater
+            {excludedRaters.length === 1 ? "" : "s"} excluded (adjust on the Players tab).
+          </Typography>
+        ) : null}
       </Box>
 
       {loading ? (
@@ -245,7 +255,7 @@ export function ConcentrationView() {
                 <TableCell>Team</TableCell>
                 <TableCell align="right">Rated</TableCell>
                 <TableCell>
-                  <Tooltip title="Whiskers min–max, box p25–p75, bar median, green dot top-7 mean. Axis 1–10.">
+                  <Tooltip title="Whiskers min–max, box p25–p75, bar median, green dot top-7 mean. Axis 1–20.">
                     <span>Spread</span>
                   </Tooltip>
                 </TableCell>

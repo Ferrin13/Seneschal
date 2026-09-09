@@ -1767,7 +1767,7 @@ export type NewDescartesClusterMember = typeof descartesClusterMembers.$inferIns
 // Moneyball: ultimate frisbee player ratings.
 //
 // One roster shared by every account with the feature. Each rater stores one
-// row per player holding their own 1-10 scores; the UI shows the mean across
+// row per player holding their own 1-20 scores; the UI shows the mean across
 // raters. Stat keys live in moneyball/engine.ts (STATS) — the jsonb column is
 // deliberately loose so adding a stat is a code change, not a migration.
 // ---------------------------------------------------------------------------

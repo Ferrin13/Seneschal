@@ -30,7 +30,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { MONEYBALL_PATH, MoneyballTabs } from "./MoneyballTabs";
-import { useHideUnrated } from "./prefs";
+import { useExcludedRaters, useHideUnrated } from "./prefs";
 import {
   CATEGORIES,
   CATEGORY_LABELS,
@@ -66,8 +66,8 @@ const SHORT_LABELS: Record<StatKey, string> = {
   game_iq: "IQ",
 };
 
-/** Where a brand-new rating lands when you press + on an unrated cell. */
-const START_SCORE = 5;
+/** Where a brand-new rating lands when you press + on an unrated cell (mid-scale). */
+const START_SCORE = MAX_SCORE / 2;
 
 const SAVE_DEBOUNCE_MS = 600;
 
@@ -210,8 +210,13 @@ export function CompareView() {
   const [sortKey, setSortKey] = useState<SortKey>("overall");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [pending, setPending] = useState<Set<string>>(new Set());
-  // Respect the Players-tab "hide until I rate" preference for the consensus tooltips.
+  // Respect the Players-tab "hide until I rate" and rater-filter preferences so
+  // the consensus tooltips here agree with the board.
   const [hideUnrated] = useHideUnrated();
+  const [excludedRaters] = useExcludedRaters();
+  // Ref copy for the unmount flush, which runs outside the render cycle.
+  const excludedRef = useRef(excludedRaters);
+  excludedRef.current = excludedRaters;
 
   // Per-player debounced save. The latest draft wins; the timer is reset on
   // every click so a run of +++ becomes one PUT.
@@ -221,13 +226,13 @@ export function CompareView() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      setBoard(await api.moneyballBoard());
+      setBoard(await api.moneyballBoard(excludedRaters));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to load roster");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [excludedRaters]);
 
   useEffect(() => {
     void load();
@@ -239,7 +244,9 @@ export function CompareView() {
       for (const [id, t] of timers.current) {
         clearTimeout(t);
         const draft = drafts.current.get(id);
-        if (draft) void api.moneyballSetRating(id, draft).catch(() => {});
+        if (draft) {
+          void api.moneyballSetRating(id, draft, excludedRef.current).catch(() => {});
+        }
       }
       timers.current.clear();
       drafts.current.clear();
@@ -262,6 +269,7 @@ export function CompareView() {
                     gender: d.gender,
                     number: d.number,
                     raterCount: d.raterCount,
+                    excludedRaterCount: d.excludedRaterCount,
                     stats: d.stats,
                     statCounts: d.statCounts,
                     scores: d.scores,
@@ -290,7 +298,7 @@ export function CompareView() {
           if (!latest) return;
           setPending((s) => new Set(s).add(playerId));
           api
-            .moneyballSetRating(playerId, latest)
+            .moneyballSetRating(playerId, latest, excludedRef.current)
             .then((d) => {
               // Don't clobber a newer optimistic draft that's still debouncing.
               if (!drafts.current.has(playerId)) applyDetail(d);

@@ -23,7 +23,7 @@ export function RatingGuideDialog({ open, onClose }: { open: boolean; onClose: (
               </Typography>
             ))}
             <Typography variant="body2" color="text.secondary">
-              Every stat is 1-10. Leave a stat blank if you haven't seen enough to judge
+              Every stat is 1-20. Leave a stat blank if you haven't seen enough to judge
               it; blanks don't count against the player.
             </Typography>
           </Stack>

@@ -23,7 +23,8 @@ export function ScoreBadge({
   size?: "sm" | "md" | "lg";
 }) {
   const dim = size === "lg" ? 72 : size === "md" ? 44 : 34;
-  const font = size === "lg" ? 34 : size === "md" ? 18 : 14;
+  // Sized so a four-character score ("20.0") fits inside each tile.
+  const font = size === "lg" ? 30 : size === "md" ? 18 : 14;
   return (
     <Box
       sx={{

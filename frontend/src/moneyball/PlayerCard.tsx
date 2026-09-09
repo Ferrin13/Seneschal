@@ -156,7 +156,7 @@ function StatRow({
   );
 }
 
-/** One stat row in edit mode: slider 0 (unrated) .. 10. */
+/** One stat row in edit mode: slider 0 (unrated) .. MAX_SCORE. */
 function StatEditor({
   label,
   description,
@@ -214,11 +214,14 @@ const EMPTY_SCORECARD: Scorecard = {
 
 const EMPTY_ROLES: RoleScores = { handler: null, cutter: null, defender: null };
 
+const NO_EXCLUSIONS: readonly string[] = [];
+
 export function PlayerCard({
   player,
   weights,
   roleWeights,
   masked = false,
+  excludeRaters = NO_EXCLUSIONS,
   onSaved,
   onClose,
 }: {
@@ -230,6 +233,11 @@ export function PlayerCard({
    * because the viewer hasn't rated this player yet.
    */
   masked?: boolean;
+  /**
+   * The viewer's rater filter. Sent with every fetch so the card's consensus
+   * (and the detail handed back through `onSaved`) matches the board's.
+   */
+  excludeRaters?: readonly string[];
   /** Called with the fresh detail after a save/clear so the board can update. */
   onSaved: (detail: PlayerDetail | null) => void;
   onClose?: () => void;
@@ -249,9 +257,16 @@ export function PlayerCard({
     setError(null);
     setDetail(null);
     setViewRaterId(null);
+  }, [player.id]);
+
+  // (Re)load the per-rater breakdown for this player under the current rater
+  // filter. Kept separate from the reset above so changing the filter while
+  // editing doesn't throw the draft away.
+  const excludeKey = excludeRaters.join(",");
+  useEffect(() => {
     let cancelled = false;
     api
-      .moneyballPlayer(player.id)
+      .moneyballPlayer(player.id, excludeKey ? excludeKey.split(",") : undefined)
       .then((d) => {
         if (!cancelled) setDetail(d);
       })
@@ -261,7 +276,7 @@ export function PlayerCard({
     return () => {
       cancelled = true;
     };
-  }, [player.id]);
+  }, [player.id, excludeKey]);
 
   const startEditing = () => {
     setDraft({ ...(player.myRating ?? {}) });
@@ -278,7 +293,7 @@ export function PlayerCard({
     setSaving(true);
     setError(null);
     try {
-      const d = await api.moneyballSetRating(player.id, draft);
+      const d = await api.moneyballSetRating(player.id, draft, excludeRaters);
       setDetail(d);
       onSaved(d);
       setEditing(false);
@@ -294,7 +309,7 @@ export function PlayerCard({
     setError(null);
     try {
       await api.moneyballClearRating(player.id);
-      const d = await api.moneyballPlayer(player.id);
+      const d = await api.moneyballPlayer(player.id, excludeRaters);
       setDetail(d);
       onSaved(d);
       setEditing(false);
@@ -433,8 +448,13 @@ export function PlayerCard({
                         ? "Viewing your rating"
                         : `Viewing ${viewedRater.label}'s rating`
                       : player.raterCount === 0
-                        ? "Not rated yet"
-                        : `${player.raterCount} rater${player.raterCount === 1 ? "" : "s"}`}
+                        ? player.excludedRaterCount > 0
+                          ? `Not rated yet · ${player.excludedRaterCount} excluded`
+                          : "Not rated yet"
+                        : `${player.raterCount} rater${player.raterCount === 1 ? "" : "s"}` +
+                          (player.excludedRaterCount > 0
+                            ? ` · ${player.excludedRaterCount} excluded`
+                            : "")}
                 </Typography>
               </Box>
             </Stack>
@@ -545,7 +565,9 @@ export function PlayerCard({
                 Raters
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                tap one to see their scores
+                {player.excludedRaterCount > 0
+                  ? "tap one to see their scores · struck out = not counted in the average"
+                  : "tap one to see their scores"}
               </Typography>
             </Stack>
             <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
@@ -558,10 +580,15 @@ export function PlayerCard({
               />
               {detail.raters.map((r) => {
                 const selected = r.userId === viewRaterId;
+                const updated = `Updated ${new Date(r.updatedAt).toLocaleDateString()}`;
                 return (
                   <Tooltip
                     key={r.userId}
-                    title={`Updated ${new Date(r.updatedAt).toLocaleDateString()}`}
+                    title={
+                      r.excluded
+                        ? `Excluded from the team average by your rater filter · ${updated}`
+                        : updated
+                    }
                   >
                     <Chip
                       size="small"
@@ -570,6 +597,11 @@ export function PlayerCard({
                       label={`${r.isMe ? "You" : r.label} · ${fmtScore(r.scorecard.overall)}`}
                       // Tapping the selected rater again returns to the mean.
                       onClick={() => setViewRaterId(selected ? null : r.userId)}
+                      sx={
+                        r.excluded && !selected
+                          ? { textDecoration: "line-through", opacity: 0.6 }
+                          : undefined
+                      }
                     />
                   </Tooltip>
                 );

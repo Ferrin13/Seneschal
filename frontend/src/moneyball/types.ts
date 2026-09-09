@@ -14,7 +14,10 @@ export type BoardPlayer = {
   /** null = unknown; such players can't be placed on a line. */
   gender: Gender | null;
   number: number | null;
+  /** Raters contributing to the consensus (after the viewer's rater filter). */
   raterCount: number;
+  /** Raters of this player dropped by the viewer's rater filter. */
+  excludedRaterCount: number;
   stats: Record<StatKey, number | null>;
   statCounts: Record<StatKey, number>;
   scores: Scorecard;
@@ -24,9 +27,22 @@ export type BoardPlayer = {
   myScores: Scorecard | null;
 };
 
+/** Someone who has rated at least one player. */
+export type BoardRater = {
+  userId: string;
+  label: string;
+  isMe: boolean;
+  /** How many players this person has rated. */
+  ratingCount: number;
+};
+
 export type Board = {
   weights: Weights;
   roleWeights: RoleWeights;
+  /** Everyone with a rating on the board, viewer first then alphabetical. */
+  raters: BoardRater[];
+  /** The rater exclusions the server applied to this response. */
+  excludedRaters: string[];
   players: BoardPlayer[];
 };
 
@@ -34,6 +50,8 @@ export type RaterBreakdown = {
   userId: string;
   label: string;
   isMe: boolean;
+  /** Left out of the consensus by the viewer's rater filter. */
+  excluded: boolean;
   scores: Scores;
   scorecard: Scorecard;
   updatedAt: string;

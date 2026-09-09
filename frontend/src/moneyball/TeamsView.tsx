@@ -16,10 +16,11 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { MONEYBALL_PATH, MoneyballTabs } from "./MoneyballTabs";
+import { useExcludedRaters } from "./prefs";
 import { ScoreBadge } from "./ScoreBadge";
 import {
   CATEGORIES,
@@ -381,10 +382,13 @@ export function TeamsView() {
   const [error, setError] = useState<string | null>(null);
   const [selectedName, setSelectedName] = useState<string | null>(null);
 
-  const load = async () => {
+  /** The viewer's rater filter applies here too (set on the Players tab). */
+  const [excludedRaters] = useExcludedRaters();
+
+  const load = useCallback(async () => {
     setError(null);
     try {
-      const res = await api.moneyballTeams();
+      const res = await api.moneyballTeams(excludedRaters);
       setTeams(res.teams);
       setSelectedName((cur) => cur ?? res.teams[0]?.team ?? null);
     } catch (err) {
@@ -392,11 +396,11 @@ export function TeamsView() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [excludedRaters]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   const selected = teams?.find((t) => t.team === selectedName) ?? teams?.[0] ?? null;
 
@@ -419,6 +423,12 @@ export function TeamsView() {
           </Box>{" "}
           are colour-coded.
         </Typography>
+        {excludedRaters.length > 0 ? (
+          <Typography variant="caption" color="warning.main" sx={{ fontWeight: 600 }}>
+            Rater filter active — {excludedRaters.length} rater
+            {excludedRaters.length === 1 ? "" : "s"} excluded (adjust on the Players tab).
+          </Typography>
+        ) : null}
       </Box>
 
       {loading ? (

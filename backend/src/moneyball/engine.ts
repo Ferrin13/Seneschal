@@ -1,7 +1,7 @@
 /**
  * Moneyball scoring engine — pure, I/O-free.
  *
- * Every player is rated 1-10 on a fixed catalog of stats grouped into three
+ * Every player is rated 1-20 on a fixed catalog of stats grouped into three
  * categories. Multiple raters each submit their own scores; the engine first
  * averages each stat across raters, then folds those means into category
  * scores and an overall (OVR) using a shared, editable weight per stat.
@@ -47,7 +47,7 @@ export type StatDef = {
  * mechanics.
  */
 export const RATING_GUIDE: readonly string[] = [
-  "These ratings are an absolute scale, regardless of gender. A player with a verticality rating of 8 should be a favorite to sky any player with a rating of 7 or lower, regardless of gender.",
+  "These ratings are an absolute scale, regardless of gender. A player with a verticality rating of 16 should be a favorite to sky any player with a rating of 15 or lower, regardless of gender.",
   "Stats should be considered in terms of actual outcomes, not necessarily underlying mechanics. For example, forehand/backhand bias should be considered insofar as it impacts the actual skill: a backhand-dominant player that is still able to effectively throw breakside because of cutting ability, release points, etc. should not be penalized for not having a flick.",
 ];
 
@@ -165,8 +165,12 @@ export function isStatKey(value: unknown): value is StatKey {
   return typeof value === "string" && (STAT_KEYS as readonly string[]).includes(value);
 }
 
+/**
+ * Rating scale. Was 1-10 until migration 0034 doubled every stored score;
+ * the frontend's `stats.ts` and `scoreTone` bands must move with these.
+ */
 export const MIN_SCORE = 1;
-export const MAX_SCORE = 10;
+export const MAX_SCORE = 20;
 export const MIN_WEIGHT = 0;
 export const MAX_WEIGHT = 5;
 
@@ -479,7 +483,7 @@ export type StatLeader = {
 
 /**
  * How a roster's ability is spread between its top and bottom. All figures
- * are over rated players' OVRs on the 1-10 scale.
+ * are over rated players' OVRs on the 1-20 scale.
  */
 export type Concentration = {
   count: number;

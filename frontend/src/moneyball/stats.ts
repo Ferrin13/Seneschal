@@ -46,7 +46,7 @@ export type StatDef = {
 
 /** How to rate: absolute scale across the league, outcomes over mechanics. */
 export const RATING_GUIDE: readonly string[] = [
-  "These ratings are an absolute scale, regardless of gender. A player with a verticality rating of 8 should be a favorite to sky any player with a rating of 7 or lower, regardless of gender.",
+  "These ratings are an absolute scale, regardless of gender. A player with a verticality rating of 16 should be a favorite to sky any player with a rating of 15 or lower, regardless of gender.",
   "Stats should be considered in terms of actual outcomes, not necessarily underlying mechanics. For example, forehand/backhand bias should be considered insofar as it impacts the actual skill: a backhand-dominant player that is still able to effectively throw breakside because of cutting ability, release points, etc. should not be penalized for not having a flick.",
 ];
 
@@ -136,8 +136,9 @@ export function statsInCategory(category: Category): StatDef[] {
   return STATS.filter((s) => s.category === category);
 }
 
+/** Rating scale (1-20; mirrors the backend engine). */
 export const MIN_SCORE = 1;
-export const MAX_SCORE = 10;
+export const MAX_SCORE = 20;
 /** Gender colouring shared by the Players and Teams tabs. */
 export const GENDER_COLOR: Record<Gender, string> = { M: "#1e88e5", F: "#d81b60" };
 export const GENDER_LABEL: Record<Gender, string> = { M: "Man", F: "Woman" };
@@ -255,21 +256,22 @@ export function roleScores(means: StatMeans, roleWeights: RoleWeights): RoleScor
   ) as RoleScores;
 }
 
-/** Format a 1-10 score for display ("7.4", or "–" when unrated). */
+/** Format a 1-20 score for display ("14.4", or "–" when unrated). */
 export function fmtScore(v: number | null | undefined): string {
   return v == null ? "–" : v.toFixed(1);
 }
 
 /**
- * Colour band for a 1-10 score, Madden-style: elite green, solid blue,
- * average amber, weak red. Returns an MUI palette key.
+ * Colour band for a 1-20 score, Madden-style: elite green, solid blue,
+ * average amber, weak red. Returns an MUI palette key. Bands are the old
+ * 1-10 cutoffs (8.5 / 7 / 5) doubled.
  */
 export function scoreTone(
   v: number | null | undefined
 ): "success" | "info" | "warning" | "error" | "default" {
   if (v == null) return "default";
-  if (v >= 8.5) return "success";
-  if (v >= 7) return "info";
-  if (v >= 5) return "warning";
+  if (v >= 17) return "success";
+  if (v >= 14) return "info";
+  if (v >= 10) return "warning";
   return "error";
 }

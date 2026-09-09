@@ -3,7 +3,7 @@
 Ultimate frisbee player ratings, Madden-style: a shared roster, a sortable
 table, and a card per player with a photo, an overall (OVR) and three category
 scores, and a bar per stat. Every account with the `moneyball` feature rates
-players independently on a 1-10 scale; the card shows the team average and
+players independently on a 1-20 scale; the card shows the team average and
 marks your own score.
 
 The card's **Raters** row is a selector: tapping a rater's chip swaps the
@@ -43,7 +43,7 @@ button (also "How to rate" while editing a rating) opens the full rubric.
 General rules:
 
 - Ratings are an **absolute scale, regardless of gender**. A player with a
-  verticality rating of 8 should be a favorite to sky any player rated 7 or
+  verticality rating of 16 should be a favorite to sky any player rated 15 or
   lower, regardless of gender.
 - Rate **outcomes, not mechanics**. Forehand/backhand bias only matters insofar
   as it affects the actual skill: a backhand-dominant player who still throws
@@ -76,6 +76,12 @@ Per-stat rubric:
    weights restricted to that category's stats.
 3. Rounded to one decimal. `null` when nothing contributes.
 
+Scores are integers 1-20 (`MIN_SCORE` / `MAX_SCORE` in both engines). The
+scale was 1-10 originally; migration `0034_moneyball_scores_1_to_20` doubled
+every stored score in place (8 → 16, 3 → 6) and is guarded to be a no-op on a
+database that already holds any value above 10. The colour bands in
+`scoreTone` (17 / 14 / 10) are the old cutoffs doubled.
+
 Weights are edited from the **Formulas** button and stored in
 `moneyball_settings` (key `weights`). They apply to everyone.
 
@@ -107,6 +113,29 @@ count stays visible. The preference is per browser (`localStorage`
 unaffected, and the Teams / Concentration tabs are aggregate views and are not
 masked.
 
+### Rater filter (include/exclude raters)
+
+The Players tab's **Raters** button lists everyone who has rated at least one
+player (from `board.raters`, viewer first) with a checkbox each; unticking a
+rater drops their ratings from every consensus figure — stat means, OVR,
+OFF/DEF/GEN and HND/CUT/DFD — for the whole board. The button carries a badge
+with the number excluded, the subheader says "averages exclude N of M raters",
+the table's Raters column shows `counted / total` for affected players, and on
+the card excluded rater chips are struck out (tapping one still shows their
+scores). **Include everyone** resets.
+
+It's a read-side view option, not a change to anyone's data: the client sends
+`?excludeRaters=<uuid>,<uuid>` and the server recomputes with those ratings
+left out (`BoardOptions` in `moneyball/service.ts`), reporting
+`excludedRaterCount` per player and `excluded` per rater. `PUT .../rating`
+takes the same query so the detail it returns matches the filtered board the
+client patches in place. Stored as an exclusion list in `localStorage`
+(`moneyball.excludedRaters`, `prefs.ts`) so new raters count by default. Every
+tab honors it: the Compare tab reads it for its consensus tooltips, and the
+Teams / Concentration tabs pass it to `GET /moneyball/teams` (which accepts
+the same `?excludeRaters=`), showing a "Rater filter active" note while any
+exclusions apply.
+
 Every player row on the Players and Compare tabs carries a gender designation:
 the avatar is ringed and a small **M** / **W** tag (`GenderBadge.tsx`) sits
 next to the name, blue for men and magenta for women (grey `?` when unset —
@@ -120,7 +149,7 @@ same ones the Teams tab uses.
 a row, every stat as a column, showing **your own ratings only**. Click any
 stat header to sort by it and scan down the column to check the ordering makes
 sense; each cell has **−/+** buttons that nudge your score for that player by
-one (pressing + on an unrated cell starts it at 5). Edits apply optimistically
+one (pressing + on an unrated cell starts it at 10). Edits apply optimistically
 (your OVR updates instantly using the shared weights) and are saved per player
 via `PUT /moneyball/players/:id/rating` after a 600 ms debounce, so a run of
 clicks becomes one request; pending saves are flushed when you leave the tab.
@@ -177,9 +206,13 @@ the selected team.
 ## API (`/moneyball`, gated by the `moneyball` feature)
 
 - `GET /moneyball/board` — players + team means + scores + role OVRs + your
-  rating + weights + roleWeights
-- `GET /moneyball/players/:id` — same plus per-rater breakdown
-- `PUT /moneyball/players/:id/rating` `{ scores }` / `DELETE ...` — your rating
+  rating + weights + roleWeights + the list of raters. Optional
+  `?excludeRaters=<uuid>,...` leaves those raters out of every consensus
+  figure (see "Rater filter").
+- `GET /moneyball/players/:id` — same plus per-rater breakdown; accepts
+  `?excludeRaters=` too
+- `PUT /moneyball/players/:id/rating` `{ scores }` / `DELETE ...` — your
+  rating; the PUT accepts `?excludeRaters=` to shape the returned detail
 - `GET|PUT /moneyball/weights` — `{ weights, roleWeights }` (`roleWeights`
   optional on PUT for older clients)
 

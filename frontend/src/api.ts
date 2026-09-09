@@ -414,6 +414,12 @@ export type ServerPassage = {
   translation: "esv";
 };
 
+/** `?excludeRaters=a,b` for the Moneyball consensus endpoints; empty when unfiltered. */
+function moneyballRaterQuery(excludeRaters?: readonly string[]): string {
+  if (!excludeRaters || excludeRaters.length === 0) return "";
+  return `?excludeRaters=${encodeURIComponent(excludeRaters.join(","))}`;
+}
+
 export const api = {
   me: () => authedFetch("/me") as Promise<Me>,
 
@@ -695,12 +701,22 @@ export const api = {
     }) as Promise<unknown>,
 
   // --- Moneyball -------------------------------------------------------------
-  moneyballBoard: () => authedFetch("/moneyball/board") as Promise<Board>,
-  moneyballTeams: () => authedFetch("/moneyball/teams") as Promise<TeamsResponse>,
-  moneyballPlayer: (id: string) =>
-    authedFetch(`/moneyball/players/${id}`) as Promise<PlayerDetail>,
-  moneyballSetRating: (id: string, scores: MoneyballScores) =>
-    authedFetch(`/moneyball/players/${id}/rating`, {
+  // `excludeRaters` is the viewer's rater filter: those users' ratings are left
+  // out of every consensus figure the server returns (see moneyball/prefs.ts).
+  moneyballBoard: (excludeRaters?: readonly string[]) =>
+    authedFetch(`/moneyball/board${moneyballRaterQuery(excludeRaters)}`) as Promise<Board>,
+  moneyballTeams: (excludeRaters?: readonly string[]) =>
+    authedFetch(`/moneyball/teams${moneyballRaterQuery(excludeRaters)}`) as Promise<TeamsResponse>,
+  moneyballPlayer: (id: string, excludeRaters?: readonly string[]) =>
+    authedFetch(
+      `/moneyball/players/${id}${moneyballRaterQuery(excludeRaters)}`
+    ) as Promise<PlayerDetail>,
+  moneyballSetRating: (
+    id: string,
+    scores: MoneyballScores,
+    excludeRaters?: readonly string[]
+  ) =>
+    authedFetch(`/moneyball/players/${id}/rating${moneyballRaterQuery(excludeRaters)}`, {
       method: "PUT",
       body: JSON.stringify({ scores }),
     }) as Promise<PlayerDetail>,

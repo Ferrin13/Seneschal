@@ -6,6 +6,8 @@ import {
   DEFAULT_ROLE_WEIGHTS,
   DEFAULT_WEIGHTS,
   HANDLER_STATS,
+  MAX_SCORE,
+  MIN_SCORE,
   normalizeRoleWeights,
   ROLES,
   roleScores,
@@ -258,10 +260,16 @@ describe("concentration", () => {
 });
 
 describe("validation and normalization", () => {
-  it("accepts partial integer scores 1-10 and rejects junk", () => {
+  it("scores run 1-20", () => {
+    expect(MIN_SCORE).toBe(1);
+    expect(MAX_SCORE).toBe(20);
+  });
+
+  it("accepts partial integer scores 1-20 and rejects junk", () => {
     expect(scoresSchema.parse({ effort: 7 })).toEqual({ effort: 7 });
+    expect(scoresSchema.parse({ effort: 20 })).toEqual({ effort: 20 });
     expect(scoresSchema.parse({})).toEqual({});
-    expect(() => scoresSchema.parse({ effort: 11 })).toThrow();
+    expect(() => scoresSchema.parse({ effort: 21 })).toThrow();
     expect(() => scoresSchema.parse({ effort: 0 })).toThrow();
     expect(() => scoresSchema.parse({ effort: 7.5 })).toThrow();
     expect(() => scoresSchema.parse({ bogus: 5 })).toThrow();
