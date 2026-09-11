@@ -25,6 +25,7 @@ import { listingRoutes } from "./routes/listings.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { llmUsageRoutes } from "./routes/llmUsage.js";
 import { huntRoutes } from "./routes/hunt.js";
+import { browserAgentRoutes } from "./routes/browserAgent.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { lazaxRoutes } from "./routes/lazax.js";
 import { lazaxWsRoutes } from "./routes/lazaxWs.js";
@@ -91,6 +92,7 @@ export async function buildServer() {
   await app.register(notificationRoutes);
   await app.register(llmUsageRoutes);
   await app.register(huntRoutes);
+  await app.register(browserAgentRoutes);
   await app.register(settingsRoutes);
   await app.register(lazaxWsRoutes);
   await app.register(lazaxRoutes);

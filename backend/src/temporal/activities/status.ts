@@ -4,7 +4,9 @@ import type { RunMeta } from "../types.js";
 
 /**
  * Flag that the browser box hit a Facebook login wall: mark the agent
- * `needs_login` and raise a notification so the user re-logs in via VNC.
+ * `needs_login` and raise a notification so the user re-logs in on the local
+ * scraping Chrome (the agent drives it over an SSH reverse CDP tunnel; see
+ * infra/local/fb-agent-tunnel.ps1).
  */
 export async function flagNeedsLogin(input: {
   meta: RunMeta;
@@ -37,6 +39,6 @@ export async function flagNeedsLogin(input: {
     userId: meta.userId,
     kind: "needs_login",
     title: "Facebook login needed",
-    body: "The browser box can't reach Marketplace — log in via VNC to refresh the session.",
+    body: "The scraper hit a Facebook login wall — log in to Facebook in the local scraping Chrome (fb-scrape-profile) to refresh the session.",
   });
 }

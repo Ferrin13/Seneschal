@@ -12,6 +12,7 @@ import {
 } from "@mui/material";
 import { useCallback, useEffect, useState } from "react";
 import { api, type SearchTarget } from "./api";
+import { BrowserAgentStatus } from "./targets/BrowserAgentStatus";
 import { TargetCard } from "./targets/TargetCard";
 import { CADENCE_PRESETS, formatInterval } from "./targets/shared";
 
@@ -61,6 +62,8 @@ export function MarketplaceView() {
       </Box>
 
       {error ? <Alert severity="error">{error}</Alert> : null}
+
+      <BrowserAgentStatus />
 
       <NewTargetForm onCreated={load} onError={setError} />
 

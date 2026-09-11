@@ -1,0 +1,22 @@
+[Unit]
+Description=Seneschal scraper agent
+# The browser this agent drives runs on the operator's machine and is reached
+# over an SSH reverse tunnel, so there is deliberately NO dependency on a local
+# chrome.service here. (The pre-tunnel unit had Requires=chrome.service, which
+# dragged a legacy on-box Chrome onto port 9222 on every restart.)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=browser
+WorkingDirectory=/opt/browser/app/agent
+ExecStartPre=/opt/browser/write-env.sh
+# Optional (leading '-'): created by the ExecStartPre above, so it won't exist
+# on the very first activation.
+EnvironmentFile=-/opt/browser/agent.env
+ExecStart=/usr/bin/node dist/worker.js
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

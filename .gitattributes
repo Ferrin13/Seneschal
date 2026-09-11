@@ -1,0 +1,5 @@
+# Scripts and unit files that run on Linux hosts must always be LF, regardless
+# of the committer's core.autocrlf setting.
+*.sh text eol=lf
+*.service text eol=lf
+*.tftpl text eol=lf

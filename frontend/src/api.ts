@@ -341,6 +341,48 @@ export type DealNotification = {
   createdAt: string;
 };
 
+/** Health of the Facebook scraping path: agent host -> SSH tunnel -> local Chrome. */
+export type BrowserAgentState =
+  | "connected"
+  | "needs_login"
+  | "wrong_browser"
+  | "tunnel_down"
+  | "agent_offline"
+  | "error";
+
+export type BrowserAgentStatus = {
+  action: "status" | "reconnect" | "rebuild_tunnel";
+  checkedAt: string;
+  summary: {
+    state: BrowserAgentState;
+    headline: string;
+    detail: string;
+    canReconnect: boolean;
+    canRebuildTunnel: boolean;
+  };
+  probe: {
+    agentName: string;
+    checkedAt: string;
+    cdp: {
+      url: string;
+      reachable: boolean;
+      browser: string | null;
+      userAgent: string | null;
+      platform: "windows" | "mac" | "linux" | "unknown" | null;
+      error: string | null;
+    };
+    facebookLoggedIn: boolean | null;
+    tunnel: {
+      available: boolean;
+      ipv4Holder: string | null;
+      ipv6Holder: string | null;
+      legacyChromeActive: boolean | null;
+      error: string | null;
+    };
+  } | null;
+  needsLoginSince: string | null;
+};
+
 export type ModelStepConfig = {
   step: string;
   label: string;
@@ -625,6 +667,20 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ status }),
     }) as Promise<DealNotification>,
+  // Each of these runs a live probe through Temporal -> agent host -> tunnel,
+  // so they take a few seconds (up to ~40s for rebuild).
+  browserAgent: () =>
+    authedFetch("/marketplace/browser-agent") as Promise<BrowserAgentStatus>,
+  browserAgentReconnect: () =>
+    authedFetch("/marketplace/browser-agent/reconnect", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }) as Promise<BrowserAgentStatus>,
+  browserAgentRebuildTunnel: () =>
+    authedFetch("/marketplace/browser-agent/rebuild-tunnel", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }) as Promise<BrowserAgentStatus>,
 
   // --- Lazax ---------------------------------------------------------------
   lazaxFactions: () =>

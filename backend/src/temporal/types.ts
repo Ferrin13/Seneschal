@@ -56,4 +56,42 @@ export interface BrowserActivities {
   fbDeepScrape(input: { url: string }): Promise<DeepListing>;
   /** Re-open a listing PDP to confirm it's gone/sold before we mark it sold. */
   fbVerifyListing(input: { url: string }): Promise<VerifyResult>;
+  /** Inspect CDP, the tunnel, and the Facebook session (no navigation). */
+  browserStatus(): Promise<BrowserProbe>;
+  /** Drop the cached CDP connection and reconnect, then report status. */
+  browserReconnect(): Promise<BrowserProbe>;
+  /** Bounce the reverse tunnel via the box's root helper, then report status. */
+  browserRebuildTunnel(): Promise<BrowserProbe>;
 }
+
+/** Coarse OS family parsed from the CDP-reported User-Agent. */
+export type BrowserPlatform = "windows" | "mac" | "linux" | "unknown";
+
+/**
+ * Snapshot of the tunneled-browser path as seen from the agent host. Mirrors
+ * `agent/src/types.ts` (the agent produces it); keep in sync.
+ */
+export type BrowserProbe = {
+  agentName: string;
+  checkedAt: string;
+  cdp: {
+    url: string;
+    reachable: boolean;
+    browser: string | null;
+    userAgent: string | null;
+    platform: BrowserPlatform | null;
+    error: string | null;
+  };
+  facebookLoggedIn: boolean | null;
+  tunnel: {
+    available: boolean;
+    /** Process holding 127.0.0.1:9222 on the box ("sshd" = tunnel bound). */
+    ipv4Holder: string | null;
+    ipv6Holder: string | null;
+    legacyChromeActive: boolean | null;
+    error: string | null;
+  };
+};
+
+/** What the browser-agent workflow should do. */
+export type BrowserAgentAction = "status" | "reconnect" | "rebuild_tunnel";

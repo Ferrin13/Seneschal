@@ -9,16 +9,18 @@ import { getContext } from "./browser.js";
  * local logged-in Chrome over CDP. The backend worker runs everything else.
  */
 async function run() {
-  // Fail fast if Chrome isn't reachable, with a clear message.
+  // Probe Chrome up front for a clear log line, but keep running either way:
+  // the scrape activities fail on their own if CDP is down, and the status /
+  // reconnect / rebuild-tunnel activities must stay available precisely when
+  // the tunnel is broken so the operator can fix it from the web UI.
   try {
     await getContext();
     console.log(`Connected to Chrome at ${config.cdpUrl}`);
   } catch (err) {
-    console.error(
-      `Could not connect to Chrome at ${config.cdpUrl}. Start Chrome with ` +
-        `--remote-debugging-port=9222 and log in to Facebook first.`
+    console.warn(
+      `Chrome not reachable at ${config.cdpUrl} (${(err as Error).message}). ` +
+        `Continuing; Facebook activities will fail until the tunnel/Chrome is up.`
     );
-    throw err;
   }
 
   const connection = await NativeConnection.connect({

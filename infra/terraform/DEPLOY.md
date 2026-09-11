@@ -270,6 +270,21 @@ this up once; the keep-alive script keeps it running.
    queue) connects to `127.0.0.1:9222` → the tunnel → your Chrome, and serves
    Facebook activities automatically.
 
+5. **Watch it from the web UI.** The deal hunter's Targets page has a
+   "Facebook browser" panel that live-probes the whole path (agent host →
+   tunnel → your Chrome → Facebook session) via a short Temporal workflow, and
+   offers two remote fixes the box can apply itself:
+   - **Reconnect browser** — the agent drops its cached CDP connection and
+     redials through the tunnel.
+   - **Rebuild tunnel** — the box's root helper (`seneschal-tunnel-ctl`,
+     installed by `agent/box/install.sh`) stops any legacy on-box Chrome
+     squatting on 9222 and kills the reverse-forward SSH session so your
+     keep-alive script reconnects and rebinds both loopbacks.
+   States it reports: `Connected`, `Login needed` (log in locally), `Wrong
+   browser` (legacy Linux Chrome on the port → Rebuild), `Tunnel down` (start
+   Chrome / the keep-alive script locally), `Agent offline` (box or
+   `scraper-agent` down — nothing can be fixed remotely).
+
 Shell onto the box via SSM if needed (no SSH key required):
 
 ```powershell
@@ -352,6 +367,7 @@ build/sideload as usual. Not part of this Terraform/CI pipeline.
 | `scraper-agent` logs `ECONNREFUSED 127.0.0.1:9222` | The reverse tunnel isn't up — start `fb-agent-tunnel.ps1` on your machine (step 7). Verify with `ssh ubuntu@browser.parthadae.com "curl -s http://127.0.0.1:9222/json/version"`. |
 | `scraper-agent` crash-loops with "cannot find dist/worker.js" | Agent artifact not deployed yet — run the `seneschal-agent` pipeline (step 5). On the box: `sudo /opt/browser/deploy-agent.sh`. |
 | Facebook activities fail with `logged_out` | Your local Chrome's Facebook session expired — re-open the dedicated Chrome (step 7) and log back in. |
+| `scraper-agent` logs `net::ERR_PROXY_CONNECTION_FAILED`; box `curl .../json/version` shows a `Linux` user-agent | The legacy on-box Chrome (from the pre-tunnel design) is holding `127.0.0.1:9222`, so the tunnel only bound `[::1]` and the agent talks to the wrong browser. Click **Rebuild tunnel** in the Targets page panel, or on the box `sudo seneschal-tunnel-ctl rebuild`. Boxes launched before the tunnel design converge on the next agent deploy (`box/install.sh` masks `chrome/xvfb/x11vnc/novnc` and removes the unit's `Requires=chrome.service`). |
 | Craigslist skipped | `craigslist_site` must be a non-empty slug (currently `boise`). |
 
 ## Teardown

@@ -29,6 +29,44 @@ export type VerifyResult = {
   reason: string | null;
 };
 
+/** Coarse OS family parsed from the CDP-reported User-Agent. */
+export type BrowserPlatform = "windows" | "mac" | "linux" | "unknown";
+
+/**
+ * Snapshot of the tunneled-browser path as seen from the agent host. Mirrors
+ * the backend's `BrowserProbe` in `temporal/types.ts`; keep in sync.
+ */
+export type BrowserProbe = {
+  agentName: string;
+  checkedAt: string;
+  /** What (if anything) answers CDP on the agent's configured CDP URL. */
+  cdp: {
+    url: string;
+    reachable: boolean;
+    browser: string | null;
+    userAgent: string | null;
+    platform: BrowserPlatform | null;
+    error: string | null;
+  };
+  /**
+   * Whether the browser holds a Facebook session cookie (`c_user`). Null when
+   * CDP is unreachable or the check failed.
+   */
+  facebookLoggedIn: boolean | null;
+  /**
+   * Who owns the listening sockets on the box's port 9222, from the root
+   * helper (`seneschal-tunnel-ctl status`). `available: false` when the
+   * helper isn't installed (e.g. running the agent locally).
+   */
+  tunnel: {
+    available: boolean;
+    ipv4Holder: string | null;
+    ipv6Holder: string | null;
+    legacyChromeActive: boolean | null;
+    error: string | null;
+  };
+};
+
 export type DeepListing = {
   platform: "facebook";
   externalId: string | null;

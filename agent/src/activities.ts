@@ -1,8 +1,62 @@
 import { ApplicationFailure } from "@temporalio/common";
 import { config } from "./config.js";
-import { getContext } from "./browser.js";
+import { getContext, isFacebookLoggedIn, resetConnection } from "./browser.js";
 import { scrapeListing, scrapeSearch } from "./extract.js";
-import type { DeepListing, HarvestedItem, VerifyResult } from "./types.js";
+import { probeCdp, rebuildTunnel, tunnelStatus } from "./tunnel.js";
+import type {
+  BrowserProbe,
+  DeepListing,
+  HarvestedItem,
+  VerifyResult,
+} from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Tunneled-browser health. These back the deal hunter's "browser status"
+// panel: the backend runs them on demand through a short workflow, so a
+// missing worker (box down / agent stopped) surfaces as a schedule-to-start
+// timeout on the backend side rather than an error here.
+// ---------------------------------------------------------------------------
+
+/** Inspect CDP + the tunnel and, if a browser answers, its Facebook session. */
+export async function browserStatus(): Promise<BrowserProbe> {
+  const [cdp, tunnel] = await Promise.all([probeCdp(), tunnelStatus()]);
+  let facebookLoggedIn: boolean | null = null;
+  if (cdp.reachable) {
+    try {
+      facebookLoggedIn = await isFacebookLoggedIn(await getContext());
+    } catch {
+      facebookLoggedIn = null;
+    }
+  }
+  return {
+    agentName: config.agentName,
+    checkedAt: new Date().toISOString(),
+    cdp,
+    facebookLoggedIn,
+    tunnel,
+  };
+}
+
+/** Drop the cached CDP connection and reconnect, then report status. */
+export async function browserReconnect(): Promise<BrowserProbe> {
+  await resetConnection();
+  return browserStatus();
+}
+
+/**
+ * Rebuild the tunnel path via the root helper (stop legacy on-box Chrome,
+ * bounce the reverse-forward SSH session so the operator's keep-alive script
+ * reconnects), then reconnect CDP and report status. The tunnel field carries
+ * the helper's error if it isn't installed or failed.
+ */
+export async function browserRebuildTunnel(): Promise<BrowserProbe> {
+  const rebuilt = await rebuildTunnel();
+  await resetConnection();
+  const status = await browserStatus();
+  // Prefer the rebuild's own error (e.g. sudo missing) over a clean re-read.
+  if (!rebuilt.available) return { ...status, tunnel: rebuilt };
+  return status;
+}
 
 /** Wrap a logged-out signal as a non-retryable failure the workflow detects. */
 function loggedOutFailure(): ApplicationFailure {

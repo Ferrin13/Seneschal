@@ -76,8 +76,14 @@ write_files:
       tar -xzf "$TMP/agent.tar.gz" -C /opt/browser/app/agent
       chown -R browser:browser /opt/browser/app
       rm -rf "$TMP"
-      systemctl restart scraper-agent
-      echo "Agent deployed and restarted."
+      # The artifact carries the host-side install (unit file, tunnel helper,
+      # sudoers, legacy-stack cleanup). It restarts the agent itself.
+      if [ -x /opt/browser/app/agent/box/install.sh ]; then
+        bash /opt/browser/app/agent/box/install.sh
+      else
+        systemctl restart scraper-agent
+        echo "Agent deployed and restarted."
+      fi
 
   # ---- Main setup script ----
   - path: /opt/browser/setup.sh

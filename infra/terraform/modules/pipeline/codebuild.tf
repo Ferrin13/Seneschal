@@ -404,7 +404,9 @@ resource "aws_codebuild_project" "agent_build" {
             - npm run build
             # Drop dev deps so only the runtime closure ships to the box.
             - npm prune --omit=dev
-            - tar -czf /tmp/agent.tar.gz dist node_modules package.json package-lock.json
+            # `box/` carries the host-side install (systemd unit, tunnel helper,
+            # sudoers); the Deploy stage runs box/install.sh after extracting.
+            - tar -czf /tmp/agent.tar.gz dist node_modules package.json package-lock.json box
             - aws s3 cp /tmp/agent.tar.gz "s3://$RELEASES_BUCKET/agent/$COMMIT_SHORT/agent.tar.gz"
             - aws s3 cp /tmp/agent.tar.gz "s3://$RELEASES_BUCKET/agent/latest/agent.tar.gz"
             - echo "Uploaded agent artifact ($COMMIT_SHORT)"
@@ -463,11 +465,17 @@ resource "aws_codebuild_project" "agent_deploy" {
             - |
               set -e
               echo "Triggering agent redeploy on $BROWSER_INSTANCE_ID"
+              # deploy-agent.sh pulls + extracts the artifact. box/install.sh
+              # (shipped inside it) then converges the host: systemd unit
+              # without the legacy chrome.service dependency, legacy browser
+              # stack masked, tunnel helper + sudoers, agent restarted. Run it
+              # explicitly here because the box's own deploy-agent.sh may
+              # predate the install step (user_data is frozen post-launch).
               CMD_ID=$(aws ssm send-command \
                 --instance-ids "$BROWSER_INSTANCE_ID" \
                 --document-name "AWS-RunShellScript" \
                 --comment "Deploy scraper agent" \
-                --parameters 'commands=["/opt/browser/deploy-agent.sh"]' \
+                --parameters 'commands=["/opt/browser/deploy-agent.sh","bash /opt/browser/app/agent/box/install.sh"]' \
                 --query "Command.CommandId" --output text)
               echo "SSM command $CMD_ID dispatched; waiting..."
               aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$BROWSER_INSTANCE_ID" || true

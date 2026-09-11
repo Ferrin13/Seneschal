@@ -2,6 +2,8 @@ import { proxyActivities, workflowInfo } from "@temporalio/workflow";
 import type * as activities from "./activities/index.js";
 import type {
   BrowserActivities,
+  BrowserAgentAction,
+  BrowserProbe,
   CandidateRef,
   RunMeta,
   SearchRef,
@@ -31,6 +33,35 @@ const browser = proxyActivities<BrowserActivities>({
   // Fewer attempts: a login wall won't fix itself within a run.
   retry: { maximumAttempts: 2 },
 });
+
+// Health/control probes for the tunneled browser. A tight schedule-to-start
+// timeout is the point: if no agent is polling the browser queue (box down,
+// agent stopped) the activity never starts and the workflow fails fast with a
+// SCHEDULE_TO_START timeout, which the API maps to "agent offline". No retries
+// so the user gets an answer, not a wait.
+const browserControl = proxyActivities<BrowserActivities>({
+  taskQueue: BROWSER_TASK_QUEUE,
+  scheduleToStartTimeout: "10 seconds",
+  startToCloseTimeout: "90 seconds",
+  retry: { maximumAttempts: 1 },
+});
+
+/**
+ * On-demand probe/control of the tunneled browser, run by the deal-hunter web
+ * UI's status panel. Thin by design: one activity on the browser queue.
+ */
+export async function browserAgentWorkflow(input: {
+  action: BrowserAgentAction;
+}): Promise<BrowserProbe> {
+  switch (input.action) {
+    case "reconnect":
+      return browserControl.browserReconnect();
+    case "rebuild_tunnel":
+      return browserControl.browserRebuildTunnel();
+    default:
+      return browserControl.browserStatus();
+  }
+}
 
 /** Detect the browser box's "logged out of Facebook" signal. */
 function isLoggedOut(err: unknown): boolean {
