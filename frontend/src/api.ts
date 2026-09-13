@@ -12,6 +12,7 @@ import type { Feature } from "./features";
 import type {
   LeagueAnalysis,
   LeagueValues,
+  LiveBoard,
   PlayerDetailReport,
   ProjectionSource,
   RegressionReport,
@@ -736,6 +737,10 @@ export const api = {
     authedFetch(`/thrawn/leagues/${id}/values`) as Promise<LeagueValues>,
   thrawnLeagueAnalysis: (id: string) =>
     authedFetch(`/thrawn/leagues/${id}/analysis`) as Promise<LeagueAnalysis>,
+  thrawnLeagueLive: (id: string, week?: number) =>
+    authedFetch(
+      `/thrawn/leagues/${id}/live${week != null ? `?week=${week}` : ""}`
+    ) as Promise<LiveBoard>,
   thrawnLeagueSeasonBoard: (id: string, season: string) =>
     authedFetch(`/thrawn/leagues/${id}/history/${season}`) as Promise<SeasonBoard>,
   thrawnLeagueRegression: (id: string, season?: string) =>

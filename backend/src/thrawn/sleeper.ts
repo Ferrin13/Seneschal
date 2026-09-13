@@ -93,6 +93,37 @@ export type SleeperMatchup = {
   roster_id: number;
   matchup_id: number | null;
   points: number | null;
+  /** Lineup in roster_positions order (minus BN/IR); "0" marks an empty slot. */
+  starters: string[] | null;
+  players: string[] | null;
+  /** Live league-scored points for every rostered player (in-season only). */
+  players_points: Record<string, number> | null;
+  starters_points: number[] | null;
+};
+
+export type SleeperNflState = {
+  week: number;
+  season: string;
+  season_type: string;
+  display_week: number;
+  season_start_date: string;
+};
+
+export type SleeperScheduleGame = {
+  game_id: string;
+  week: number;
+  date: string;
+  home: string;
+  away: string;
+  status: "pre_game" | "in_game" | "complete" | "canceled" | string;
+};
+
+/** One row of the weekly stats/projections feeds (a season row plus game context). */
+export type SleeperWeekEntry = SleeperProjectionEntry & {
+  team: string | null;
+  opponent: string | null;
+  game_id: string | null;
+  last_modified: number | null;
 };
 
 export function fetchLeague(leagueId: string): Promise<SleeperLeague> {
@@ -143,5 +174,42 @@ export function fetchSeasonStats(
   const positions = FANTASY_POSITIONS.map((p) => `position[]=${p}`).join("&");
   return getJson(
     `${PROJECTIONS_BASE}/stats/nfl/${season}?season_type=regular&${positions}&order_by=pts_ppr`
+  );
+}
+
+/** Current NFL week/season per Sleeper (drives which week is "live"). */
+export function fetchNflState(): Promise<SleeperNflState> {
+  return getJson(`${V1_BASE}/state/nfl`);
+}
+
+/** Regular-season schedule with per-game status (pre_game / in_game / complete). */
+export function fetchSchedule(season: string): Promise<SleeperScheduleGame[]> {
+  return getJson(`https://api.sleeper.app/schedule/nfl/regular/${season}`);
+}
+
+function positionQuery(): string {
+  return FANTASY_POSITIONS.map((p) => `position[]=${p}`).join("&");
+}
+
+/**
+ * One week's actual stat lines. Updates within seconds during games (the
+ * feed sits behind a 4s edge cache), so it doubles as the live box score.
+ */
+export function fetchWeekStats(
+  season: string,
+  week: number
+): Promise<SleeperWeekEntry[]> {
+  return getJson(
+    `${PROJECTIONS_BASE}/stats/nfl/${season}/${week}?season_type=regular&${positionQuery()}&order_by=pts_ppr`
+  );
+}
+
+/** One week's stat-level projections (same shape as the season feed). */
+export function fetchWeekProjections(
+  season: string,
+  week: number
+): Promise<SleeperWeekEntry[]> {
+  return getJson(
+    `${PROJECTIONS_BASE}/projections/nfl/${season}/${week}?season_type=regular&${positionQuery()}&order_by=pts_ppr`
   );
 }

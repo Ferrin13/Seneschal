@@ -45,12 +45,21 @@ import {
   fetchLeague,
   fetchLeagueUsers,
   fetchMatchups,
+  fetchNflState,
   fetchPlayersDump,
   fetchRosters,
+  fetchSchedule,
   fetchSeasonProjections,
   fetchSeasonStats,
+  fetchWeekProjections,
+  fetchWeekStats,
   type SleeperLeague,
 } from "./sleeper.js";
+import {
+  buildLiveBoard,
+  type LiveBoard,
+  type LivePlayerInfo,
+} from "./live.js";
 
 export class ThrawnError extends Error {
   constructor(public code: string, message: string, public status = 400) {
@@ -1360,4 +1369,142 @@ export async function setOverride(
     })
     .returning();
   return row!;
+}
+
+// --- Live scoring -----------------------------------------------------------
+
+/**
+ * Tiny promise cache for the live feeds: one in-flight fetch per key is
+ * shared by every viewer, and results live for a short TTL so a page
+ * polling every 30s stays well under Sleeper's request budget.
+ */
+const liveCache = new Map<string, { expiresAt: number; value: Promise<unknown> }>();
+
+function cachedFetch<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const hit = liveCache.get(key);
+  if (hit && hit.expiresAt > now) return hit.value as Promise<T>;
+  const value = fn().catch((err) => {
+    liveCache.delete(key);
+    throw err;
+  });
+  liveCache.set(key, { expiresAt: now + ttlMs, value });
+  return value;
+}
+
+const LIVE_TTL_MS = {
+  state: 5 * 60 * 1000,
+  schedule: 60 * 1000,
+  matchups: 20 * 1000,
+  stats: 20 * 1000,
+  projections: 10 * 60 * 1000,
+};
+
+const REGULAR_SEASON_WEEKS = 18;
+
+/**
+ * Live scoreboard for one week of a tracked league. Defaults to Sleeper's
+ * current NFL week when the league is in the current season, else week 1.
+ */
+export async function getLeagueLive(
+  userId: string,
+  leagueId: string,
+  weekOverride?: number
+): Promise<LiveBoard> {
+  const league = await getLeague(userId, leagueId);
+  if (!league) throw new ThrawnError("not_found", "League not found", 404);
+
+  const season = league.season;
+  let week = weekOverride;
+  if (week == null) {
+    const state = await cachedFetch("state", LIVE_TTL_MS.state, fetchNflState);
+    week =
+      state.season === season
+        ? Math.min(Math.max(state.week || 1, 1), REGULAR_SEASON_WEEKS)
+        : 1;
+  }
+
+  const [teams, matchups, statRows, projRows, schedule] = await Promise.all([
+    db.select().from(thrawnTeams).where(eq(thrawnTeams.leagueId, leagueId)),
+    cachedFetch(
+      `matchups:${league.sleeperLeagueId}:${week}`,
+      LIVE_TTL_MS.matchups,
+      () => fetchMatchups(league.sleeperLeagueId, week!)
+    ),
+    cachedFetch(`stats:${season}:${week}`, LIVE_TTL_MS.stats, () =>
+      fetchWeekStats(season, week!)
+    ),
+    cachedFetch(`proj:${season}:${week}`, LIVE_TTL_MS.projections, () =>
+      fetchWeekProjections(season, week!)
+    ),
+    cachedFetch(`schedule:${season}`, LIVE_TTL_MS.schedule, () =>
+      fetchSchedule(season)
+    ),
+  ]);
+
+  const playerIds = [
+    ...new Set(matchups.flatMap((m) => m.players ?? [])),
+  ].filter((id) => id !== "0");
+  const playerRows =
+    playerIds.length > 0
+      ? await db
+          .select()
+          .from(thrawnPlayers)
+          .where(inArray(thrawnPlayers.id, playerIds))
+      : [];
+
+  const players = new Map<string, LivePlayerInfo>();
+  for (const p of playerRows) {
+    players.set(p.id, {
+      name: `${p.firstName} ${p.lastName}`.trim() || p.id,
+      position: p.position,
+      team: p.team,
+      injuryStatus: p.injuryStatus,
+    });
+  }
+  // Fill any gap from the feed's embedded player record (e.g. a player
+  // added after the last daily dictionary refresh).
+  for (const row of [...statRows, ...projRows]) {
+    if (players.has(row.player_id) || !row.player) continue;
+    players.set(row.player_id, {
+      name: `${row.player.first_name} ${row.player.last_name}`.trim(),
+      position: row.player.position,
+      team: row.player.team,
+      injuryStatus: row.player.injury_status,
+    });
+  }
+
+  return buildLiveBoard({
+    season,
+    week,
+    fetchedAt: new Date(),
+    scoring: league.settings.scoring,
+    rosterPositions: league.settings.rosterPositions,
+    teams: teams.map((t) => ({
+      rosterId: t.rosterId,
+      displayName: t.displayName,
+      teamName: t.teamName,
+      avatar: t.avatar,
+    })),
+    matchups: matchups.map((m) => ({
+      rosterId: m.roster_id,
+      matchupId: m.matchup_id,
+      points: m.points,
+      starters: m.starters,
+      players: m.players,
+      playersPoints: m.players_points,
+    })),
+    players,
+    stats: new Map(
+      statRows.map((r) => [
+        r.player_id,
+        { stats: r.stats, team: r.team, opponent: r.opponent },
+      ])
+    ),
+    projections: new Map(
+      projRows.filter((r) => r.stats).map((r) => [r.player_id, r.stats!])
+    ),
+    schedule: schedule.filter((g) => g.week === week),
+    myRosterId: league.myRosterId,
+  });
 }

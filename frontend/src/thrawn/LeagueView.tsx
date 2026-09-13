@@ -27,8 +27,10 @@ import { TradeTargets } from "./TradeTargets";
 import { TradeAnalyzer } from "./TradeAnalyzer";
 import { RegressionTargets } from "./RegressionTargets";
 import { DraftValue } from "./DraftValue";
+import { LiveScoring } from "./LiveScoring";
 
 type TabId =
+  | "live"
   | "board"
   | "players"
   | "analysis"
@@ -227,6 +229,7 @@ export function LeagueView({ leagueId }: { leagueId: string }) {
         variant="scrollable"
         allowScrollButtonsMobile
       >
+        <Tab value="live" label="Live" />
         <Tab value="board" label="League Board" />
         <Tab value="players" label="Players" />
         <Tab value="analysis" label="Team Analysis" />
@@ -236,7 +239,9 @@ export function LeagueView({ leagueId }: { leagueId: string }) {
         <Tab value="draft" label="Draft Value" />
       </Tabs>
 
-      {tab === "board" ? (
+      {tab === "live" ? (
+        <LiveScoring leagueId={leagueId} myRosterId={league.myRosterId} />
+      ) : tab === "board" ? (
         <LeagueBoard
           leagueId={leagueId}
           teams={teams}

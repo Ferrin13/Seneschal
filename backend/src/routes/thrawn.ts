@@ -4,6 +4,7 @@ import {
   createLeague,
   deleteLeague,
   getLeagueAnalysis,
+  getLeagueLive,
   getLeaguePlayerDetail,
   getLeagueRegression,
   getLeagueSeasonBoard,
@@ -125,6 +126,19 @@ export const thrawnRoutes: FastifyPluginAsync = async (app) => {
     const { id } = idParams.parse(req.params);
     try {
       return await getLeagueAnalysis(req.auth.userId, id);
+    } catch (err) {
+      const mapped = mapError(err);
+      return reply.code(mapped.status).send(mapped.body);
+    }
+  });
+
+  app.get("/thrawn/leagues/:id/live", async (req, reply) => {
+    const { id } = idParams.parse(req.params);
+    const query = z
+      .object({ week: z.coerce.number().int().min(1).max(18).optional() })
+      .parse(req.query);
+    try {
+      return await getLeagueLive(req.auth.userId, id, query.week);
     } catch (err) {
       const mapped = mapError(err);
       return reply.code(mapped.status).send(mapped.body);

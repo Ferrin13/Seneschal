@@ -231,3 +231,62 @@ export type PlayerDetailReport = {
   /** Current-season projected raw stats (per-key mean across sources). */
   projectedStats: Record<string, number>;
 };
+
+// --- Live scoring -----------------------------------------------------------
+
+/** Where a player's NFL game stands: bye/empty slot, not kicked off, in progress, over. */
+export type GameState = "bye" | "pre" | "live" | "final";
+
+export type LiveGame = {
+  gameId: string;
+  home: string;
+  away: string;
+  status: string;
+  date: string;
+  state: Exclude<GameState, "bye">;
+};
+
+export type LivePlayer = {
+  slot: string;
+  /** Empty string for an empty lineup slot. */
+  playerId: string;
+  name: string;
+  position: string | null;
+  team: string | null;
+  opponent: string | null;
+  home: boolean | null;
+  gameState: GameState;
+  injuryStatus: string | null;
+  points: number;
+  projected: number;
+  projectedFinal: number;
+  statLine: string;
+};
+
+export type LiveTeam = {
+  rosterId: number;
+  displayName: string | null;
+  teamName: string | null;
+  avatar: string | null;
+  points: number;
+  projectedFinal: number;
+  starters: LivePlayer[];
+  bench: LivePlayer[];
+  yetToPlay: number;
+  inPlay: number;
+  done: number;
+};
+
+export type LiveMatchup = {
+  matchupId: number | null;
+  teams: LiveTeam[];
+};
+
+export type LiveBoard = {
+  season: string;
+  week: number;
+  fetchedAt: string;
+  games: LiveGame[];
+  anyLive: boolean;
+  matchups: LiveMatchup[];
+};
