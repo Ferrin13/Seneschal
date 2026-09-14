@@ -25,11 +25,15 @@ Your environment (from `prod.tfvars`):
 
 ## 0. Pre-flight fixes (do these first)
 
-- [ ] **`browser_allowed_cidrs`** is still the doc placeholder
-  `203.0.113.4/32`. Set it to your real public IP(s) or you'll lock
-  *yourself* out of SSH / the reverse tunnel (and leave it open to no one
-  else). Find your IP: `(Invoke-RestMethod https://api.ipify.org)` then use
-  `<ip>/32`.
+- [ ] **`browser_allowed_cidrs`** can stay `[]`. The tunnel script reaches
+  the box over SSM Session Manager, which needs no inbound rule and doesn't
+  care what your public IP is. Only populate it (your IP as `<ip>/32`) if you
+  want the direct-SSH fallback (`fb-agent-tunnel.ps1 -Transport ssh`), and
+  expect to re-apply whenever your IP changes.
+- [ ] **Local tools for SSM transport**: AWS CLI v2 and the
+  [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html)
+  on PATH, and an AWS profile (`seneschal`) that can `ssm:StartSession` on the
+  box and `ec2:DescribeInstances`.
 - [ ] **`browser_ssh_public_key`** is set to your SSH public key
   (`~/.ssh/id_ed25519.pub`). It's how you open the reverse CDP tunnel to the
   agent host.
@@ -93,6 +97,15 @@ aws ssm put-parameter `
   --value (Get-Content -Raw .\firebase-service-account.json) `
   --profile seneschal --region us-west-2
 ```
+
+Both the API and the Temporal worker read this parameter. The API only needs
+it for completeness (ID-token verification works with public keys), but the
+worker uses it to send deal-hunter push notifications through Firebase Cloud
+Messaging, so the service account must belong to the same Firebase project
+the Android app is registered in. FCM's v1 API is enabled by default on
+Firebase projects; if sends fail with `messaging/unknown-error` /
+`PERMISSION_DENIED`, enable "Firebase Cloud Messaging API (V1)" in the Google
+Cloud console for the project.
 
 (OpenRouter key is supplied via the `openrouter_api_key` tfvar — Terraform
 puts it in Secrets Manager for you.)
@@ -253,17 +266,30 @@ this up once; the keep-alive script keeps it running.
 
    It launches an isolated Chrome (`--remote-debugging-port=9222`, profile
    `%USERPROFILE%\fb-scrape-profile`) and opens the reverse tunnel
-   `ssh -N -R 9222:127.0.0.1:9222 ubuntu@browser.parthadae.com`, auto-reconnecting
-   if it drops. To survive reboots, register it at logon (see the script's
-   header for the `Register-ScheduledTask` snippet).
+   `ssh -N -R 9222:127.0.0.1:9222 ubuntu@<instance-id>` **over SSM Session
+   Manager** (ProxyCommand `aws ssm start-session … AWS-StartSSHSession`), so
+   it needs no inbound port on the box and survives your public IP changing.
+   It finds the instance by its `*browser-box` Name tag and auto-reconnects
+   if the link drops. To survive reboots, register it at logon (see the
+   script's header for the `Register-ScheduledTask` snippet). `-Transport ssh`
+   falls back to direct SSH to `browser.parthadae.com` (requires your IP in
+   `browser_allowed_cidrs`).
 
 2. In that Chrome window, **log into Facebook** normally and finish any 2FA.
    The session persists in the dedicated profile.
 
-3. Verify the box sees your Chrome (should print a `Windows` user-agent):
+3. Verify the box sees your Chrome (should print a `Windows` user-agent).
+   Add this once to `~/.ssh/config` so plain `ssh` to an instance id goes over
+   SSM too:
+
+   ```
+   Host i-* mi-*
+     ProxyCommand aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p --profile seneschal --region us-west-2
+   ```
 
    ```powershell
-   ssh ubuntu@browser.parthadae.com "curl -s http://127.0.0.1:9222/json/version"
+   $box = terraform output -raw browser_box_instance_id
+   ssh ubuntu@$box "curl -s http://127.0.0.1:9222/json/version; sudo seneschal-tunnel-ctl status"
    ```
 
 4. The `scraper-agent` systemd unit (a Temporal worker on the `browser-box`
@@ -338,6 +364,13 @@ The release APK's `API_BASE_URL` is hardcoded to
 the Android Firebase app is registered under project `seneschal-c4b9a`, then
 build/sideload as usual. Not part of this Terraform/CI pipeline.
 
+Deal-hunter alerts reach the phone over Firebase Cloud Messaging: the app
+registers its FCM token with `POST /me/devices` on every sync, and a tap on
+the notification opens `https://<web_fqdn>/deals/<candidate>` in the browser.
+Registered phones are listed (and can be removed) under Deal Hunter →
+Settings in the web UI; that same panel's master switch is what turns
+pushing on.
+
 ---
 
 ## Day-to-day & operations
@@ -364,7 +397,9 @@ build/sideload as usual. Not part of this Terraform/CI pipeline.
 | Worker logs: `Connection refused` to Temporal | Temporal task not healthy yet, or SG rule missing — check `parthadae-temporal` service + `aws logs tail /ecs/parthadae-temporal`. |
 | Worker: `Invalid environment configuration` | A required var (e.g. `DATABASE_URL`, `OPENROUTER_API_KEY`) not injected — check the worker task def / secrets. |
 | Temporal task boot-loops | RDS not reachable — verify the Temporal DB SG and that `parthadae-temporal` RDS is `available`. |
-| `scraper-agent` logs `ECONNREFUSED 127.0.0.1:9222` | The reverse tunnel isn't up — start `fb-agent-tunnel.ps1` on your machine (step 7). Verify with `ssh ubuntu@browser.parthadae.com "curl -s http://127.0.0.1:9222/json/version"`. |
+| `scraper-agent` logs `ECONNREFUSED 127.0.0.1:9222` / panel says *Tunnel down* | The reverse tunnel isn't up — start `fb-agent-tunnel.ps1` on your machine (step 7). Verify with `ssh ubuntu@<instance-id> "curl -s http://127.0.0.1:9222/json/version"`. |
+| `fb-agent-tunnel.ps1` (direct `-Transport ssh`) logs `port 22: Connection timed out` | Your public IP isn't in `browser_allowed_cidrs` (new ISP, hotspot, CGNAT). Don't chase it — run the script with the default SSM transport, which needs no inbound rule. The **Rebuild tunnel** button can't help here: it acts on the box, and the problem is your side can't reach it. |
+| SSM transport fails with `SessionManagerPlugin is not found` / `TargetNotConnected` | Install the Session Manager plugin locally; on the box check `sudo snap services amazon-ssm-agent` and that the instance profile has `AmazonSSMManagedInstanceCore`. |
 | `scraper-agent` crash-loops with "cannot find dist/worker.js" | Agent artifact not deployed yet — run the `seneschal-agent` pipeline (step 5). On the box: `sudo /opt/browser/deploy-agent.sh`. |
 | Facebook activities fail with `logged_out` | Your local Chrome's Facebook session expired — re-open the dedicated Chrome (step 7) and log back in. |
 | `scraper-agent` logs `net::ERR_PROXY_CONNECTION_FAILED`; box `curl .../json/version` shows a `Linux` user-agent | The legacy on-box Chrome (from the pre-tunnel design) is holding `127.0.0.1:9222`, so the tunnel only bound `[::1]` and the agent talks to the wrong browser. Click **Rebuild tunnel** in the Targets page panel, or on the box `sudo seneschal-tunnel-ctl rebuild`. Boxes launched before the tunnel design converge on the next agent deploy (`box/install.sh` masks `chrome/xvfb/x11vnc/novnc` and removes the unit's `Requires=chrome.service`). |

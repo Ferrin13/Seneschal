@@ -971,6 +971,39 @@ export const notifications = pgTable(
 );
 
 /**
+ * A phone (Android app install) registered to receive push notifications for
+ * the signed-in user via Firebase Cloud Messaging. The token is the FCM
+ * registration token, unique per app instance; if a different account signs
+ * in on the same device the upsert simply moves the token to that user.
+ * Stale tokens are pruned when FCM reports them unregistered.
+ */
+export const pushDevices = pgTable(
+  "push_devices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    token: text("token").notNull(),
+    platform: text("platform").notNull().default("android"),
+    deviceName: text("device_name"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    tokenIdx: uniqueIndex("push_devices_token_idx").on(t.token),
+    userIdx: index("push_devices_user_idx").on(t.userId),
+  })
+);
+
+/**
  * Append-only history of pipeline steps for a candidate, powering the UI
  * timeline. Each hunt-workflow activity logs a stage transition here with a
  * free-form `detail` payload (verdict, score, model, cost, counts, etc.) and

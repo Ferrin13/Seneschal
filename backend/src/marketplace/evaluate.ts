@@ -19,6 +19,7 @@ import {
 } from "./notificationSettings.js";
 import { clampScore, dealScore, legacyVerdict, promiseScore } from "./scoring.js";
 import { presignGet } from "./storage.js";
+import { pushDealNotification } from "../push/deals.js";
 
 const PROMPT_VERSION = "advanced-v3";
 const MAX_IMAGES = 6;
@@ -226,7 +227,7 @@ export async function evaluatePending(
         targetId: await candidateTargetId(listing.candidateId),
       });
 
-      await db.transaction(async (tx) => {
+      const notification = await db.transaction(async (tx) => {
         const [evalRow] = await tx
           .insert(evaluations)
           .values({
@@ -246,8 +247,10 @@ export async function evaluatePending(
           })
           .returning({ id: evaluations.id });
 
-        if (isGoodDeal) {
-          await tx.insert(notifications).values({
+        if (!isGoodDeal) return null;
+        const [row] = await tx
+          .insert(notifications)
+          .values({
             userId,
             listingId: listing.id,
             evaluationId: evalRow!.id,
@@ -258,9 +261,24 @@ export async function evaluatePending(
                 ? ` (est. value ${money(estimatedValueCents)})`
                 : ""
             } — ${rationale ?? ""}`.slice(0, 1000),
+          })
+          .returning({
+            id: notifications.id,
+            title: notifications.title,
+            body: notifications.body,
           });
-        }
+        return row ?? null;
       });
+
+      if (notification) {
+        await pushDealNotification(userId, {
+          notificationId: notification.id,
+          kind: "deal",
+          title: notification.title,
+          body: notification.body,
+          candidateId: listing.candidateId,
+        });
+      }
 
       run.evaluated += 1;
       if (isGoodDeal) run.goodDeals += 1;

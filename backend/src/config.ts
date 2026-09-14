@@ -19,7 +19,19 @@ const schema = z.object({
     .default("info"),
   DATABASE_URL: z.string().min(1),
   FIREBASE_PROJECT_ID: z.string().min(1),
+  // Firebase service-account credentials. Locally, point
+  // GOOGLE_APPLICATION_CREDENTIALS at the downloaded JSON file (the Google
+  // SDK picks it up by itself). In ECS the JSON is injected inline from SSM
+  // as GOOGLE_APPLICATION_CREDENTIALS_JSON. ID-token verification works with
+  // neither (it only needs Google's public keys), but sending push
+  // notifications through Firebase Cloud Messaging requires one of them.
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
+  GOOGLE_APPLICATION_CREDENTIALS_JSON: z.string().min(1).optional(),
+  // Public origin of the web UI (e.g. https://seneschal.example.com), used to
+  // build the links that push notifications open. Falls back to the first
+  // CORS origin so the API works without it; the Temporal worker has no CORS
+  // config, so it needs this set explicitly.
+  WEB_APP_URL: z.string().url().optional(),
   // Comma-separated emails that are always admins with every feature, even
   // if their `user_access` row is missing or edited. This is the lockout
   // guard: the admin page can't demote or delete them. Rows for them are

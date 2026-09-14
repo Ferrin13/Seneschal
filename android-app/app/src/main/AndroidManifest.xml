@@ -68,6 +68,19 @@
         </service>
 
         <!--
+          Firebase Cloud Messaging receiver. The backend pushes deal-hunter
+          alerts here as data-only messages; the service renders them and a
+          tap opens the deal in the web app.
+        -->
+        <service
+            android:name=".push.SeneschalMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!--
           Disable WorkManager's default initializer so our Application
           (which implements Configuration.Provider and supplies the
           HiltWorkerFactory) is consulted on first WorkManager.getInstance()

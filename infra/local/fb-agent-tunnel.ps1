@@ -20,12 +20,34 @@
   it's a real, logged-in browser on a residential IP, Facebook doesn't
   challenge it.
 
+  TRANSPORT: by default the SSH session rides over AWS SSM Session Manager
+  (ProxyCommand `aws ssm start-session ... AWS-StartSSHSession`), so it never
+  touches the box's port 22 or its security group. Your public IP can change
+  freely (new ISP, hotspot, CGNAT) and the tunnel keeps working. Requires the
+  AWS CLI + Session Manager plugin and an AWS profile allowed to ssm:StartSession
+  on the instance. Pass -Transport ssh to use direct SSH to -BoxHost instead
+  (then the SG's browser_allowed_cidrs must include your IP).
+
 .DESCRIPTION
   Run it once in a terminal, or register it to run at logon (see REGISTER
   below). It loops forever; Ctrl+C to stop.
 
+.PARAMETER Transport
+  "ssm" (default): SSH over SSM Session Manager to the instance id.
+  "ssh": direct SSH to -BoxHost on port 22.
+
+.PARAMETER InstanceId
+  EC2 instance id of the agent host (ssm transport). If empty, resolved by the
+  Name tag "*browser-box" via `aws ec2 describe-instances`, so replacing the
+  instance in Terraform needs no script change.
+
+.PARAMETER AwsProfile / AwsRegion
+  AWS CLI profile/region used for the SSM session and instance lookup.
+  Default profile "seneschal", region us-west-2.
+
 .PARAMETER BoxHost
-  SSH host of the agent host (Route53 A record -> EIP). Default browser.parthadae.com.
+  SSH host of the agent host for -Transport ssh (Route53 A record -> EIP).
+  Default browser.parthadae.com.
 
 .PARAMETER RemotePort / LocalPort
   CDP port mapped on the box / listened on locally. Default 9222 both.
@@ -58,8 +80,12 @@
     $set     = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
     Register-ScheduledTask -TaskName "FbAgentTunnel" -Action $action -Trigger $trigger -Settings $set
 
-  To confirm the box sees your Chrome:
-    ssh ubuntu@browser.parthadae.com "curl -s http://127.0.0.1:9222/json/version"
+  To confirm the box sees your Chrome (over SSM; no port 22 needed). Put this
+  in ~/.ssh/config once and plain `ssh ubuntu@i-...` works too:
+    Host i-* mi-*
+      ProxyCommand aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p --profile seneschal --region us-west-2
+  then:
+    ssh ubuntu@<instance-id> "curl -s http://127.0.0.1:9222/json/version"
 
   Temporal CLI against the forwarded frontend:
     temporal --address localhost:7234 task-queue describe --task-queue browser-box
@@ -67,6 +93,11 @@
 
 [CmdletBinding()]
 param(
+  [ValidateSet("ssm", "ssh")]
+  [string]$Transport          = "ssm",
+  [string]$InstanceId         = "",
+  [string]$AwsProfile         = "seneschal",
+  [string]$AwsRegion          = "us-west-2",
   [string]$BoxHost            = "browser.parthadae.com",
   [string]$BoxUser            = "ubuntu",
   [int]   $RemotePort         = 9222,
@@ -125,6 +156,44 @@ function Ensure-Chrome {
   Write-Log "WARNING: Chrome started but CDP not reachable yet; continuing."
 }
 
+# Cached instance id for the ssm transport (looked up by Name tag when the
+# -InstanceId param is empty). Re-resolved after a failed connection so an
+# instance replacement is picked up without restarting the script.
+$script:ResolvedInstanceId = $InstanceId
+
+function Resolve-InstanceId {
+  if ($script:ResolvedInstanceId) { return $script:ResolvedInstanceId }
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $id = (& aws ec2 describe-instances `
+        --profile $AwsProfile --region $AwsRegion `
+        --filters "Name=tag:Name,Values=*browser-box" "Name=instance-state-name,Values=running" `
+        --query "Reservations[0].Instances[0].InstanceId" --output text 2>$null)
+  } finally {
+    $ErrorActionPreference = $prev
+  }
+  if (-not $id -or $id -eq "None") {
+    throw "Could not find a running *browser-box instance (profile $AwsProfile, region $AwsRegion). Pass -InstanceId."
+  }
+  $script:ResolvedInstanceId = $id.Trim()
+  Write-Log "Resolved agent host instance: $($script:ResolvedInstanceId)"
+  return $script:ResolvedInstanceId
+}
+
+# Build the ssh target + transport-specific options.
+function Get-SshTarget {
+  if ($Transport -eq "ssh") {
+    return @{ Target = "$BoxUser@$BoxHost"; Opts = @() }
+  }
+  $id = Resolve-InstanceId
+  # ssh substitutes %h (host = instance id) and %p (port) into the proxy
+  # command; SSM's AWS-StartSSHSession document bridges to sshd on the box.
+  $proxy = "aws ssm start-session --target %h --document-name AWS-StartSSHSession " +
+           "--parameters portNumber=%p --profile $AwsProfile --region $AwsRegion"
+  return @{ Target = "$BoxUser@$id"; Opts = @("-o", "ProxyCommand=$proxy") }
+}
+
 function Ensure-TemporalUi {
   if (-not $StartTemporalUi) { return }
   if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
@@ -170,7 +239,16 @@ function Ensure-TemporalUi {
   }
 }
 
-Write-Log "fb-agent-tunnel starting. Box=$BoxUser@$BoxHost"
+if ($Transport -eq "ssm") {
+  Write-Log "fb-agent-tunnel starting. Transport=ssm (profile $AwsProfile, $AwsRegion)"
+  foreach ($tool in @("aws", "session-manager-plugin")) {
+    if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+      throw "'$tool' not found on PATH; install the AWS CLI v2 and the Session Manager plugin, or use -Transport ssh."
+    }
+  }
+} else {
+  Write-Log "fb-agent-tunnel starting. Transport=ssh Box=$BoxUser@$BoxHost"
+}
 Write-Log "  reverse -R box:$RemotePort -> local Chrome CDP :$LocalPort"
 Write-Log "  forward -L local:$TemporalLocalPort -> ${TemporalRemoteHost}:$TemporalRemotePort"
 
@@ -179,6 +257,7 @@ Ensure-TemporalUi
 while ($true) {
   try {
     Ensure-Chrome
+    $conn = Get-SshTarget
 
     # -N: no remote command. ExitOnForwardFailure: die if either bind fails
     # (e.g. a stale forward still holds a port) so we retry cleanly.
@@ -190,14 +269,21 @@ while ($true) {
       "-o", "ServerAliveCountMax=3",
       "-o", "ExitOnForwardFailure=yes",
       "-o", "StrictHostKeyChecking=accept-new",
-      "-i", $SshKey,
+      "-i", $SshKey
+    ) + $conn.Opts + @(
       "-R", "$RemotePort`:127.0.0.1:$LocalPort",
       "-L", "$TemporalLocalPort`:$TemporalRemoteHost`:$TemporalRemotePort",
-      "$BoxUser@$BoxHost"
+      $conn.Target
     )
-    Write-Log "Opening tunnels (reverse CDP + forward Temporal)..."
+    Write-Log "Opening tunnels to $($conn.Target) (reverse CDP + forward Temporal)..."
+    $started = Get-Date
     & ssh @sshArgs
     Write-Log "Tunnels exited (code $LASTEXITCODE). Reconnecting in 5s..."
+    # A session that died within seconds never really connected. Forget the
+    # cached instance id so the next attempt re-resolves it (instance replaced?).
+    if (((Get-Date) - $started).TotalSeconds -lt 15 -and -not $InstanceId) {
+      $script:ResolvedInstanceId = ""
+    }
   }
   catch {
     Write-Log "Error: $($_.Exception.Message). Retrying in 5s..."

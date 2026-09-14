@@ -34,9 +34,11 @@ assumed to already exist as RDS in a VPC you own):
   queue — for Facebook Marketplace. Facebook challenges datacenter IPs and
   instrumented/headless browsers, so the agent drives a **real Chrome on the
   operator's local machine**, reached over an SSH reverse tunnel
-  (`box 127.0.0.1:9222 -> local Chrome CDP`). The box therefore runs no
-  browser of its own; it's the SSH jump host and lives in the VPC so the agent
-  can reach Temporal privately. The agent is **not** built on the box; it's
+  (`box 127.0.0.1:9222 -> local Chrome CDP`). That SSH session rides over
+  SSM Session Manager, so the box needs no inbound port and the operator's
+  public IP can change freely. The box therefore runs no browser of its own;
+  it's the SSH jump host and lives in the VPC so the agent can reach Temporal
+  privately. The agent is **not** built on the box; it's
   shipped as a CI-built artifact (see below). See
   `infra/local/fb-agent-tunnel.ps1` for the operator-side keep-alive.
 - **Agent release pipeline** (`modules/pipeline`, when the browser box is

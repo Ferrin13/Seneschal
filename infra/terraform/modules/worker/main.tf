@@ -69,6 +69,15 @@ data "aws_iam_policy_document" "task_execution_secrets" {
     resources = [var.db_secret_arn, var.openrouter_secret_arn]
   }
 
+  # The Firebase service-account JSON (same SSM SecureString the API reads).
+  # The worker needs real credentials to send push notifications through
+  # Firebase Cloud Messaging when a hunt surfaces a deal.
+  statement {
+    sid       = "ReadFirebaseParam"
+    actions   = ["ssm:GetParameters", "ssm:GetParameter"]
+    resources = [var.firebase_ssm_arn]
+  }
+
   statement {
     sid       = "DecryptSecrets"
     actions   = ["kms:Decrypt"]
@@ -76,7 +85,10 @@ data "aws_iam_policy_document" "task_execution_secrets" {
     condition {
       test     = "StringEquals"
       variable = "kms:ViaService"
-      values   = ["secretsmanager.${data.aws_region.current.name}.amazonaws.com"]
+      values = [
+        "secretsmanager.${data.aws_region.current.name}.amazonaws.com",
+        "ssm.${data.aws_region.current.name}.amazonaws.com",
+      ]
     }
   }
 }
@@ -102,6 +114,7 @@ locals {
     { name = "NODE_ENV", value = "production" },
     { name = "LOG_LEVEL", value = "info" },
     { name = "FIREBASE_PROJECT_ID", value = var.firebase_project_id },
+    { name = "WEB_APP_URL", value = var.web_app_url },
     { name = "AWS_REGION", value = var.aws_region },
     { name = "TEMPORAL_ADDRESS", value = var.temporal_address },
     { name = "TEMPORAL_NAMESPACE", value = var.temporal_namespace },
@@ -126,6 +139,7 @@ locals {
       secrets = [
         { name = "DATABASE_URL", valueFrom = var.db_secret_arn },
         { name = "OPENROUTER_API_KEY", valueFrom = var.openrouter_secret_arn },
+        { name = "GOOGLE_APPLICATION_CREDENTIALS_JSON", valueFrom = var.firebase_ssm_arn },
       ]
 
       logConfiguration = {

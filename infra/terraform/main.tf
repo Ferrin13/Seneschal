@@ -120,12 +120,14 @@ module "worker" {
   desired_count = var.worker_desired_count
 
   firebase_project_id = var.firebase_project_id
+  web_app_url         = "https://${local.web_fqdn}"
   aws_region          = var.region
   temporal_address    = module.temporal.temporal_address
   craigslist_site     = var.craigslist_site
 
   db_secret_arn         = module.backend_api.db_secret_arn
   openrouter_secret_arn = aws_secretsmanager_secret.openrouter.arn
+  firebase_ssm_arn      = module.backend_api.firebase_ssm_arn
 }
 
 # ----- Security-group wiring for the Temporal cluster + worker --------

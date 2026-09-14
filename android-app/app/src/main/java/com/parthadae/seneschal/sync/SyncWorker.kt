@@ -8,6 +8,7 @@ import com.parthadae.seneschal.auth.AuthRepository
 import com.parthadae.seneschal.data.local.PendingMutationDao
 import com.parthadae.seneschal.data.local.PendingMutationEntity
 import com.parthadae.seneschal.data.remote.SeneschalApi
+import com.parthadae.seneschal.push.PushTokenRegistrar
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import retrofit2.HttpException
@@ -16,7 +17,8 @@ import retrofit2.HttpException
  * Generic sync worker.
  *
  * 1. Verify auth (no-op if signed out).
- * 2. Hit `/me` so the server gets a chance to lazily seed the user.
+ * 2. Hit `/me` so the server gets a chance to lazily seed the user, and
+ *    (best-effort) make sure this phone's push token is registered.
  * 3. Drain the pending-mutation outbox by dispatching each row to the
  *    [OutboxHandler] whose `kind` matches. Unknown kinds are attempt-
  *    counted and dropped after 5 retries so a stale outbox can never
@@ -41,6 +43,7 @@ class SyncWorker @AssistedInject constructor(
     private val outboxHandlers: Set<@JvmSuppressWildcards OutboxHandler>,
     private val pullers: Set<@JvmSuppressWildcards Puller>,
     private val syncStatusRepository: SyncStatusRepository,
+    private val pushTokenRegistrar: PushTokenRegistrar,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -50,6 +53,13 @@ class SyncWorker @AssistedInject constructor(
         syncStatusRepository.markStarted()
         return try {
             api.getMe()
+            // Push registration is not data sync: a failure here (no Google
+            // Play services, FCM hiccup) is logged but never fails the run.
+            try {
+                pushTokenRegistrar.ensureRegistered()
+            } catch (t: Throwable) {
+                android.util.Log.w("SyncWorker", "push token registration failed", t)
+            }
             val errors = mutableListOf<String>()
             pushOutbox(errors)
             // Sort so parent tables are filled before dependents whose rows

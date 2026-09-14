@@ -11,10 +11,12 @@ import {
 export type { NotificationPrefs };
 
 /**
- * Default notification preferences for a user who hasn't configured any. Browser
- * notifications are off until the user explicitly opts in (which also triggers
- * the browser permission prompt), and the value threshold mirrors the legacy
- * "good deal" cutoff so behavior is unchanged out of the box.
+ * Default notification preferences for a user who hasn't configured any. The
+ * thresholds decide which evaluations become `mp_notifications` rows (see
+ * `shouldNotify`); `enabled` decides whether those rows are also pushed to
+ * the user's phone(s) via FCM (`push/deals.ts`) and is off until the user
+ * opts in. The value threshold mirrors the legacy "good deal" cutoff so
+ * behavior is unchanged out of the box.
  */
 export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   enabled: false,

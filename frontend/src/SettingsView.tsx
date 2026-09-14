@@ -42,13 +42,9 @@ import {
   type ModelSettings,
   type ModelStepConfig,
   type NotificationPrefs,
+  type PushDevice,
   type SearchTarget,
 } from "./api";
-import {
-  notificationPermission,
-  notificationsSupported,
-  requestNotificationPermission,
-} from "./useDealNotifications";
 
 const SETTINGS_TABS = [
   { label: "Notifications", render: () => <NotificationSettingsPanel /> },
@@ -73,8 +69,9 @@ export function SettingsView() {
       <Box>
         <Typography variant="h5">Settings</Typography>
         <Typography color="text.secondary" variant="body2">
-          Choose which deals notify your browser, configure the models each
-          pipeline step uses, and review LLM spend. Changes save automatically.
+          Choose which deals get pushed to your phone, configure the models
+          each pipeline step uses, and review LLM spend. Changes save
+          automatically.
         </Typography>
       </Box>
 
@@ -171,22 +168,37 @@ function dollarInputToCents(value: string): number | null {
   return Math.round(n * 100);
 }
 
+function formatSeen(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
 /**
- * Browser-notification settings: a master switch (which also drives the OS
- * permission prompt), the deal/value/price thresholds a candidate must clear
- * to notify, and which targets to be notified about.
+ * Phone push-notification settings: a master switch, the deal/value/price
+ * thresholds a candidate must clear to notify, which targets to be notified
+ * about, and the list of phones (Android app installs) that will receive
+ * them. Delivery itself happens server-side over Firebase Cloud Messaging;
+ * the phone registers itself with the backend when the app syncs.
  */
 function NotificationSettingsPanel() {
   const [prefs, setPrefs] = useState<NotificationPrefs | null>(null);
   // Last value persisted to the server; drives auto-save dirty-detection.
   const [serverPrefs, setServerPrefs] = useState<NotificationPrefs | null>(null);
   const [targets, setTargets] = useState<SearchTarget[]>([]);
+  const [devices, setDevices] = useState<PushDevice[] | null>(null);
   const [maxPrice, setMaxPrice] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
-  const [permission, setPermission] = useState<NotificationPermission>(
-    notificationPermission()
-  );
+
+  const loadDevices = useCallback(async () => {
+    try {
+      setDevices(await api.pushDevices());
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to load registered phones"
+      );
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setError(null);
@@ -204,7 +216,8 @@ function NotificationSettingsPanel() {
         err instanceof Error ? err.message : "Failed to load notification settings"
       );
     }
-  }, []);
+    await loadDevices();
+  }, [loadDevices]);
 
   useEffect(() => {
     void load();
@@ -214,16 +227,14 @@ function NotificationSettingsPanel() {
     setPrefs((cur) => (cur ? { ...cur, ...p } : cur));
   };
 
-  const enableNotifications = async (on: boolean) => {
-    if (on && permission !== "granted") {
-      const result = await requestNotificationPermission();
-      setPermission(result);
-      // Reflect the switch state even if the user denied the prompt so the UI
-      // can explain why nothing will show.
-      patch({ enabled: result === "granted" });
-      return;
+  const removeDevice = async (id: string) => {
+    setError(null);
+    try {
+      await api.removePushDevice(id);
+      await loadDevices();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to remove phone");
     }
-    patch({ enabled: on });
   };
 
   // Debounced auto-save: whenever the working prefs (incl. the max-price text)
@@ -257,57 +268,22 @@ function NotificationSettingsPanel() {
     return () => clearTimeout(t);
   }, [prefs, maxPrice, serverPrefs]);
 
-  // Fire a notification straight from the browser, bypassing the backend/poll.
-  // The quickest way to tell whether the OS/browser is actually delivering
-  // notifications (permission, Focus Assist / Do Not Disturb, per-app blocks).
-  const sendTest = async () => {
-    setError(null);
-    let perm = permission;
-    if (perm !== "granted") {
-      perm = await requestNotificationPermission();
-      setPermission(perm);
-    }
-    if (perm !== "granted") {
-      setError(
-        perm === "denied"
-          ? "Notifications are blocked for this site in your browser settings."
-          : "Notification permission wasn't granted."
-      );
-      return;
-    }
-    try {
-      const n = new Notification("Seneschal test notification", {
-        body: "If you can see this, browser notifications are working.",
-        tag: "seneschal-test",
-        requireInteraction: true,
-      });
-      n.onerror = () =>
-        setError(
-          "The browser accepted the notification but the OS didn't display it. " +
-            "Check Windows notification settings and Focus Assist / Do Not Disturb, " +
-            "and confirm your browser is allowed to show notifications. If you're " +
-            "viewing this inside an embedded/preview browser, open it in Chrome/Edge/Firefox instead."
-        );
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to show test notification"
-      );
-    }
-  };
-
   const selectedTargetIds = prefs?.targetIds ?? [];
   const allTargetsSelected =
     selectedTargetIds.length === 0 || selectedTargetIds.length === targets.length;
+  const hasDevices = (devices?.length ?? 0) > 0;
 
   return (
     <Card variant="outlined">
       <CardContent>
         <Typography variant="h6" gutterBottom>
-          Browser notifications
+          Phone notifications
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Get a browser notification when the hunt surfaces a deal that clears
-          your thresholds. Notifications appear while Seneschal is open in a tab.
+          Get a push notification on your phone when the hunt surfaces a deal
+          that clears your thresholds. Tapping it opens the deal here in the
+          web app. Sign in to the Seneschal Android app on a phone to register
+          it.
         </Typography>
 
         {error ? (
@@ -320,61 +296,63 @@ function NotificationSettingsPanel() {
           <CircularProgress />
         ) : (
           <Stack spacing={2.5}>
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              spacing={1.5}
-              alignItems={{ sm: "center" }}
-            >
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={prefs.enabled}
-                    onChange={(e) => void enableNotifications(e.target.checked)}
-                    disabled={!notificationsSupported()}
-                  />
-                }
-                label="Enable browser notifications"
-              />
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={() => void sendTest()}
-                disabled={!notificationsSupported()}
-              >
-                Send test notification
-              </Button>
-              <Typography variant="caption" color="text.secondary">
-                Browser permission: <strong>{permission}</strong>
-              </Typography>
-            </Stack>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={prefs.enabled}
+                  onChange={(e) => patch({ enabled: e.target.checked })}
+                />
+              }
+              label="Send deal alerts to my phone"
+            />
 
-            {!notificationsSupported() ? (
+            {prefs.enabled && devices !== null && !hasDevices ? (
               <Alert severity="info">
-                This browser doesn't support notifications.
-              </Alert>
-            ) : prefs.enabled && permission === "denied" ? (
-              <Alert severity="warning">
-                Notifications are blocked in your browser settings. Allow them
-                for this site to receive deal alerts.
-              </Alert>
-            ) : prefs.enabled && permission === "default" ? (
-              <Alert
-                severity="info"
-                action={
-                  <Button
-                    color="inherit"
-                    size="small"
-                    onClick={() =>
-                      void requestNotificationPermission().then(setPermission)
-                    }
-                  >
-                    Allow
-                  </Button>
-                }
-              >
-                Grant notification permission to start receiving alerts.
+                No phones are registered yet. Install the Seneschal Android
+                app, sign in with this account, and allow notifications; it
+                registers itself the next time it syncs.
               </Alert>
             ) : null}
+
+            <Box>
+              <Typography variant="subtitle2" gutterBottom>
+                Registered phones
+              </Typography>
+              {devices === null ? (
+                <CircularProgress size={18} />
+              ) : devices.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  None yet.
+                </Typography>
+              ) : (
+                <Stack spacing={0.5} sx={{ maxWidth: 480 }}>
+                  {devices.map((d) => (
+                    <Stack
+                      key={d.id}
+                      direction="row"
+                      alignItems="center"
+                      spacing={1}
+                    >
+                      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                        <Typography variant="body2" noWrap>
+                          {d.deviceName ?? `${d.platform} device`}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Last seen {formatSeen(d.lastSeenAt)}
+                        </Typography>
+                      </Box>
+                      <Button
+                        size="small"
+                        color="inherit"
+                        onClick={() => void removeDevice(d.id)}
+                      >
+                        Remove
+                      </Button>
+                    </Stack>
+                  ))}
+                </Stack>
+              )}
+            </Box>
 
             <Box>
               <Typography variant="subtitle2" gutterBottom>
@@ -481,7 +459,7 @@ function NotificationSettingsPanel() {
 
             <Stack direction="row" spacing={2} alignItems="center">
               <SaveStatus state={saveState} />
-              {permission === "granted" && prefs.enabled ? (
+              {prefs.enabled && hasDevices ? (
                 <Chip size="small" color="success" label="Notifications on" />
               ) : null}
             </Stack>

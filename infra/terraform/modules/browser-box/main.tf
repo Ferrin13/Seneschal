@@ -17,10 +17,12 @@ data "aws_ami" "ubuntu" {
 }
 
 # ----- Security group ---------------------------------------------------
-# Only SSH (22) is exposed, restricted to allowed_cidrs. SSH also carries the
-# reverse tunnel (box 127.0.0.1:9222 -> operator's local Chrome CDP), so no
-# other inbound ports are needed. The agent's outbound traffic (Temporal, API,
-# S3) uses egress.
+# The operator's SSH session (which carries the reverse tunnel, box
+# 127.0.0.1:9222 -> local Chrome CDP) normally rides over SSM Session Manager
+# (see infra/local/fb-agent-tunnel.ps1, -Transport ssm), which needs NO inbound
+# rule at all. Port 22 is only opened when allowed_cidrs is non-empty, for the
+# direct-SSH fallback. The agent's outbound traffic (Temporal, API, S3) uses
+# egress.
 #
 # NOTE: `description` is kept verbatim from when this box also ran noVNC. An SG
 # description is immutable, so editing it forces a full SG replacement, which
@@ -32,13 +34,23 @@ resource "aws_security_group" "box" {
   description = "Browser box: noVNC 443 + SSH 22 from allowed CIDRs only"
   vpc_id      = var.vpc_id
 
-  ingress {
-    description = "SSH"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = var.allowed_cidrs
-  }
+  # Attribute (not block) syntax on purpose: an aws_security_group with *no*
+  # inline ingress blocks leaves existing rules unmanaged, whereas an explicit
+  # `ingress = []` removes them. That matters when allowed_cidrs goes from a
+  # stale IP to empty after switching the tunnel to SSM.
+  ingress = length(var.allowed_cidrs) > 0 ? [
+    {
+      description      = "SSH (direct fallback; SSM transport needs no ingress)"
+      from_port        = 22
+      to_port          = 22
+      protocol         = "tcp"
+      cidr_blocks      = var.allowed_cidrs
+      ipv6_cidr_blocks = []
+      prefix_list_ids  = []
+      security_groups  = []
+      self             = false
+    }
+  ] : []
 
   egress {
     description = "All egress"

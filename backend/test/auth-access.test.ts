@@ -68,6 +68,9 @@ describe("requirementForPath", () => {
 
   it("treats /me as open and /admin as admin-only", () => {
     expect(requirementForPath("/me")).toEqual({ kind: "open" });
+    // Push-device registration rides on /me so any account can register a phone.
+    expect(requirementForPath("/me/devices")).toEqual({ kind: "open" });
+    expect(requirementForPath("/me/devices/unregister")).toEqual({ kind: "open" });
     expect(requirementForPath("/admin/users")).toEqual({ kind: "admin" });
     expect(requirementForPath("/admin/users/a%40b.com")).toEqual({
       kind: "admin",

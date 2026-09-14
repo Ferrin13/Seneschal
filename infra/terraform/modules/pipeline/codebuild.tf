@@ -478,9 +478,23 @@ resource "aws_codebuild_project" "agent_deploy" {
                 --parameters 'commands=["/opt/browser/deploy-agent.sh","bash /opt/browser/app/agent/box/install.sh"]' \
                 --query "Command.CommandId" --output text)
               echo "SSM command $CMD_ID dispatched; waiting..."
-              aws ssm wait command-executed --command-id "$CMD_ID" --instance-id "$BROWSER_INSTANCE_ID" || true
-              STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$BROWSER_INSTANCE_ID" --query "Status" --output text)
+              # Poll to a terminal state ourselves: `aws ssm wait command-executed`
+              # gives up after ~100s, and pulling the ~90MB artifact plus the
+              # install step can take longer, which used to fail this stage
+              # while the box-side deploy went on to succeed.
+              STATUS=Pending
+              for i in $(seq 1 120); do
+                STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$BROWSER_INSTANCE_ID" --query "Status" --output text 2>/dev/null || echo Pending)
+                case "$STATUS" in
+                  Success|Failed|Cancelled|TimedOut|Cancelling) break ;;
+                esac
+                sleep 5
+              done
               echo "SSM command status: $STATUS"
+              echo "--- box stdout (tail) ---"
+              aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$BROWSER_INSTANCE_ID" --query "StandardOutputContent" --output text | tail -n 30
+              echo "--- box stderr (tail) ---"
+              aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$BROWSER_INSTANCE_ID" --query "StandardErrorContent" --output text | tail -n 30
               test "$STATUS" = "Success"
     EOT
   }

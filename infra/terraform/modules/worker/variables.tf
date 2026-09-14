@@ -66,7 +66,12 @@ variable "container_command" {
 
 # --- Runtime configuration --------------------------------------------------
 variable "firebase_project_id" {
-  description = "Firebase project id. The worker does no auth, but the shared config.ts requires this to be set."
+  description = "Firebase project id. Shared config.ts requires it, and Firebase Cloud Messaging sends are scoped to it."
+  type        = string
+}
+
+variable "web_app_url" {
+  description = "Public origin of the web UI (https://<web_fqdn>). Push notifications raised by the hunt link here (e.g. /deals/<candidate>)."
   type        = string
 }
 
@@ -115,5 +120,10 @@ variable "db_secret_arn" {
 
 variable "openrouter_secret_arn" {
   description = "Secrets Manager ARN holding the OpenRouter API key."
+  type        = string
+}
+
+variable "firebase_ssm_arn" {
+  description = "SSM SecureString ARN holding the Firebase service-account JSON (shared with the API). Injected as GOOGLE_APPLICATION_CREDENTIALS_JSON so the worker can send FCM push notifications."
   type        = string
 }

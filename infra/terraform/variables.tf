@@ -266,7 +266,7 @@ variable "browser_instance_type" {
 }
 
 variable "browser_allowed_cidrs" {
-  description = "CIDRs allowed to reach the agent host's SSH (22), which also carries the reverse CDP tunnel. Lock to your IP(s)."
+  description = "CIDRs allowed to reach the agent host's SSH (22) directly. Leave empty: the operator's tunnel script uses SSM Session Manager (no inbound rule, immune to IP changes). Only set for the direct-SSH fallback (-Transport ssh)."
   type        = list(string)
   default     = []
 }

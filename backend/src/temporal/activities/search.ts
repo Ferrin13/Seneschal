@@ -5,6 +5,7 @@ import { candidates, listings, notifications, searches } from "../../db/schema.j
 import { craigslistSearch } from "../../marketplace/craigslist/search.js";
 import { CRAIGSLIST_HEADERS } from "../../marketplace/craigslist/url.js";
 import type { HarvestedItem } from "../../marketplace/types.js";
+import { pushDealNotification } from "../../push/deals.js";
 import type {
   CandidateRef,
   RunMeta,
@@ -338,11 +339,27 @@ export async function finalizeDisappearance(input: {
     "Listing confirmed gone on re-check — likely sold",
     { reason: result.reason, misses: candidate.misses }
   );
-  await db.insert(notifications).values({
-    userId: meta.userId,
-    kind: "deal",
-    title: "Likely sold",
-    body: `A promising listing ("${candidate.title ?? "untitled"}") is gone on re-check — probably sold.`,
-  });
+  const [row] = await db
+    .insert(notifications)
+    .values({
+      userId: meta.userId,
+      kind: "deal",
+      title: "Likely sold",
+      body: `A promising listing ("${candidate.title ?? "untitled"}") is gone on re-check — probably sold.`,
+    })
+    .returning({
+      id: notifications.id,
+      title: notifications.title,
+      body: notifications.body,
+    });
+  if (row) {
+    await pushDealNotification(meta.userId, {
+      notificationId: row.id,
+      kind: "deal",
+      title: row.title,
+      body: row.body,
+      candidateId: candidate.id,
+    });
+  }
   return { sold: true };
 }

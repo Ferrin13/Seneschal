@@ -6,6 +6,7 @@ import { config } from "./config.js";
 import { authPlugin } from "./auth/middleware.js";
 import { ensureBootstrapAdmins } from "./auth/resolve.js";
 import { meRoutes } from "./routes/me.js";
+import { pushDeviceRoutes } from "./routes/pushDevices.js";
 import { adminRoutes } from "./routes/admin.js";
 import { categoryRoutes } from "./routes/categories.js";
 import { activityRoutes } from "./routes/activities.js";
@@ -73,6 +74,7 @@ export async function buildServer() {
 
   await app.register(authPlugin);
   await app.register(meRoutes);
+  await app.register(pushDeviceRoutes);
   await app.register(adminRoutes);
   await app.register(categoryRoutes);
   await app.register(activityRoutes);

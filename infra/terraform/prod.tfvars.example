@@ -55,12 +55,15 @@ worker_desired_count = 1
 # Facebook scraping is in scope for V1. The browser runs on the operator's
 # LOCAL machine (logged into Facebook normally); this always-on EC2 box runs
 # the scraper agent (a Temporal activity worker) and acts as the SSH jump host
-# for the reverse CDP tunnel:
-#   ssh -N -R 9222:127.0.0.1:9222 ubuntu@browser.<your-zone>
+# for the reverse CDP tunnel (infra/local/fb-agent-tunnel.ps1). The tunnel's
+# SSH session rides over SSM Session Manager by default, so the box needs NO
+# inbound port and your public IP can change freely.
 enable_browser_box    = true
 browser_subdomain     = "browser"
 browser_instance_type = "t3.small" # only runs the Node agent + SSH tunnel; t3.micro is plenty
-browser_allowed_cidrs = ["203.0.113.4/32"] # LOCK to your IP(s) for SSH + the tunnel
+# Leave empty for SSM-only. Only add your IP(s) if you want the direct-SSH
+# fallback (`fb-agent-tunnel.ps1 -Transport ssh`); it goes stale when your IP changes.
+browser_allowed_cidrs = []
 agent_token           = "generate-a-long-random-string"
 # SSH key for the operator (direct SSH + the reverse CDP tunnel to local Chrome).
 browser_ssh_public_key = "ssh-ed25519 AAAA..."

@@ -19,6 +19,9 @@ import com.parthadae.seneschal.data.remote.dto.MessageTemplatesUpsertRequest
 import com.parthadae.seneschal.data.remote.dto.PresignedDownloadResponse
 import com.parthadae.seneschal.data.remote.dto.PresignedUploadRequest
 import com.parthadae.seneschal.data.remote.dto.PresignedUploadResponse
+import com.parthadae.seneschal.data.remote.dto.PushDeviceDto
+import com.parthadae.seneschal.data.remote.dto.PushDeviceRegisterRequest
+import com.parthadae.seneschal.data.remote.dto.PushDeviceUnregisterRequest
 import com.parthadae.seneschal.data.remote.dto.SlotsUpsertRequest
 import com.parthadae.seneschal.data.remote.dto.TimeSlotDto
 import com.parthadae.seneschal.data.remote.dto.TimerDto
@@ -40,6 +43,14 @@ import retrofit2.http.Query
 interface SeneschalApi {
     @GET("me")
     suspend fun getMe(): MeDto
+
+    /** Upsert this install's FCM token so the backend can push to it. */
+    @POST("me/devices")
+    suspend fun registerPushDevice(@Body body: PushDeviceRegisterRequest): PushDeviceDto
+
+    /** Drop this install's token (called before sign-out). */
+    @POST("me/devices/unregister")
+    suspend fun unregisterPushDevice(@Body body: PushDeviceUnregisterRequest): Response<Unit>
 
     @GET("categories")
     suspend fun getCategories(

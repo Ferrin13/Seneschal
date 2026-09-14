@@ -1,5 +1,7 @@
 package com.parthadae.seneschal.ui.settings
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,6 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,9 +41,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.parthadae.seneschal.BuildConfig
@@ -51,6 +58,8 @@ import com.parthadae.seneschal.data.local.PendingMutationEntity
 import com.parthadae.seneschal.data.repository.ActivityRepository
 import com.parthadae.seneschal.data.repository.AppSettingsRepository
 import com.parthadae.seneschal.domain.Activity
+import com.parthadae.seneschal.push.DealAlertNotifier
+import com.parthadae.seneschal.push.PushTokenRegistrar
 import com.parthadae.seneschal.sync.DescribeContext
 import com.parthadae.seneschal.sync.OutboxHandler
 import com.parthadae.seneschal.sync.SyncScheduler
@@ -83,6 +92,8 @@ class SettingsViewModel @Inject constructor(
     private val pendingMutationDao: PendingMutationDao,
     private val voiceSettings: VoiceSettingsRepository,
     private val appSettings: AppSettingsRepository,
+    private val pushTokenRegistrar: PushTokenRegistrar,
+    private val dealAlertNotifier: DealAlertNotifier,
     syncStatusRepository: SyncStatusRepository,
     activityRepository: ActivityRepository,
     handlers: Set<@JvmSuppressWildcards OutboxHandler>,
@@ -121,8 +132,17 @@ class SettingsViewModel @Inject constructor(
 
     fun syncNow() = syncScheduler.requestImmediateSync()
 
+    /** Whether the OS currently lets this app post notifications. */
+    fun notificationsEnabled(): Boolean = dealAlertNotifier.notificationsEnabled()
+
     fun signOut() {
-        viewModelScope.launch { runCatching { authRepository.signOut() } }
+        viewModelScope.launch {
+            // Drop this phone's push token while we still hold a valid ID
+            // token; otherwise deal alerts for this account would keep
+            // arriving on a signed-out phone.
+            runCatching { pushTokenRegistrar.unregister() }
+            runCatching { authRepository.signOut() }
+        }
     }
 
     fun dismissPending(id: Long) {
@@ -286,6 +306,10 @@ fun SettingsScreen(
             }
             item {
                 Spacer(Modifier.height(24.dp))
+                DealAlertsRow(notificationsEnabled = vm::notificationsEnabled)
+            }
+            item {
+                Spacer(Modifier.height(24.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(24.dp))
             }
@@ -296,6 +320,58 @@ fun SettingsScreen(
                 ) { Text("Sign out") }
                 Spacer(Modifier.height(16.dp))
             }
+        }
+    }
+}
+
+/**
+ * Status of deal-hunter push alerts on this phone. Which deals get pushed is
+ * configured in the web app (Deal Hunter → Settings); here we only surface
+ * whether the OS will show them and offer a shortcut to the system toggle.
+ * Re-checked on every resume so returning from system settings updates it.
+ */
+@Composable
+private fun DealAlertsRow(notificationsEnabled: () -> Boolean) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var enabled by remember { mutableStateOf(notificationsEnabled()) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) enabled = notificationsEnabled()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Deal alerts", style = MaterialTheme.typography.titleSmall)
+            Text(
+                if (enabled) {
+                    "This phone receives Deal Hunter push notifications. Choose " +
+                        "which deals qualify in the web app's Deal Hunter settings."
+                } else {
+                    "Notifications are turned off for Seneschal, so deal alerts " +
+                        "won't show. Enable them in system settings."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
+                else MaterialTheme.colorScheme.error,
+            )
+        }
+        if (!enabled) {
+            OutlinedButton(
+                onClick = {
+                    context.startActivity(
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                },
+            ) { Text("Enable") }
         }
     }
 }

@@ -342,6 +342,15 @@ export type DealNotification = {
   createdAt: string;
 };
 
+/** A phone registered (via the Android app) to receive push notifications. */
+export type PushDevice = {
+  id: string;
+  platform: string;
+  deviceName: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+};
+
 /** Health of the Facebook scraping path: agent host -> SSH tunnel -> local Chrome. */
 export type BrowserAgentState =
   | "connected"
@@ -661,6 +670,9 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(prefs),
     }) as Promise<NotificationPrefs>,
+  pushDevices: () => authedFetch("/me/devices") as Promise<PushDevice[]>,
+  removePushDevice: (id: string) =>
+    authedFetch(`/me/devices/${id}`, { method: "DELETE" }) as Promise<void>,
   notifications: () =>
     authedFetch("/marketplace/notifications") as Promise<DealNotification[]>,
   updateNotification: (id: string, status: DealNotification["status"]) =>

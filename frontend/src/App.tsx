@@ -37,7 +37,6 @@ import { TimeTrackingView } from "./TimeTrackingView";
 import { MarketplaceView } from "./MarketplaceView";
 import { DealsView } from "./DealsView";
 import { SettingsView } from "./SettingsView";
-import { useDealNotifications } from "./useDealNotifications";
 import { LazaxView } from "./lazax/LazaxView";
 import { GameBoard } from "./lazax/GameBoard";
 import { StatsView } from "./lazax/StatsView";
@@ -197,8 +196,6 @@ export default function App() {
   );
   const has = (id: Section) => available.some((s) => s.id === id);
   const homePath = available[0]?.path ?? null;
-
-  useDealNotifications(has("hunter"), () => navigate(HUNTER_DEFAULT));
 
   const section = sectionForPath(location.pathname, available);
   const activeHunterTab =

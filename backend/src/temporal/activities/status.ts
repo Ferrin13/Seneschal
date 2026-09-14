@@ -1,5 +1,6 @@
 import { db } from "../../db/client.js";
 import { browserAgents, notifications } from "../../db/schema.js";
+import { pushDealNotification } from "../../push/deals.js";
 import type { RunMeta } from "../types.js";
 
 /**
@@ -35,10 +36,25 @@ export async function flagNeedsLogin(input: {
       },
     });
 
-  await db.insert(notifications).values({
-    userId: meta.userId,
-    kind: "needs_login",
-    title: "Facebook login needed",
-    body: "The scraper hit a Facebook login wall — log in to Facebook in the local scraping Chrome (fb-scrape-profile) to refresh the session.",
-  });
+  const [row] = await db
+    .insert(notifications)
+    .values({
+      userId: meta.userId,
+      kind: "needs_login",
+      title: "Facebook login needed",
+      body: "The scraper hit a Facebook login wall — log in to Facebook in the local scraping Chrome (fb-scrape-profile) to refresh the session.",
+    })
+    .returning({
+      id: notifications.id,
+      title: notifications.title,
+      body: notifications.body,
+    });
+  if (row) {
+    await pushDealNotification(meta.userId, {
+      notificationId: row.id,
+      kind: "needs_login",
+      title: row.title,
+      body: row.body,
+    });
+  }
 }

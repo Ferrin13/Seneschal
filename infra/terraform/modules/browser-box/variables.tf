@@ -31,7 +31,7 @@ variable "root_volume_gb" {
 }
 
 variable "allowed_cidrs" {
-  description = "CIDRs allowed to reach SSH (22), which also carries the reverse CDP tunnel. Lock this to your IP(s)."
+  description = "CIDRs allowed to reach SSH (22) directly. Empty (default) = no inbound rule; the operator's tunnel then uses SSM Session Manager, which needs none. Only set for the direct-SSH fallback."
   type        = list(string)
   default     = []
 }

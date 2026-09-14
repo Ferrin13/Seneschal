@@ -10,6 +10,28 @@ data class MeDto(
     val createdAt: String,
 )
 
+/** Body for `POST /me/devices`: register this install's FCM token. */
+@JsonClass(generateAdapter = true)
+data class PushDeviceRegisterRequest(
+    val token: String,
+    val platform: String = "android",
+    val deviceName: String? = null,
+)
+
+@JsonClass(generateAdapter = true)
+data class PushDeviceUnregisterRequest(
+    val token: String,
+)
+
+@JsonClass(generateAdapter = true)
+data class PushDeviceDto(
+    val id: String,
+    val platform: String,
+    val deviceName: String?,
+    val createdAt: String,
+    val lastSeenAt: String,
+)
+
 @JsonClass(generateAdapter = true)
 data class CategoryDto(
     val id: String,

@@ -24,6 +24,7 @@ import {
   promiseScore,
 } from "../../marketplace/scoring.js";
 import { presignGet } from "../../marketplace/storage.js";
+import { pushDealNotification } from "../../push/deals.js";
 import type { RunMeta } from "../types.js";
 import { logEvent } from "./util.js";
 
@@ -217,7 +218,7 @@ export async function finalEvaluate(input: {
     targetId,
   });
 
-  await db.transaction(async (tx) => {
+  const notification = await db.transaction(async (tx) => {
     const [evalRow] = await tx
       .insert(evaluations)
       .values({
@@ -242,8 +243,10 @@ export async function finalEvaluate(input: {
       .set({ promiseScore: promise, updatedAt: new Date() })
       .where(eq(candidates.id, candidateId));
 
-    if (isGoodDeal) {
-      await tx.insert(notifications).values({
+    if (!isGoodDeal) return null;
+    const [row] = await tx
+      .insert(notifications)
+      .values({
         userId: meta.userId,
         listingId,
         evaluationId: evalRow!.id,
@@ -254,9 +257,24 @@ export async function finalEvaluate(input: {
             ? ` (est. value ${money(estimatedValueCents)})`
             : ""
         } — ${rationale ?? ""}`.slice(0, 1000),
+      })
+      .returning({
+        id: notifications.id,
+        title: notifications.title,
+        body: notifications.body,
       });
-    }
+    return row ?? null;
   });
+
+  if (notification) {
+    await pushDealNotification(meta.userId, {
+      notificationId: notification.id,
+      kind: "deal",
+      title: notification.title,
+      body: notification.body,
+      candidateId,
+    });
+  }
 
   await logEvent(
     meta,
