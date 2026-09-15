@@ -60,12 +60,12 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
     return modelSettingsPayload(await getModelOverrides(req.auth.userId));
   });
 
-  /** The user's browser-notification preferences (deal thresholds + targets). */
+  /** The user's push-notification preferences (thresholds, targets, event switches). */
   app.get("/settings/notifications", async (req) => {
     return getNotificationPrefs(req.auth.userId);
   });
 
-  /** Replace the user's browser-notification preferences. */
+  /** Replace the user's push-notification preferences. */
   app.put("/settings/notifications", async (req) => {
     const body = z
       .object({
@@ -74,6 +74,16 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
         minValueScore: z.number().min(0).max(100),
         maxPriceCents: z.number().int().min(0).nullable(),
         targetIds: z.array(z.string()).nullable(),
+        // Optional so clients built before per-event switches keep working;
+        // sanitize() fills missing flags with the default (on).
+        events: z
+          .object({
+            deals: z.boolean(),
+            sold: z.boolean(),
+            loginNeeded: z.boolean(),
+          })
+          .partial()
+          .optional(),
       })
       .parse(req.body);
 

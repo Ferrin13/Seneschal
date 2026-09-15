@@ -1,0 +1,1 @@
+ALTER TABLE "user_settings" ALTER COLUMN "notification_prefs" SET DEFAULT '{"enabled":false,"minDealScore":0,"minValueScore":65,"maxPriceCents":null,"targetIds":null,"events":{"deals":true,"sold":true,"loginNeeded":true}}'::jsonb;

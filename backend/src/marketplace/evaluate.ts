@@ -271,7 +271,7 @@ export async function evaluatePending(
       });
 
       if (notification) {
-        await pushDealNotification(userId, {
+        await pushDealNotification(userId, "deal", {
           notificationId: notification.id,
           kind: "deal",
           title: notification.title,

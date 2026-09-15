@@ -1172,12 +1172,19 @@ export const huntRuns = pgTable(
 );
 
 /**
- * Browser-notification preferences: which deals raise a notification and get
- * pushed to the user's browser. Thresholds gate notification creation; a
+ * The kinds of event the hunt can push to the user's phone. Each maps to a
+ * switch in {@link NotificationPrefs.events}.
+ */
+export type PushEvent = "deal" | "sold" | "needs_login";
+
+/**
+ * Deal-hunter push-notification preferences. The thresholds decide which
+ * evaluations become `mp_notifications` rows at all; `enabled` and `events`
+ * decide which of those rows are also pushed to the user's phone(s). A
  * `null`/empty `targetIds` means "all targets".
  */
 export type NotificationPrefs = {
-  /** Master switch for showing browser (OS) notifications in the client. */
+  /** Master switch for pushing deal-hunter alerts to registered phones. */
   enabled: boolean;
   /** Minimum combined deal (promise) score, 0-100. */
   minDealScore: number;
@@ -1187,13 +1194,22 @@ export type NotificationPrefs = {
   maxPriceCents: number | null;
   /** Targets to notify for; null or empty = every target. */
   targetIds: string[] | null;
+  /** Per-event switches; all on by default. */
+  events: {
+    /** A listing cleared the thresholds above. */
+    deals: boolean;
+    /** A promising listing disappeared on re-check (likely sold). */
+    sold: boolean;
+    /** The Facebook scraper hit a login wall and needs a human. */
+    loginNeeded: boolean;
+  };
 };
 
 /**
  * Per-user preferences. `modelOverrides` maps a pipeline step (e.g. "triage",
  * "advanced") to the OpenRouter model slug to use for it; missing steps fall
  * back to the server's tier defaults. `notificationPrefs` controls which deals
- * raise a browser notification.
+ * raise a notification and which kinds get pushed to the phone.
  */
 export const userSettings = pgTable("user_settings", {
   userId: uuid("user_id")
@@ -1212,6 +1228,7 @@ export const userSettings = pgTable("user_settings", {
       minValueScore: 65,
       maxPriceCents: null,
       targetIds: null,
+      events: { deals: true, sold: true, loginNeeded: true },
     }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()

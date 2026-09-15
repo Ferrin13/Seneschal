@@ -403,9 +403,19 @@ export type ModelStepConfig = {
 
 export type ModelSettings = { steps: ModelStepConfig[] };
 
-/** Browser-notification preferences: which deals raise a notification. */
+/** Per-event push switches; see NotificationPrefs.events. */
+export type NotificationEvents = {
+  /** A listing cleared the thresholds. */
+  deals: boolean;
+  /** A promising listing disappeared on re-check (likely sold). */
+  sold: boolean;
+  /** The Facebook scraper hit a login wall. */
+  loginNeeded: boolean;
+};
+
+/** Phone push-notification preferences: which deals and events get pushed. */
 export type NotificationPrefs = {
-  /** Master switch for showing browser (OS) notifications. */
+  /** Master switch for pushing alerts to registered phones. */
   enabled: boolean;
   /** Minimum combined deal score, 0-100. */
   minDealScore: number;
@@ -415,6 +425,8 @@ export type NotificationPrefs = {
   maxPriceCents: number | null;
   /** Targets to notify for; null or empty = every target. */
   targetIds: string[] | null;
+  /** Which kinds of event to push. */
+  events: NotificationEvents;
 };
 
 export type LlmUsage = {

@@ -50,7 +50,7 @@ export async function flagNeedsLogin(input: {
       body: notifications.body,
     });
   if (row) {
-    await pushDealNotification(meta.userId, {
+    await pushDealNotification(meta.userId, "needs_login", {
       notificationId: row.id,
       kind: "needs_login",
       title: row.title,

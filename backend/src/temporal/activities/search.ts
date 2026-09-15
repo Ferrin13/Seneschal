@@ -353,7 +353,7 @@ export async function finalizeDisappearance(input: {
       body: notifications.body,
     });
   if (row) {
-    await pushDealNotification(meta.userId, {
+    await pushDealNotification(meta.userId, "sold", {
       notificationId: row.id,
       kind: "deal",
       title: row.title,

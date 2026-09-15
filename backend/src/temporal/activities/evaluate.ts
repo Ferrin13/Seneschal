@@ -267,7 +267,7 @@ export async function finalEvaluate(input: {
   });
 
   if (notification) {
-    await pushDealNotification(meta.userId, {
+    await pushDealNotification(meta.userId, "deal", {
       notificationId: notification.id,
       kind: "deal",
       title: notification.title,

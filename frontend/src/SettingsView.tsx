@@ -9,6 +9,7 @@ import {
   CircularProgress,
   FormControl,
   FormControlLabel,
+  FormGroup,
   InputAdornment,
   InputLabel,
   ListItemText,
@@ -41,6 +42,7 @@ import {
   type LlmUsage,
   type ModelSettings,
   type ModelStepConfig,
+  type NotificationEvents,
   type NotificationPrefs,
   type PushDevice,
   type SearchTarget,
@@ -152,9 +154,35 @@ function prefsEqual(a: NotificationPrefs, b: NotificationPrefs): boolean {
     a.minDealScore === b.minDealScore &&
     a.minValueScore === b.minValueScore &&
     a.maxPriceCents === b.maxPriceCents &&
-    sameIds(a.targetIds, b.targetIds)
+    sameIds(a.targetIds, b.targetIds) &&
+    a.events.deals === b.events.deals &&
+    a.events.sold === b.events.sold &&
+    a.events.loginNeeded === b.events.loginNeeded
   );
 }
+
+/** The per-event push switches, in display order. */
+const EVENT_SWITCHES: {
+  key: keyof NotificationEvents;
+  label: string;
+  help: string;
+}[] = [
+  {
+    key: "deals",
+    label: "New deals",
+    help: "A listing cleared the thresholds below.",
+  },
+  {
+    key: "sold",
+    label: "Listing likely sold",
+    help: "A promising listing disappeared on re-check.",
+  },
+  {
+    key: "loginNeeded",
+    label: "Facebook login needed",
+    help: "The scraper hit a login wall and needs you to sign in again.",
+  },
+];
 
 function centsToDollarInput(cents: number | null): string {
   return cents == null ? "" : (cents / 100).toString();
@@ -225,6 +253,11 @@ function NotificationSettingsPanel() {
 
   const patch = (p: Partial<NotificationPrefs>) => {
     setPrefs((cur) => (cur ? { ...cur, ...p } : cur));
+  };
+  const patchEvent = (key: keyof NotificationEvents, on: boolean) => {
+    setPrefs((cur) =>
+      cur ? { ...cur, events: { ...cur.events, [key]: on } } : cur
+    );
   };
 
   const removeDevice = async (id: string) => {
@@ -356,10 +389,43 @@ function NotificationSettingsPanel() {
 
             <Box>
               <Typography variant="subtitle2" gutterBottom>
+                Alert types
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Which kinds of event to push. Everything still shows up in the
+                Deals list here; these only control what reaches your phone.
+              </Typography>
+              <FormGroup>
+                {EVENT_SWITCHES.map((ev) => (
+                  <FormControlLabel
+                    key={ev.key}
+                    control={
+                      <Checkbox
+                        size="small"
+                        checked={prefs.events[ev.key]}
+                        onChange={(e) => patchEvent(ev.key, e.target.checked)}
+                      />
+                    }
+                    label={
+                      <Box>
+                        <Typography variant="body2">{ev.label}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {ev.help}
+                        </Typography>
+                      </Box>
+                    }
+                    sx={{ alignItems: "flex-start", mb: 0.5 }}
+                  />
+                ))}
+              </FormGroup>
+            </Box>
+
+            <Box>
+              <Typography variant="subtitle2" gutterBottom>
                 Thresholds
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Only notify me about deals that meet all of these.
+                Only notify me about new deals that meet all of these.
               </Typography>
 
               <Stack spacing={3} sx={{ maxWidth: 420 }}>
